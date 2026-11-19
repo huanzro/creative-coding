@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#080e16">
+  <title>Echoes of Light · 光的回响</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header><a class="brand" href="./"><span class="brand-star">✧</span><span>ECHOES OF LIGHT<small>光 的 回 响</small></span></a><div class="edition"><span></span> INTERACTION STUDY <b>01</b></div><button id="fullscreen" class="quiet">全屏 ↗</button></header>
+  <main>
+    <section class="world" aria-label="发光小人互动场景">
+      <canvas id="world" aria-label="按空格让光之精灵跃起"></canvas>
+      <div class="scene-label"><span id="scene-index">01 / PRESENCE</span><h1 id="scene-title">让微光，回应你。</h1><p id="scene-subtitle">每一次靠近，都留下回响。</p></div>
+      <div class="scene-top"><span class="live-dot"></span><span id="activity">等待你的第一次回应</span></div>
+      <div id="level-progress" class="level-progress"></div>
+      <div id="period-line" class="period-line"><span class="period-dot"></span><span id="phase-label">薄暮</span><span class="period-rule"></span><span id="journey-clock">00:00</span><span>旅程时段</span></div>
+      <div id="asset-status" role="status">正在展开世界…</div>
+      <div id="award" class="award" role="status" aria-live="polite"></div>
+      <section id="ranking" class="ranking" aria-label="本机实时排行榜">
+        <button id="ranking-toggle" aria-expanded="true"><span id="ranking-level">沉睡森林 · 本机榜</span><span>≡</span></button>
+        <div class="ranking-content"><div class="ranking-caption"><span>排名 / 得分</span><span id="rank-change">你 · 第 1 名</span></div><ol id="rank-list"></ol><p id="ranking-empty">第一次旅程。完成或重开后留下记录。</p><p id="ranking-note">仅保存在本机 · 当前成绩实时参与排名</p></div>
+      </section>
+      <div id="chapter-complete" class="chapter-card" hidden><span class="eyebrow">A WORLD AWAKENED</span><h2 id="completion-title"></h2><p id="completion-score"></p><button id="next-level" class="primary">下一关 →</button></div>
+      <div id="paused-overlay" hidden><span>Ⅱ</span><h2 id="pause-title">片刻停留</h2><p id="pause-description">按 P 或点击继续</p></div>
+      <div class="stage-bottom"><span id="action-hint"><kbd>SPACE</kbd> 轻按一下，唤起微光</span><button id="lift" class="lift-button">升起 ↑</button><button id="power" class="lift-button" hidden>聚光 E</button><span class="trace-label">YOUR MOVEMENT LEAVES A TRACE</span></div>
+      <div class="immersive-hint">H 显示控制面板 · P 暂停 · 空格跃起</div>
+    </section>
+    <aside>
+      <div class="panel-heading"><span class="eyebrow">A SMALL LIGHT, A FIRST RESPONSE</span><h2>与微光相遇</h2><p>用一个简单的动作，<br>让这片安静的世界亮起来。</p></div>
+      <section class="control-section"><div class="section-heading"><h3>01 <span>选择你的回应</span></h3><span id="input-badge">键盘</span></div>
+        <div class="segmented" role="group" aria-label="输入方式"><button id="keyboard-mode" class="selected" aria-pressed="true">⌨ 键盘</button><button id="camera-mode" aria-pressed="false">◎ 手势</button></div>
+        <div id="keyboard-help" class="instruction"><kbd>空格</kbd><span>或 <kbd>↑</kbd> / <kbd>W</kbd><br><small id="keyboard-instruction">每按一次，向上跃起一次。<br>松开后可再次触发。</small></span></div>
+        <div id="camera-help" hidden><div class="camera-preview"><video id="webcam" autoplay playsinline muted></video><canvas id="hand-overlay" width="320" height="240"></canvas><span id="camera-placeholder">摄像头尚未开启</span></div><p class="gesture-help" id="gesture-instruction">张开手掌 → 握拳 → 小人跃起</p><button id="camera-toggle" class="primary">开启摄像头</button><button id="calibrate" class="quiet full" disabled>校准我的手势</button></div>
+        <div class="signal"><span id="signal-dot"></span><p id="signal-text" role="status" aria-live="polite">键盘已就绪</p></div>
+      </section>
+      <section class="control-section"><h3>02 <span>选择你的旅程</span></h3><div class="scene-buttons" role="group" aria-label="关卡"><button data-scene="forest" class="selected" aria-pressed="true"><i class="forest-swatch"></i>01 森林</button><button data-scene="geometry" aria-pressed="false"><i class="geometry-swatch"></i>02 遗迹</button><button data-scene="stars" aria-pressed="false"><i class="stars-swatch"></i>03 星海</button></div><label class="select-line">玩法<select id="gameplay"><option value="gather">寻光 · 收集萤火</option><option value="gates">穿行 · 越过光门</option><option value="resonance">共鸣 · 唤醒星光</option></select></label><label class="select-line">时段<select id="time-of-day"><option value="auto">自动 · 随旅程变化</option><option value="dusk">薄暮 · 金色余晖</option><option value="blue">蓝调 · 雾气渐起</option><option value="night">月夜 · 冷光与流星</option><option value="dawn">破晓 · 暖光苏醒</option></select></label><button data-scene="black" class="quiet full" aria-pressed="false">纯黑角色展示</button><label class="toggle-line"><span>关卡挑战 <small>关闭后自由练习</small></span><input id="obstacles" type="checkbox" role="switch" checked></label><p id="level-help" class="level-help"></p></section>
+      <section class="session"><div><span class="eyebrow">ACCEPTED RESPONSES</span><p><strong id="count">00</strong><span>次回应</span></p></div><span id="response-flash">✧</span></section>
+      <div class="actions"><button id="pause">暂停 <kbd>P</kbd></button><button id="reset">重新开始 <kbd>R</kbd></button></div>
+      <button id="immersive" class="quiet full">隐藏面板 · 沉浸观看 <kbd>H</kbd></button>
+      <p class="privacy">摄像头画面仅在本机处理，不录制、不上传。<br>初始原型 · 键盘 / 手势交互</p>
+    </aside>
+  </main>
+  <footer><span>微光留在中央，世界因你而动。</span><span>SPACE / LIFT <i>·</i> E / RESPOND <i>·</i> H / HIDE UI</span><span>PROTOTYPE — V0.3</span></footer>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
