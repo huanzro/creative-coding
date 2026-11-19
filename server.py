@@ -2,6 +2,7 @@
 """Serve this local installation on loopback; no third-party Python packages."""
 import argparse
 import functools
+import hashlib
 import http.server
 import pathlib
 import threading
@@ -9,6 +10,7 @@ import urllib.request
 import webbrowser
 
 ROOT = pathlib.Path(__file__).resolve().parent / "dist"
+HEALTH = ("echoes-of-light-v0.4-" + hashlib.sha256(str(ROOT).encode()).hexdigest()[:12]).encode()
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map,
@@ -23,7 +25,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path == "/__echoes_health":
             self.send_response(200)
             self.end_headers()
-            self.wfile.write(b"echoes-of-light-v0.1")
+            self.wfile.write(HEALTH)
             return
         super().do_GET()
 
@@ -41,7 +43,7 @@ def main():
         except OSError:
             try:
                 with urllib.request.urlopen(url + "/__echoes_health", timeout=1) as reply:
-                    if reply.read() == b"echoes-of-light-v0.1":
+                    if reply.read() == HEALTH:
                         print(f"Already running: {url}", flush=True)
                         if args.open:
                             webbrowser.open(url)

@@ -43,7 +43,8 @@ export class SpiritSimulation {
     this.y=.52;this.vy=0;this.aspect=this.aspect||16/9;this.time=0;this.elapsed=0;this.count=0;this.started=false;
     this.glow=0;this.hit=0;this.protection=0;this.lastLift=-Infinity;this.trail=[];this.particles=[];
     this.gates=[];this.passed=0;this.score=0;this.combo=0;this.collisions=0;this.complete=false;
-    this.distance=0;this.recovery=0;this.challenge=false;this.lastAward='';this.awardTime=0;this.lights=[];
+    this.distance=0;this.speedMultiplier=1;this.soundEnergy=0;this.trailStrength=1.5;this.traceClock=0;this.sparkClock=0;
+    this.recovery=0;this.challenge=false;this.lastAward='';this.awardTime=0;this.lights=[];
   }
   configureChallenge(enabled) {
     this.challenge=enabled;
@@ -98,9 +99,16 @@ export class SpiritSimulation {
     dt=clamp(dt,0,.04);this.time+=dt;this.glow=Math.max(0,this.glow-dt*1.5);this.hit=Math.max(0,this.hit-dt);this.protection=Math.max(0,this.protection-dt);
     if(this.recovery>0){this.recovery=Math.max(0,this.recovery-dt);return;}
     if(this.started){this.elapsed+=dt;this.vy+=.40*dt;this.y+=this.vy*dt;if(this.y>.82){this.y=.82;this.vy=0;}if(this.y<.16){this.y=.16;this.vy=Math.max(0,this.vy);}}
-    const scroll=this.started?this.level.speed*dt:0;this.distance+=scroll;
+    const speed=Number.isFinite(this.speedMultiplier)?clamp(this.speedMultiplier,0,3):0;
+    const scroll=this.started?this.level.speed*speed*dt:0;this.distance+=scroll;
     this.trail.forEach(p=>{p.x-=scroll;p.life-=dt/7;});this.trail=this.trail.filter(p=>p.life>0&&p.x>-.1);
-    if(this.started)this.trail.push({x:.5,y:this.y,life:1});if(this.trail.length>450)this.trail.shift();
+    if(this.started){
+      // Emit at a fixed cadence so 30/60/120 Hz displays have comparable traces.
+      this.traceClock+=dt;while(this.traceClock>=1/60){this.traceClock-=1/60;this.trail.push({x:.5,y:this.y,life:1,energy:this.soundEnergy});}
+      this.sparkClock+=dt*(8+this.soundEnergy*25);
+      while(this.sparkClock>=1){this.sparkClock--;this.particles.push({x:.5,y:this.y,vx:-.015-Math.random()*.035,vy:(Math.random()-.5)*.035,life:.8+Math.random()*.2,size:.6+Math.random()*1.4});}
+    }
+    this.trail=this.trail.slice(-450);
     this.particles.forEach(p=>{p.x+=p.vx*dt-scroll;p.y+=p.vy*dt;p.vy+=dt*.05;p.life-=dt*.7;});this.particles=this.particles.filter(p=>p.life>0).slice(-200);
     if(!this.started||!this.challenge)return;
     if(this.playMode!=='gates'){this.updateTargets(dt,scroll);return;}

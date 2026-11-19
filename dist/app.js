@@ -2,6 +2,7 @@ import {SpiritSimulation, GestureGate, handOpenness, clamp, LEVELS, worldToScree
 
 import {boardRuns,loadRuns,saveRun} from './leaderboard.js';
 import {loadAtmosphere,drawAtmosphere,atmosphereAt} from './atmosphere.js';
+import {installInteractionControls} from './interaction-controls.js';
 
 const $=id=>document.getElementById(id);
 const canvas=$('world'), video=$('webcam'), handCanvas=$('hand-overlay'), hc=handCanvas.getContext('2d');
@@ -190,8 +191,19 @@ function drawAwakened(){
   }
 }
 function drawTrail(){const rgb=scene==='stars'?'219,231,255':scene==='geometry'?'150,181,255':'235,200,134';
-  ctx.lineCap='round';for(let i=1;i<sim.trail.length;i++){const a=sim.trail[i-1],b=sim.trail[i];if(scene==='geometry'&&i%5!==0)continue;line([[a.x*W,worldToScreen(a.x,a.y,sim.y).y*H],[b.x*W,worldToScreen(b.x,b.y,sim.y).y*H]],`rgba(${rgb},${b.life*.32})`,scene==='geometry'?2:1.4);}
-  for(const p of sim.particles){ellipse(p.x*W,worldToScreen(p.x,p.y,sim.y).y*H,p.size,p.size,`rgba(${rgb},${p.life*.75})`);}
+  const strength=sim.trailStrength,scale=Math.max(.7,Math.min(H/720,1.5));
+  ctx.save();ctx.globalCompositeOperation='screen';ctx.lineCap='round';
+  // Broad coloured bloom, luminous ribbon, then a fine pale core.
+  for(const [width,opacity] of [[13,.055],[4.5,.25],[1.25,.72]]){
+    for(let i=1;i<sim.trail.length;i++){
+      const a=sim.trail[i-1],b=sim.trail[i],energy=.65+(b.energy||0)*.7;
+      line([[a.x*W,worldToScreen(a.x,a.y,sim.y).y*H],[b.x*W,worldToScreen(b.x,b.y,sim.y).y*H]],`rgba(${width<2?'255,246,225':rgb},${Math.min(.95,b.life*b.life*opacity*strength*energy)})`,width*scale*(.5+b.life*.5));
+    }
+  }
+  for(const p of sim.particles){const x=p.x*W,y=worldToScreen(p.x,p.y,sim.y).y*H;
+    glow(x,y,p.size*4*scale,`rgba(${rgb},${Math.min(.4,p.life*.12*strength)})`);
+    ellipse(x,y,p.size*scale,p.size*scale,`rgba(${rgb},${Math.min(1,p.life*.8*strength)})`);
+  }ctx.restore();
 }
 function drawObstacles(){if(scene==='black')return;
   for(const gate of sim.gates){if(gate.x>1.1)continue;const x=gate.x*W,cy=worldToScreen(gate.x,gate.y,sim.y).y*H,top=cy-gate.gap*H/2,bottom=cy+gate.gap*H/2;
@@ -237,7 +249,9 @@ function updateUI(){
 }
 function frame(now){const dt=Math.min((now-frameTime)/1000,.04);frameTime=now;trackHand(now);
   if(cameraActive && now-lastInference>900){handPresent=false;gesture.reset();signal('摄像头暂无新画面，请重新开启或切换键盘','waiting');}
+  interactions.beforeUpdate(dt,now);
   if(!paused())sim.update(dt,$('obstacles').checked);
+  interactions.afterUpdate(dt);
   if(projectionWindow?.closed){projectionWindow=null;splitProjection=false;}
   ctx=mainContext;
   drawBackground();drawAwakened();drawObstacles();drawTargets();
@@ -248,6 +262,7 @@ function frame(now){const dt=Math.min((now-frameTime)/1000,.04);frameTime=now;tr
   }else{drawTrail();drawPowers();drawSpirit(sim.time);}
   if(now-lastUI>100){updateUI();lastUI=now;}requestAnimationFrame(frame);
 }
+const interactions=installInteractionControls(sim,paused);
 setScene('forest');
 requestAnimationFrame(frame);
 
