@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>展台硬件调试 · 光的回响</title>
+  <link rel="stylesheet" href="exhibit-hardware.css">
+  <script type="module" src="exhibit-hardware.js"></script>
+</head>
+<body>
+  <main>
+    <a href="./">返回《光的回响》</a>
+    <h1>展台硬件调试</h1>
+    <p>两串灯、一只舵机、三路触摸。可以先试软件预览，再逐路接线。</p>
+    <section aria-labelledby="link-title">
+      <h2 id="link-title">Arduino 串口</h2>
+      <p id="status" role="status">未连接</p>
+      <div class="actions">
+        <button id="connect">连接 Arduino</button>
+        <button id="disconnect" disabled>断开</button>
+        <button id="stop">熄灯并释放舵机</button>
+      </div>
+      <label class="check"><input type="checkbox" id="arm" disabled> 启用实体输出</label>
+      <small id="ack">等待 Arduino 回执</small>
+    </section>
+    <div class="columns">
+      <section aria-labelledby="touch-title">
+        <h2 id="touch-title">触摸输入</h2>
+        <p>先核对真实读数。若触摸与松开状态相反，调整固件中的触发电平。</p>
+        <dl>
+          <div><dt>稳定触摸 A · D2</dt><dd id="touchA">—</dd></div>
+          <div><dt>稳定触摸 B · D3</dt><dd id="touchB">—</dd></div>
+          <div><dt>导电布 · D4</dt><dd id="fabric">—</dd></div>
+        </dl>
+        <output id="edge">等待触摸事件</output>
+        <p><button id="simulate">模拟触摸 A（T）</button></p>
+      </section>
+      <section aria-labelledby="output-title">
+        <h2 id="output-title">灯光与舵机</h2>
+        <p>先从低亮度开始。舵机首次测试时先卸下花瓣连杆。</p>
+        <label>灯 A · D6 <input type="color" id="lamp-a" value="#ffc16f"></label>
+        <label>灯 B · D7 <input type="color" id="lamp-b" value="#91adff"></label>
+        <label>全局亮度（0–25%） <input type="range" id="brightness" min="0" max="25" value="10"> <output id="percent">10%</output></label>
+        <div class="preview" aria-label="两路灯光预览"><span id="preview-a">A</span><span id="preview-b">B</span></div>
+        <label>舵机 · D5
+          <select id="servo">
+            <option value="">释放</option>
+            <option value="90">90° 中位</option>
+            <option value="75">75° 测试</option>
+            <option value="105">105° 测试</option>
+          </select>
+        </label>
+        <button id="apply" disabled>发送灯光与舵机设定</button>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

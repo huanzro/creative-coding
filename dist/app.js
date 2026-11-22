@@ -1,3 +1,4 @@
+import {projectionSpiritScale,renderSpirit} from './spirit-renderer.js';
 import {SpiritSimulation, GestureGate, handOpenness, clamp, LEVELS, worldToScreen, PLAY_MODES} from './core.js';
 
 import {boardRuns,loadRuns,saveRun} from './leaderboard.js';
@@ -214,26 +215,18 @@ function drawObstacles(){if(scene==='black')return;
     glow(x,top,25,'#bcd7da22');glow(x,bottom,25,'#bcd7da22');ctx.restore();
   }
 }
-function drawSpirit(t){
-  const x=W*.5,y=H*.5,scale=Math.min(H/720,1.3);
-  const color=sim.hit>0?'#ffd1b1':scene==='geometry'?'#d7e7ff':'#fff0cf';
-  glow(x,y,100*scale,scene==='geometry'?`rgba(119,164,255,${.10+sim.glow*.12})`:`rgba(237,200,130,${.10+sim.glow*.13})`);
-  
-  ctx.save();ctx.translate(x,y);ctx.scale(scale,scale);
-  if(sim.protection>0)ctx.globalAlpha=.65+Math.sin(t*20)*.25;
-  ctx.shadowColor=scene==='geometry'?'#9abcff':'#f3d7a1';ctx.shadowBlur=18+sim.glow*22;ctx.fillStyle=color;ctx.strokeStyle=color;ctx.lineCap='round';ctx.lineJoin='round';
-  const rising=sim.vy<-.04,falling=sim.vy>.04,breath=Math.sin(t*2)*1.3;
-  // Original humanoid silhouette: seed-shaped head, tapered torso and four limbs.
-  ctx.beginPath();ctx.moveTo(-9,-25);ctx.bezierCurveTo(-16,-45,11,-49,13,-31);ctx.bezierCurveTo(17,-18,1,-13,-9,-25);ctx.fill();
-  ctx.beginPath();ctx.moveTo(-6,-16);ctx.bezierCurveTo(-8,-7,-9,4,-6,11);ctx.quadraticCurveTo(0,17,7,9);ctx.bezierCurveTo(8,1,7,-10,5,-16);ctx.closePath();ctx.fill();
-  ctx.lineWidth=5;
-  ctx.beginPath();ctx.moveTo(-5,-11);ctx.quadraticCurveTo(-17,-4,-23,rising?-23:falling?-13:6+breath);ctx.moveTo(5,-11);ctx.quadraticCurveTo(17,-8,23,rising?-27:falling?-17:3-breath);ctx.stroke();
-  ctx.lineWidth=5.5;ctx.beginPath();ctx.moveTo(-4,9);ctx.quadraticCurveTo(-7,23,-12+(rising?4:0),32+(rising?4:0));ctx.moveTo(4,9);ctx.quadraticCurveTo(7,22,12,29+(rising?9:0));ctx.stroke();
-  // Two small, cool eyes provide a readable face at prototype scale.
-  ctx.shadowBlur=0;ellipse(-3,-32,1.3,2.1,'#394b58');ellipse(5,-33,1.3,2.1,'#394b58');
-  glow(0,-3,15,'#ffffff55');ctx.restore();
-  if(sim.glow>0){ctx.strokeStyle=`rgba(225,222,194,${sim.glow*.35})`;ctx.lineWidth=1;ctx.beginPath();ctx.arc(x,y,(1-sim.glow)*70+22,0,Math.PI*2);ctx.stroke();}
+let spiritTime=0;
+function drawSpirit({x=W*.5,y=H*.5,scale=Math.min(H/720,1.3),rotation=0,pixelRatio=1,effectScale=1,projectionEffects=false}={}){
+  const castAge=sim.time-sim.lastPower;
+  const moving=!paused()&&!sim.complete;
+  const cast=moving&&castAge>=0&&castAge<.85?Math.sin(Math.PI*castAge/.85):0;
+  const travel=moving&&sim.started?clamp(sim.speedMultiplier*.46+Math.abs(sim.vy)*1.5,0,1):0;
+  renderSpirit(ctx,{x,y,scale,rotation,pixelRatio,projectionEffects,time:spiritTime,
+    vy:moving?sim.vy:0,travel,cast,energy:sim.glow,hit:sim.hit,protection:sim.protection,
+    cool:scene==='geometry'||scene==='stars'});
+  if(sim.glow>0){ctx.strokeStyle=`rgba(225,242,228,${sim.glow*.35})`;ctx.lineWidth=effectScale;ctx.beginPath();ctx.arc(x,y,((1-sim.glow)*70+22)*effectScale,0,Math.PI*2);ctx.stroke();}
 }
+
 function updateUI(){
   const waiting=isWaiting();
   $('count').textContent=String(sim.count).padStart(2,'0');$('phase-label').textContent=environment.name;$('journey-clock').textContent=String(Math.floor(sim.elapsed/60)).padStart(2,'0')+':'+String(Math.floor(sim.elapsed%60)).padStart(2,'0');$('period-line').hidden=scene==='black';
@@ -247,19 +240,35 @@ function updateUI(){
   else if(waiting){$('pause-title').textContent=calibration?'认识你的手势':cameraActive?'等待你的手':'等待开启摄像头';$('pause-description').textContent=calibration?'跟随右侧提示，先张开手掌，再握拳':cameraActive?'把一只手放入画面，先张开，再握拳':'点击右侧开启摄像头，或切换键盘继续';}
   if(sim.started&&sim.glow<.2)$('activity').textContent=sim.complete?'本关完成 · 世界回应了你':sim.hit>0?'从这道门再试一次':sim.y>=.82?'轻按空格 · 继续向上':sim.vy<0?'正在上升 · 世界向下移动':'正在下落 · 世界向上移动';
 }
-function frame(now){const dt=Math.min((now-frameTime)/1000,.04);frameTime=now;trackHand(now);
+function shadeSceneCenter(){
+  if(scene==='black')return;
+  const centerShade=splitProjection?.56:.40;
+  ctx.save();
+  ctx.translate(W/2,H/2);
+  ctx.scale(W*.48,H*.57);
+  const falloff=ctx.createRadialGradient(0,0,0,0,0,1);
+  // Zero slope at the center and rim keeps the darker area from reading as a disk.
+  for(let step=0;step<=12;step++){
+    const radius=step/12;
+    const opacity=centerShade*(1-radius*radius*(3-2*radius));
+    falloff.addColorStop(radius,`rgba(0,0,0,${opacity})`);
+  }
+  ctx.fillStyle=falloff;
+  ctx.fillRect(-1,-1,2,2);
+  ctx.restore();
+}
+
+function frame(now){const dt=Math.min((now-frameTime)/1000,.04);frameTime=now;spiritTime+=dt;trackHand(now);
   if(cameraActive && now-lastInference>900){handPresent=false;gesture.reset();signal('摄像头暂无新画面，请重新开启或切换键盘','waiting');}
   interactions.beforeUpdate(dt,now);
   if(!paused())sim.update(dt,$('obstacles').checked);
   interactions.afterUpdate(dt);
   if(projectionWindow?.closed){projectionWindow=null;splitProjection=false;}
   ctx=mainContext;
-  drawBackground();drawAwakened();drawObstacles();drawTargets();
+  drawBackground();shadeSceneCenter();drawAwakened();drawObstacles();drawTargets();
   if(splitProjection){
-    const g=ctx.createRadialGradient(W*.5,H*.5,0,W*.5,H*.5,Math.min(W,H)*.48);
-    g.addColorStop(0,'rgba(0,0,0,.28)');g.addColorStop(.35,'rgba(0,0,0,.20)');g.addColorStop(.72,'rgba(0,0,0,.065)');g.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
     renderProjection();
-  }else{drawTrail();drawPowers();drawSpirit(sim.time);}
+  }else{drawTrail();drawPowers();drawSpirit();}
   if(now-lastUI>100){updateUI();lastUI=now;}requestAnimationFrame(frame);
 }
 const interactions=installInteractionControls(sim,paused);
@@ -275,7 +284,7 @@ projectionButton.onclick=()=>{
   projectionWindow=window.open('','echoes-character','popup,width=1000,height=720');
   if(!projectionWindow){signal('请允许弹出窗口，再开启双屏投影','waiting');return;}
   const d=projectionWindow.document;
-  d.open();d.write(`<!doctype html><html lang="zh"><meta charset="utf-8"><title>光的回响 · 人物投影屏</title><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}canvas{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}nav{position:fixed;top:12px;left:12px;color:#ddd;font:14px sans-serif;background:#151515;padding:10px;border-radius:8px}button{margin:5px}body.hide nav{display:none}</style><canvas></canvas><nav>拖到第二块屏幕；双击画面全屏。H 隐藏提示，M 镜像。<br><button id="full">全屏并隐藏提示</button><button id="mirror">左右镜像</button><button id="hide">隐藏提示</button></nav></html>`);d.close();
+  d.open();d.write(`<!doctype html><html lang="zh"><meta charset="utf-8"><title>光的回响 · 人物投影屏</title><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}canvas{display:block;width:100%;height:100%}nav{position:fixed;top:12px;left:12px;color:#ddd;font:14px sans-serif;background:#151515;padding:10px;border-radius:8px}button{margin:5px}body.hide nav{display:none}</style><canvas></canvas><nav>拖到第二块屏幕；双击画面全屏。H 隐藏提示，M 镜像。<br><button id="full">全屏并隐藏提示</button><button id="mirror">左右镜像</button><button id="hide">隐藏提示</button></nav></html>`);d.close();
   projectionCanvas=d.querySelector('canvas');projectionCanvas.mirrored=false;
   const full=()=>{d.body.classList.add('hide');d.documentElement.requestFullscreen?.().catch(()=>{});};
   d.querySelector('#full').onclick=full;projectionCanvas.ondblclick=full;
@@ -286,12 +295,32 @@ projectionButton.onclick=()=>{
 };
 function renderProjection(){
   if(!projectionWindow||projectionWindow.closed)return;
-  const pc=projectionCanvas.getContext('2d'),ratio=Math.min(projectionWindow.innerWidth/W,projectionWindow.innerHeight/H),pd=Math.min(projectionWindow.devicePixelRatio||1,2);
-  const width=Math.round(W*ratio*pd),height=Math.round(H*ratio*pd);
-  if(projectionCanvas.width!==width||projectionCanvas.height!==height){projectionCanvas.width=width;projectionCanvas.height=height;}
-  projectionCanvas.style.width=(W*ratio)+'px';projectionCanvas.style.height=(H*ratio)+'px';
-  pc.setTransform(width/W,0,0,height/H,0,0);pc.fillStyle='#000';pc.fillRect(0,0,W,H);
-  pc.save();if(projectionCanvas.mirrored){pc.translate(W,0);pc.scale(-1,1);}
-  ctx=pc;drawTrail();drawPowers();drawSpirit(sim.time);pc.restore();ctx=mainContext;
+  const width=projectionWindow.innerWidth, height=projectionWindow.innerHeight;
+  if(width<=4||height<=4)return;
+  const pixelRatio=Math.min(projectionWindow.devicePixelRatio||1,2);
+  const pixelsWide=Math.round(width*pixelRatio), pixelsHigh=Math.round(height*pixelRatio);
+  if(projectionCanvas.width!==pixelsWide)projectionCanvas.width=pixelsWide;
+  if(projectionCanvas.height!==pixelsHigh)projectionCanvas.height=pixelsHigh;
+
+  const pc=projectionCanvas.getContext('2d');
+  pc.setTransform(pixelsWide/width,0,0,pixelsHigh/height,0,0);
+  pc.fillStyle='#000';
+  pc.fillRect(0,0,width,height);
+  pc.save();
+  if(projectionCanvas.mirrored){pc.translate(width,0);pc.scale(-1,1);}
+  ctx=pc;
+
+  const sceneScale=Math.min(width/W,height/H);
+  pc.save();
+  pc.translate((width-W*sceneScale)/2,(height-H*sceneScale)/2);
+  pc.scale(sceneScale,sceneScale);
+  drawTrail();
+  drawPowers();
+  pc.restore();
+
+  drawSpirit({x:width/2,y:height/2,scale:projectionSpiritScale(width,height),
+    rotation:-Math.PI/2,pixelRatio,effectScale:sceneScale,projectionEffects:true});
+  pc.restore();
+  ctx=mainContext;
 }
 window.addEventListener('pagehide',()=>projectionWindow?.close());

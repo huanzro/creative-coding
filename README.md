@@ -22,6 +22,8 @@ python server.py --open
 
 详细说明：[音量与光迹调试](docs/VOLUME_TUNING.md) · [风扇与彩灯协议 / 接线方向](docs/HARDWARE.md) · [UNO 接收示例](hardware/echoes_uno/echoes_uno.ino)
 
+本轮展台使用两串灯、一只舵机和三路触摸输入。见[逐项接线与 EOL3 接口](docs/EXHIBIT_WIRING.md)和[独立展台调试页](https://echoes-of-light-interactive-1031.tanbowl.chatgpt.site/exhibit-hardware.html)。灯条型号和触摸模块丝印确认后再接实物。
+
 ## 测试
 
 安装 Node.js 后运行 `node --test tests/*.test.js`，或 `npm test`。无第三方依赖的 23 项自动测试覆盖原玩法、音量响应和串口输出逻辑。

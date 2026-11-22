@@ -22,10 +22,11 @@ export function installInteractionControls(sim,isPaused){
       <label>模拟输入 / dBFS <output id="demo-db-value">−35</output><input id="demo-db" type="range" min="-90" max="0" value="-35" disabled></label>
       <button id="audio-defaults" class="quiet full">恢复默认参数</button>
     </details>
-    <h3 class="output-heading">04 <span>风与灯光</span></h3>
+    <h3 class="output-heading">04 <span>展台硬件</span></h3>
+    <p class="level-help"><a href="exhibit-hardware.html">打开双灯、舵机与触摸调试</a></p>
     <div class="sensor-readout"><span id="fan-preview">风力 0%</span><span id="light-preview">灯光 0%</span><i id="lamp-preview"></i></div>
     <p id="physical-status" class="level-help" role="status">仅预览 · 尚未连接 Arduino</p>
-    <details><summary>硬件接口调试</summary>
+    <details><summary>旧版风扇接口（EOL2）</summary>
       <p class="level-help">速度带动风力，收集与手势点亮灯光。连接后需手动启用输出。</p>
       <button id="serial-toggle" class="quiet full">连接 Arduino</button>
       <label class="toggle-line"><span>启用实际输出</span><input id="hardware-arm" type="checkbox" disabled></label>
