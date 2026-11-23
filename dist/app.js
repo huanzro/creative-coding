@@ -4,6 +4,7 @@ import {SpiritSimulation, GestureGate, handOpenness, clamp, LEVELS, worldToScree
 import {boardRuns,loadRuns,saveRun} from './leaderboard.js';
 import {loadAtmosphere,drawAtmosphere,atmosphereAt} from './atmosphere.js';
 import {installInteractionControls} from './interaction-controls.js';
+import {installExhibitGame} from './exhibit-game.js';
 
 const $=id=>document.getElementById(id);
 const canvas=$('world'), video=$('webcam'), handCanvas=$('hand-overlay'), hc=handCanvas.getContext('2d');
@@ -42,8 +43,8 @@ new ResizeObserver(resize).observe(canvas);
 function signal(text,type='ready'){if($('signal-text').textContent!==text)$('signal-text').textContent=text;$('signal-dot').style.background=type==='error'?'#d69583':type==='waiting'?'#c3ae7e':'#92bba6';}
 function isWaiting(){return mode==='camera'&&(!cameraActive||!handPresent||!!calibration);}
 function paused(){return manualPause||isWaiting();}
-function lift(source){if(paused()||source!==mode)return false;const accepted=sim.lift();if(accepted){$('count').textContent=String(sim.count).padStart(2,'0');$('response-flash').classList.add('lit');$('activity').textContent='已回应 · 微光向上跃起';setTimeout(()=>$('response-flash').classList.remove('lit'),180);}return accepted;}
-function reset(){archiveRun();sim.reset(sim.levelIndex,$('gameplay').value);sim.configureChallenge($('obstacles').checked&&scene!=='black');newRun();gesture.reset();manualPause=false;calibration=null;$('count').textContent='00';$('activity').textContent='按空格出发 · 小人保持在中央';$('pause').innerHTML='暂停 <kbd>P</kbd>';$('calibrate').textContent='校准我的手势';$('chapter-complete').hidden=true;updateModeHints();updateUI();}
+function lift(source){if(paused()||(source!=='touch'&&source!==mode))return false;const accepted=sim.lift();if(accepted){$('count').textContent=String(sim.count).padStart(2,'0');$('response-flash').classList.add('lit');$('activity').textContent='已回应 · 微光向上跃起';setTimeout(()=>$('response-flash').classList.remove('lit'),180);}return accepted;}
+function reset(){exhibitGame.clear();archiveRun();sim.reset(sim.levelIndex,$('gameplay').value);sim.configureChallenge($('obstacles').checked&&scene!=='black');newRun();gesture.reset();manualPause=false;calibration=null;$('count').textContent='00';$('activity').textContent='按空格出发 · 小人保持在中央';$('pause').innerHTML='暂停 <kbd>P</kbd>';$('calibrate').textContent='校准我的手势';$('chapter-complete').hidden=true;updateModeHints();updateUI();}
 function setMode(next){if(next===mode)return;mode=next;gesture.reset();inputHeld=false;calibration=null;manualPause=false;$('pause').innerHTML='暂停 <kbd>P</kbd>';
   for(const id of ['keyboard','camera']){$(id+'-mode').classList.toggle('selected',id===mode);$(id+'-mode').setAttribute('aria-pressed',String(id===mode));$(id+'-help').hidden=id!==mode;}
   $('input-badge').textContent=mode==='keyboard'?'键盘':'手势';$('action-hint').innerHTML=mode==='keyboard'?'<kbd>SPACE</kbd> 轻按一下，唤起微光':'张开手掌 → 握拳，让微光跃起';$('lift').hidden=mode!=='keyboard';
@@ -263,6 +264,7 @@ function frame(now){const dt=Math.min((now-frameTime)/1000,.04);frameTime=now;sp
   interactions.beforeUpdate(dt,now);
   if(!paused())sim.update(dt,$('obstacles').checked);
   interactions.afterUpdate(dt);
+  exhibitGame.update(now);
   if(projectionWindow?.closed){projectionWindow=null;splitProjection=false;}
   ctx=mainContext;
   drawBackground();shadeSceneCenter();drawAwakened();drawObstacles();drawTargets();
@@ -272,6 +274,15 @@ function frame(now){const dt=Math.min((now-frameTime)/1000,.04);frameTime=now;sp
   if(now-lastUI>100){updateUI();lastUI=now;}requestAnimationFrame(frame);
 }
 const interactions=installInteractionControls(sim,paused);
+const exhibitGame=installExhibitGame($('touch-game'),{
+  isBlocked:()=>paused()||sim.complete||sim.recovery>0,
+  respondToTouch(source){
+    if(source==='touchA')return lift('touch');
+    if(!sim.power())sim.glow=1;
+    $('activity').textContent='触摸回应 · 光晕展开';
+    return true;
+  },
+});
 setScene('forest');
 requestAnimationFrame(frame);
 
