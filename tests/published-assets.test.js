@@ -15,7 +15,7 @@ test('published artwork, spirit renderer, projection animation and physical prot
   const file=fs.readFileSync(new URL('../dist/'+name,import.meta.url));
   const hashes=[file];
   // Windows Git may convert text line endings. Artwork and models stay byte-exact.
-  if(/\.(js|mjs|css|html|json)$/.test(name)){
+  if(/\.(js|mjs|css|html|json)$|(^|\/)LICENSE$/.test(name)){
    const lf=file.toString('utf8').replaceAll('\r\n','\n');
    hashes.push(lf,lf.replaceAll('\n','\r\n'));
   }
