@@ -46,7 +46,7 @@ export class ContinuitySimulation extends SpiritSimulation{
  setHand(value){
   if(!['open','closed'].includes(value)||value===this.hand)return false;
   if(value==='closed'&&this.hand==='unknown')return false;
-  if(this.complete){this.hand=value;this.holding=value==='closed';return true;}
+  if(this.complete){this.hand=value;this.holding=value==='closed';this.started=true;return true;}
   const before=this.hand;this.hand=value;this.holding=value==='closed';this.started=true;
   if(value==='closed'){this.heldFor=0;this.charge=0;}
   if(before==='closed'&&value==='open')this.emitGesture();
@@ -71,7 +71,7 @@ export class ContinuitySimulation extends SpiritSimulation{
  click(choice){
   if(choice!==undefined&&choice!==0&&choice!==1)return false;
   const directChoice=choice!==undefined&&this.touchControls.selected!==undefined;
-  if(this.hand==='unknown'||(!directChoice&&this.time-this.lastClick<.2))return false;
+  if((this.hand==='unknown'&&!this.started)||(!directChoice&&this.time-this.lastClick<.2))return false;
   if(this.complete&&this.levelIndex===CHAPTERS.length-1)return false;
   this.lastClick=this.time;this.count++;
   if(this.complete)return 'next';
@@ -141,7 +141,7 @@ export class ContinuitySimulation extends SpiritSimulation{
  get waveTolerance(){return WAVE_TOLERANCE;}
  get waveReady(){return Boolean(this.objects[0])&&Math.abs(this.resultant-this.waveTarget)<=WAVE_TOLERANCE;}
  update(dt,enabled=true){
-  if(this.complete||!enabled||this.hand==='unknown')return;
+  if(this.complete||!enabled||(this.hand==='unknown'&&!this.started))return;
   dt=clamp(dt,0,.04);this.time+=dt;this.elapsed+=dt;this.phaseTime+=dt;this.started=true;
   this.voice=clamp(Number.isFinite(this.controlVoice)?this.controlVoice:0,0,1);
   this.glow=Math.max(0,this.glow-dt);this.hit=Math.max(0,this.hit-dt);this.protection=this.holding?1:0;
@@ -150,6 +150,7 @@ export class ContinuitySimulation extends SpiritSimulation{
   let speed=.018;
   if(this.phase==='travel')speed=this.route?.15:.09;
   if(this.phase==='cross')speed=.18;
+  speed*=1+this.voice;
   this.distance+=speed*dt;this.speedMultiplier=speed/this.level.speed;this.soundEnergy=this.voice;
   this.trail.forEach(p=>{p.x-=speed*dt;p.life-=dt/7;});this.trail=this.trail.filter(p=>p.life>0).slice(-420);
   this.traceClock+=dt;if(this.traceClock>=1/60){this.traceClock=0;this.trail.push({x:.5,y:this.y,life:1,energy:this.voice});}
@@ -203,6 +204,11 @@ export class ContinuitySimulation extends SpiritSimulation{
   if(this.phase==='record'){
    this.slotTime+=dt;
    if(this.slotTime>=this.slotLength){
+    if(this.hand==='unknown'){
+     this.recording=[];this.slot=0;this.slotTime=0;this.phase='record-ready';
+     this.say('光印没有录到真实手势。把手放回镜头，再点击重录。');
+     return;
+    }
     this.recording.push(this.hand);this.slotTime=0;this.slot++;
     if(this.slot===this.round+2){
      if(new Set(this.recording).size<2){this.phase='record-ready';this.say('回声只有一种动作，无法分工。点击重录，至少包含一次握拳和一次张手。');}

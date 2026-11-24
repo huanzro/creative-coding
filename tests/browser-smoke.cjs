@@ -121,6 +121,9 @@ async function verifyStartupCard(browser) {
           oscillator.start();
           await context.resume();
           window.startupGain=gain;
+          Object.defineProperty(destination.stream.getAudioTracks()[0],'getSettings',{
+            value:()=>({deviceId:'echoes-test-mic'}),
+          });
           return destination.stream;
         }
         throw new Error('Unexpected capture request');
@@ -141,6 +144,34 @@ async function verifyStartupCard(browser) {
     assert.match(await page.locator('#audio-status').innerText(), /声音已就绪/);
     assert.equal(await page.locator('#journey-clock').innerText(), '00:00');
     assert.equal(await page.locator('[data-touch-option="0"]').isEnabled(),false);
+    await page.evaluate(async()=>{
+      const {HandLandmarker}=await import('./vendor/vision_bundle.mjs');
+      window.startupHand='open';
+      HandLandmarker.prototype.detectForVideo=()=>{
+        if(window.startupHand==='absent')return {landmarks:[]};
+        const points=Array.from({length:21},()=>({x:.5,y:.66,z:0}));
+        points[0].y=.8;
+        for(const tip of [8,12,16,20]){
+          points[tip-3].y=.7;
+          points[tip].y=.54;
+        }
+        return {landmarks:[points]};
+      };
+    });
+    await page.waitForFunction(()=>document.getElementById('journey-clock').textContent!=='00:00');
+    await page.evaluate(()=>{window.startupHand='absent';});
+    await page.waitForFunction(()=>document.getElementById('hand-state').textContent.includes('画外'));
+    assert.equal(await page.locator('#paused-overlay').isVisible(),false);
+    assert.equal(await page.locator('[data-touch-option="0"]').isEnabled(),true);
+    const elapsed=await page.locator('#journey-clock').innerText();
+    await page.waitForFunction(value=>document.getElementById('journey-clock').textContent!==value,elapsed);
+
+    await page.reload();
+    await action.click();
+    await page.waitForFunction(()=>document.getElementById('journey-start-action').textContent==='开启麦克风');
+    await action.click();
+    await page.waitForFunction(()=>document.getElementById('audio-status').textContent.includes('沿用上次设置'));
+    await page.waitForFunction(()=>document.getElementById('pause-title').textContent==='请把手放回画面');
   } finally {
     await page.close();
   }
@@ -258,7 +289,7 @@ async function main() {
     await verifyStartupCard(browser);
     await verifyReactiveBackground(browser);
     await verifyTouchController(browser);
-    console.log('Passed: device setup, three responsive backgrounds, checkpoints, projection, public assets, and mocked Web Serial.');
+    console.log('Passed: device setup, reused microphone settings, continuous play without a hand, three responsive backgrounds, projection, assets, and mocked Web Serial.');
   } finally {
     await browser.close();
   }

@@ -24,10 +24,10 @@ export class AtmosphereMotion {
   update(dt,sim,active){
     this.time+=dt;
     const voice=active?sim.voice:0;
-    const light=active?(sim.holding ? .24 : .84):0;
+    const light=active?(sim.holding ? .24 : sim.hand==='unknown' ? .52 : .84):0;
     this.energy+=(voice-this.energy)*(1-Math.exp(-dt/.24));
     this.wake+=(light-this.wake)*(1-Math.exp(-dt/.5));
-    if(active)this.drift+=dt*(.045+this.energy*.075)*(sim.holding ? .55 : 1);
+    if(active)this.drift+=dt*(.035+this.energy*.235)*(sim.holding ? .65 : 1);
   }
 }
 

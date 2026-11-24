@@ -104,6 +104,6 @@ export function drawContinuity(ctx,W,H,s,echoSprite){
   const lo=s.tutorial===1&&s.holding?.55:s.levelIndex===1?.18:.12,hi=s.tutorial===1&&s.holding?.9:s.levelIndex===1?.8:.45;
   const x=cx-90,y=cy+104,width=180;ctx.fillStyle='#071321bb';ctx.fillRect(x,y,width,7);ctx.fillStyle='#8ebb9e88';ctx.fillRect(x+lo*width,y,(hi-lo)*width,7);path([[x+s.voice*width,y-4],[x+s.voice*width,y+12]],GOLD,2);text('声音 · 标记进入亮区',cx,y+30,'#c6d5dd',12);
  }
- text(s.hand==='unknown'?'等待真实手势':s.holding?'握拳 · 收束':'张手 · 展开',cx,cy+77,s.holding?GOLD:BLUE);
+ text(s.hand==='unknown'?(s.started?'旅程继续':'等待真实手势'):s.holding?'握拳 · 收束':'张手 · 展开',cx,cy+77,s.holding?GOLD:BLUE);
  ctx.restore();
 }

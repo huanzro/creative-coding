@@ -5,9 +5,11 @@ import {drawContinuity} from './continuity-render.js';
 import {AtmosphereMotion,loadAtmosphere,drawAtmosphere,atmosphereAt} from './atmosphere.js';
 import {installInteractionControls} from './interaction-controls.js';
 import {installExhibitGame} from './exhibit-game.js';
+import {loadInputProfile,saveInputProfile} from './input-profiles.js';
 const $=id=>document.getElementById(id),canvas=$('world'),video=$('webcam'),handCanvas=$('hand-overlay'),hc=handCanvas.getContext('2d');
 let ctx=canvas.getContext('2d');const mainContext=ctx;
 const sim=new ContinuitySimulation(),gesture=new GestureGate();
+const defaultHandProfile={openThreshold:gesture.openThreshold,closedThreshold:gesture.closedThreshold};
 let atmosphereMotion=new AtmosphereMotion();
 let scene='forest',blackDisplay=false,manualPause=false,cameraActive=false,loading=false,stream=null,detector=null;
 let handPresent=false,lastInference=0,lastVideoTime=-1,frameTime=performance.now(),lastUI=0,calibration=null,cameraGeneration=0;
@@ -22,7 +24,7 @@ function showText(id,value){
  if(element.textContent!==text)element.textContent=text;
 }
 function signal(text,type='ready'){showText('signal-text',text);$('signal-dot').style.background=type==='error'?'#d69583':type==='waiting'?'#c3ae7e':'#92bba6';}
-function isWaiting(){return !cameraActive||!handPresent||!!calibration||!sim.audioReady||sim.hand==='unknown';}
+function isWaiting(){return document.hidden||!cameraActive||!!calibration||!sim.audioReady||(!sim.started&&sim.hand==='unknown');}
 function paused(){return manualPause||isWaiting();}
 function saveCheckpoint(){
  try{localStorage.setItem(CHECKPOINT_KEY,JSON.stringify(sim.save()));}catch{}
@@ -42,10 +44,12 @@ function setScene(next,checkpoint=false){
  if(next==='black'){
   blackDisplay=!blackDisplay;
  }else{
+  const started=sim.started;
   saveIfChanged();
   scene=next;blackDisplay=false;
   atmosphereMotion=new AtmosphereMotion();
   sim.reset(LEVELS.findIndex(level=>level.id===next));
+  sim.started=started;
   sim.configureChallenge(true);
   gesture.reset();manualPause=false;
   savedRevision=sim.checkpointRevision;
@@ -62,13 +66,13 @@ function clickInput(choice){
 function togglePause(){manualPause=!manualPause;sim.cancelInput();gesture.reset();updateUI();}
 function clickKey(event){
  if(event.code!=='Space'||event.altKey||event.ctrlKey||event.metaKey)return false;
- if(event.target?.closest?.('[data-touch-option]'))return false;
+ if(event.target?.closest?.('[data-touch-option],#journey-start-action'))return false;
  event.preventDefault();
  if(!event.repeat)clickInput();
  return true;
 }
 window.addEventListener('keydown',clickKey);
-document.addEventListener('visibilitychange',()=>{if(document.hidden){manualPause=true;sim.cancelInput();gesture.reset();}});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){sim.cancelInput();gesture.reset();}});
 $('pause').onclick=togglePause;$('reset').onclick=()=>{sim.retry();gesture.reset();updateUI();};
 $('immersive').onclick=()=>document.body.classList.toggle('immersive');
 $('fullscreen').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}catch{signal('浏览器暂不支持全屏。','waiting');}};
@@ -77,7 +81,9 @@ document.querySelectorAll('[data-scene]').forEach(b=>b.onclick=()=>setScene(b.da
 $('resume-journey').onclick=()=>{
  let checkpoint;
  try{checkpoint=JSON.parse(localStorage.getItem(CHECKPOINT_KEY));}catch{}
+ const started=sim.started;
  if(!sim.restore(checkpoint)){signal('没有可恢复的当前版本检查点。','waiting');return;}
+ sim.started=started;
  scene=LEVELS[sim.levelIndex].id;blackDisplay=false;
  atmosphereMotion=new AtmosphereMotion();
  gesture.reset();manualPause=false;savedRevision=sim.checkpointRevision;
@@ -101,6 +107,12 @@ async function startCamera(){
     video.srcObject=stream;await video.play();
     if(!detector){const {FilesetResolver,HandLandmarker}=await import('./vendor/vision_bundle.mjs');const vision=await FilesetResolver.forVisionTasks(new URL('./vendor/wasm',import.meta.url).href);detector=await HandLandmarker.createFromOptions(vision,{baseOptions:{modelAssetPath:new URL('./vendor/hand_landmarker.task',import.meta.url).href,delegate:'CPU'},runningMode:'VIDEO',numHands:1,minHandDetectionConfidence:.65,minHandPresenceConfidence:.65,minTrackingConfidence:.6});}
     if(generation!==cameraGeneration){acquired.getTracks().forEach(t=>t.stop());return;}
+    const saved=loadInputProfile('hand',track);
+    const valid=Number.isFinite(saved?.openThreshold)&&Number.isFinite(saved?.closedThreshold)
+      &&saved.closedThreshold>0&&saved.openThreshold>saved.closedThreshold;
+    const profile=valid?saved:defaultHandProfile;
+    gesture.openThreshold=profile.openThreshold;gesture.closedThreshold=profile.closedThreshold;
+    $('calibrate').textContent=valid?'重新校准手势':'校准我的手势';
     cameraActive=true;handPresent=false;lastVideoTime=-1;lastInference=performance.now();gesture.reset();$('camera-placeholder').hidden=true;$('camera-toggle').textContent='关闭摄像头';$('calibrate').disabled=false;signal('请把一只手放入画面，先张开手掌','waiting');
   }catch(error){if(generation!==cameraGeneration)return;acquired?.getTracks().forEach(t=>t.stop());stopCamera();const errors={NotAllowedError:'未获得摄像头权限。请在浏览器地址栏允许摄像头后重试。',NotFoundError:'没有找到摄像头，请接入摄像头后重试。',NotReadableError:'摄像头暂时无法读取，请关闭其他占用它的应用后重试。'};signal(errors[error.name]||'识别未能启动：'+error.message,'error');console.error(error);
   }finally{loading=false;$('camera-toggle').disabled=false;}
@@ -117,7 +129,12 @@ function calibrate(score,now){
   if(now-calibration.start<1000||calibration.samples.length<10)return;
   const sorted=calibration.samples.slice().sort((a,b)=>a-b),median=sorted[Math.floor(sorted.length/2)];
   if(calibration.phase==='open'){calibration.open=median;calibration.phase='closed';calibration.samples=[];calibration.start=0;signal('校准 2/2：现在握拳，保持约 1 秒','waiting');}
-  else{gesture.openThreshold=median+(calibration.open-median)*.72;gesture.closedThreshold=median+(calibration.open-median)*.28;calibration=null;gesture.reset();$('calibrate').textContent='重新校准手势';signal('校准完成。先张开，再握拳。');}
+  else{
+    gesture.openThreshold=median+(calibration.open-median)*.72;
+    gesture.closedThreshold=median+(calibration.open-median)*.28;
+    saveInputProfile('hand',stream?.getVideoTracks()[0],{openThreshold:gesture.openThreshold,closedThreshold:gesture.closedThreshold});
+    calibration=null;gesture.reset();$('calibrate').textContent='重新校准手势';signal('校准完成。先张开，再握拳。');
+  }
 }
 function trackHand(now){
   if(!cameraActive||video.readyState<2||now-lastInference<66||video.currentTime===lastVideoTime)return;
@@ -130,7 +147,7 @@ function trackHand(now){
     handPresent=Number.isFinite(score);
     if(!handPresent){gesture.reset();sim.cancelInput();}
     if(calibration){calibrate(score,now);return;}
-    if(!handPresent){signal('未检测到手 · 将手放回画面，先张开手掌','waiting');return;}
+    if(!handPresent){signal(sim.started?'手在画外 · 旅程继续':'请把张开的手掌放进画面','waiting');return;}
     if(manualPause||!sim.audioReady){gesture.reset();sim.cancelInput();return;}
     gesture.update(score,now);
     if(['open','closed'].includes(gesture.state))sim.setHand(gesture.state);
@@ -247,7 +264,7 @@ function updateUI(){
  showText('level-progress',sim.complete?(ending?'旅程完成':'本章完成 · 点击继续旅程'):sim.objective);
  showText('journey-feedback',sim.feedback);
  showText('encounter-status',sim.complete?'':sim.cue);
- $('hand-state').textContent=!handPresent?'手未进入画面':sim.hand==='unknown'?'先张开手掌':sim.holding?'握拳':'张手';
+ $('hand-state').textContent=!handPresent?(sim.started?'画外 · 继续':'手未进入画面'):sim.hand==='unknown'?'先张开手掌':sim.holding?'握拳':'张手';
  $('voice-state').textContent=sim.audioReady?band(sim.controlVoice)+' '+Math.round(sim.controlVoice*100)+'%':'等待校准';
  $('activity').textContent=sim.complete?'世界记住了你':paused()?'等待真实输入':'真实手势与声音已连接';
  $('phase-label').textContent=environment.name;$('journey-clock').textContent=Math.floor(sim.elapsed/60).toString().padStart(2,'0')+':'+Math.floor(sim.elapsed%60).toString().padStart(2,'0');
@@ -268,7 +285,7 @@ function frame(now){const dt=Math.min((now-frameTime)/1000,.04);frameTime=now;sp
  interactions.beforeUpdate(dt,now);trackHand(now);
  if(cameraActive&&now-lastInference>300){
    handPresent=false;sim.cancelInput();gesture.reset();
-   signal('未收到新摄像头画面 · 旅程已暂停','waiting');
+   signal(sim.started?'等待下一帧手势 · 旅程继续':'等待摄像头画面','waiting');
  }
  const playing=!paused()&&!sim.complete;
  if(playing)sim.update(dt,true);

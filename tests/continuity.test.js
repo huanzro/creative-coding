@@ -50,8 +50,8 @@ test('touch A and B select fixed routes and phases while space still toggles',()
  assert.equal(stars.click(0),true);
  assert.equal(stars.color,0);
  stars.cancelInput();
- assert.equal(stars.click(1),false);
- assert.equal(stars.color,0);
+ assert.equal(stars.click(1),true);
+ assert.equal(stars.color,1);
 });
 test('unprotected gusts lose companions, while a nest lets the player recover locally',()=>{
  const s=fresh();until(s,()=>s.phase==='fork');s.click();hand(s,'closed');hand(s,'open');until(s,()=>s.phase==='nest');assert.equal(s.flock,2);
@@ -92,8 +92,29 @@ test('star waves actually travel, combine amplitudes and finish with a response 
 test('wrong phase leaves a measurable residual and retries the same incoming wave',()=>{
  const s=fresh(2);hand(s,'closed');voice(s,.45);tick(s,60);assert.equal(s.waveReady,false);hand(s,'open');until(s,()=>s.phase==='wave-retry');assert.ok(s.lastResult.result>.8);assert.equal(s.waveIndex,0);until(s,()=>s.phase==='wave');assert.equal(s.objects[0].amp,.45);
 });
-test('input loss clears charge without sending a phantom response and freezes the encounter',()=>{
- const s=fresh(2);hand(s,'closed');voice(s,.7);tick(s,30);s.cancelInput();const time=s.elapsed,x=s.objects[0].x;tick(s,300);assert.equal(s.pending,null);assert.equal(s.elapsed,time);assert.equal(s.objects[0].x,x);assert.equal(s.setHand('closed'),false);hand(s,'open');assert.equal(s.pending,null);
+test('a missing hand lets the encounter advance without releasing a phantom wave',()=>{
+ const s=fresh(2);
+ hand(s,'closed');voice(s,.7);tick(s,30);s.cancelInput();
+ const time=s.elapsed,x=s.objects[0].x;
+ tick(s,60);
+ assert.equal(s.pending,null);
+ assert.ok(s.elapsed>time+.95&&s.objects[0].x<x);
+ assert.equal(s.setHand('closed'),false);
+ hand(s,'open');assert.equal(s.pending,null);
+});
+test('missing hands are never recorded as an echo action',()=>{
+ const s=fresh(1);
+ s.click();s.cancelInput();
+ until(s,()=>s.phase==='record-ready');
+ assert.deepEqual(s.recording,[]);
+ assert.match(s.feedback,/没有录到真实手势/);
+});
+test('a comfortable voice makes scenery travel faster without speeding up timers',()=>{
+ const quiet=fresh(),loud=fresh();
+ quiet.controlVoice=0;loud.controlVoice=.8;
+ tick(quiet,60);tick(loud,60);
+ assert.equal(quiet.elapsed,loud.elapsed);
+ assert.ok(loud.distance>quiet.distance*1.7);
 });
 test('comfortable calibration rejects indistinguishable noise and adapts to a quiet speaker',()=>{
  assert.equal(comfortCalibration([-50,-49,-50],[-49,-50,-49]),null);
@@ -107,8 +128,8 @@ test('comfortable calibration rejects indistinguishable noise and adapts to a qu
 test('save version migration is explicit; completed progress restores without synthetic input',()=>{
  const s=fresh();s.round=s.passed=1;s.score=300;const t=new ContinuitySimulation();assert.ok(t.restore(s.save()));assert.equal(t.round,1);assert.equal(t.hand,'unknown');assert.equal(t.restore({...s.save(),version:1}),false);assert.equal(t.restore({...s.save(),round:99}),false);
 });
-test('finished chapters can reacquire a real hand before the next physical click',()=>{
- const s=fresh();s.complete=true;s.cancelInput();assert.equal(s.click(),false);hand(s,'open');assert.equal(s.click(),'next');
+test('finished chapters accept the next click after the player has lowered their hand',()=>{
+ const s=fresh();s.complete=true;s.cancelInput();assert.equal(s.click(),'next');
 });
 test('invalid stored wave entries do not crash recovery or replace a valid gesture with a default',()=>{
  const s=fresh(2);

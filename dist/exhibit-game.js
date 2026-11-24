@@ -44,7 +44,7 @@ export function installExhibitGame(panel, choices, {respondToTouch, isBlocked}) 
   const cue = new TouchLampCue();
   panel.innerHTML = `
     <h3>展台触摸联动</h3>
-    <p class="level-help">网页 A/B 可直接选择。接好 Arduino 后，实体 A 按下亮暖灯，实体 B 按下亮蓝灯。启用实体灯光后，网页触摸也会点亮对应灯。</p>
+    <p class="level-help">旅程开始后，连接 Arduino 并勾选「启用实体灯光」。按实体或网页 A 点亮暖灯，按 B 点亮蓝灯。</p>
     <div class="sensor-readout"><span id="game-touch-a">A · —</span><span id="game-touch-b">B · —</span></div>
     <button id="game-touch-connect" class="quiet full" type="button">连接 Arduino · 触摸联动</button>
     <p id="game-touch-status" class="level-help" role="status">未连接 Arduino</p>
