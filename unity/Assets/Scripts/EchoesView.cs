@@ -4,10 +4,11 @@ using UnityEngine;
 
 namespace Echoes
 {
-    public sealed class EchoesView
+    public sealed class EchoesView : IDisposable
     {
         private const float Width = 1280, Height = 720, CenterX = 640;
-        private readonly Texture2D far, arches, flowers, ruins, stars, spirit, glow, ring;
+        private readonly Texture2D far, arches, flowers, ruins, stars, glow, ring;
+        private readonly SpiritRig spirit;
         private readonly List<Vector3> traces = new List<Vector3>(140);
         private readonly AtmosphereMotion atmosphere = new AtmosphereMotion();
         private readonly Color[] palette = {
@@ -17,6 +18,7 @@ namespace Echoes
         private float lastTime;
         private int lastChapter = -1;
         private GUIStyle title, body, button;
+        private Font interfaceFont;
         public int TimeOfDay { get; set; }
         public float ScrollSpeed { get; set; } = 1;
         private static readonly Color[] Sky = {
@@ -24,14 +26,6 @@ namespace Echoes
             new Color32(8,14,37,255), new Color32(70,40,52,255)
         };
         private static readonly float[] Tint = { .12f, .16f, .23f, .10f };
-        private static readonly Vector3[] DanceBody = {
-            new Vector3(0, 0, .03f), new Vector3(-9, 5, -.14f), new Vector3(-11, 3, -.20f),
-            new Vector3(-7, -9, -.16f), new Vector3(1, -8, -.035f), new Vector3(8, 1, .13f),
-            new Vector3(11, 5, .20f), new Vector3(7, -9, .17f), new Vector3(-1, -7, .06f),
-            new Vector3(-5, 2, -.09f)
-        };
-        private static readonly float[] DanceAt = { 0, .11f, .19f, .29f, .38f, .48f, .57f, .70f, .80f, .91f };
-
         public EchoesView()
         {
             far = Load("chapter1-1");
@@ -39,7 +33,7 @@ namespace Echoes
             flowers = Load("chapter1-2");
             ruins = Load("chapter2-0");
             stars = Load("chapter3-0");
-            spirit = Load("forest-sylph-long-dress");
+            spirit = new SpiritRig(Load("forest-sylph-long-dress"));
             glow = MakeMask(false);
             ring = MakeMask(true);
         }
@@ -79,19 +73,23 @@ namespace Echoes
             GUI.color = Color.white;
         }
 
-        private static void BeginFrame()
+        private static Matrix4x4 BeginFrame(Rect viewport)
         {
-            float scale = Mathf.Min(Screen.width / Width, Screen.height / Height);
-            GUI.matrix = Matrix4x4.TRS(new Vector3((Screen.width - Width * scale) / 2,
-                (Screen.height - Height * scale) / 2, 0), Quaternion.identity, new Vector3(scale, scale, 1));
+            Matrix4x4 previous = GUI.matrix;
+            float scale = Mathf.Min(viewport.width / Width, viewport.height / Height);
+            GUI.matrix = previous * Matrix4x4.TRS(new Vector3(viewport.x + (viewport.width - Width * scale) / 2,
+                viewport.y + (viewport.height - Height * scale) / 2, 0), Quaternion.identity, new Vector3(scale, scale, 1));
             GUI.BeginGroup(new Rect(0, 0, Width, Height));
+            return previous;
         }
 
-        private static void EndFrame()
+        private static void EndFrame(Matrix4x4 previous)
         {
             GUI.EndGroup();
-            GUI.matrix = Matrix4x4.identity;
+            GUI.matrix = previous;
         }
+
+        private static Rect ScreenViewport => new Rect(0, 0, Screen.width, Screen.height);
 
         public void Advance(Journey journey)
         {
@@ -118,9 +116,10 @@ namespace Echoes
 
         private static float CharacterY(float time) => Height * .51f + Mathf.Sin(time * 1.65f) * 8;
 
-        public void DrawStage(Journey journey, bool splitProjection)
+        public void DrawStage(Journey journey, SpiritFrame frame, bool splitProjection)
         {
-            BeginFrame();
+            if (Event.current.type != EventType.Repaint) return;
+            Matrix4x4 matrix = BeginFrame(ScreenViewport);
             var color = palette[journey.Chapter];
             float distance = lastDistance + atmosphere.Drift;
             Paint(new Rect(0, 0, Width, Height), new Color(.025f, .045f, .08f));
@@ -139,10 +138,6 @@ namespace Echoes
             Paint(new Rect(0, 0, Width, Height), new Color(.012f, .039f, .094f, .33f * (1 - atmosphere.Wake)));
             Paint(new Rect(-300, -30, 1200, 980), Opacity(color, .04f + atmosphere.Wake * .28f), glow);
             Paint(new Rect(540, -330, 1040, 1060), Opacity(color, atmosphere.Wake * .22f + atmosphere.Energy * .15f), glow);
-            float release = (journey.Time - journey.LastRelease) / 2.2f;
-            if (release >= 0 && release < 1)
-                Ripple(CenterX, CharacterY(journey.Time), 137 + 820 * release, color,
-                    Mathf.Pow(1 - release, 1.4f) * atmosphere.Wake * .58f);
             for (int i = 0; i < 49; i++)
             {
                 float x = Mathf.Repeat(i * 157.7f - distance * Height * (.2f + i % 3 * .15f), Width);
@@ -152,14 +147,10 @@ namespace Echoes
             }
             DrawChallenge(journey, color);
             if (splitProjection)
-                Paint(new Rect(100, -100, 1080, 940), new Color(0, 0, 0, .70f), glow);
-            else
-            {
-                DrawTrace(journey, color);
-                Character(journey.Chapter, journey.Time, journey.Light, journey.Charge,
-                    journey.Gesture == Hand.Fist, false, false);
-            }
-            EndFrame();
+                Paint(new Rect(100, -100, 1080, 940), new Color(0, 0, 0, .53f), glow);
+            DrawTrace(journey, color, splitProjection ? .28f : 1);
+            DrawCharacter(frame, false, 0, 1, !splitProjection, splitProjection ? .38f : 1);
+            EndFrame(matrix);
         }
 
         private static void Tiles(Texture2D texture, float distance, float speed, float zoom, float y, float opacity)
@@ -178,12 +169,12 @@ namespace Echoes
             GUI.color = Color.white;
         }
 
-        private void DrawTrace(Journey journey, Color color)
+        private void DrawTrace(Journey journey, Color color, float strength)
         {
             for (int i = 0; i < traces.Count; i++)
             {
                 var point = traces[i];
-                float alpha = (i + 1f) / traces.Count * (.14f + point.z * .5f);
+                float alpha = (i + 1f) / traces.Count * (.14f + point.z * .5f) * strength;
                 float x = CenterX - (lastDistance - point.x) * Width;
                 Orb(x, point.y + Mathf.Sin(i * .5f + journey.Time) * 10, 7 + point.z * 20, color, alpha);
             }
@@ -259,46 +250,85 @@ namespace Echoes
         private void Ripple(float x, float y, float radius, Color color, float alpha) =>
             Paint(new Rect(x - radius, y - radius, radius * 2, radius * 2), Opacity(color, alpha), ring);
 
-        private void Character(int chapter, float time, float light, float charge, bool closed, bool mirror, bool projection)
+        public void UpdateSpirit(SpiritFrame frame) =>
+            spirit.Render(frame.time, frame.phase, frame.voice, frame.light, frame.turnAge, frame.closed);
+
+        private static Matrix4x4 RotateAbout(Matrix4x4 parent, Vector2 center, float degrees) =>
+            parent * Matrix4x4.Translate(center) * Matrix4x4.Rotate(Quaternion.Euler(0, 0, degrees))
+                * Matrix4x4.Translate(-center);
+
+        private void DrawCharacter(SpiritFrame frame, bool mirror, float rotation, float zoom,
+            bool showPortrait, float effects)
         {
-            var color = palette[Mathf.Clamp(chapter, 0, 2)];
-            float y = CharacterY(time);
-            Orb(CenterX, y, 128 + light * 74, color, .29f + charge * .27f + light * .38f);
-            if (light > .03f) Ripple(CenterX, y, 64 + (1 - light) * 122, color, light * .61f);
-            if (closed) Ripple(CenterX, y, 75 + charge * 27, color, .32f + charge * .44f);
-            float size = (closed ? 139 : 162) * (projection ? 4.1f : 1);
-            float width = size * .68f;
-            if (spirit == null)
+            var color = palette[Mathf.Clamp(frame.chapter, 0, 2)];
+            float y = CharacterY(frame.time);
+            float size = (frame.closed ? 149 : 162) * zoom;
+            float effectScale = Mathf.Sqrt(zoom);
+            Orb(CenterX, y, (128 + frame.light * 74) * effectScale, color,
+                (.13f + frame.charge * .14f + frame.light * .20f) * effects);
+            if (frame.releaseAge >= 0 && frame.releaseAge < 2.2f)
             {
-                Orb(CenterX, y, 42, color, 1);
-                return;
+                float progress = frame.releaseAge / 2.2f;
+                float strength = Mathf.Pow(1 - progress, 1.45f) * effects;
+                Ripple(CenterX, y, (76 + progress * 230) * effectScale, color, strength * .56f);
+                Ripple(CenterX, y, (124 + progress * 660) * effectScale, color, strength * .27f);
             }
-            if (Event.current.type != EventType.Repaint) return;
-            // The Unity sprite follows the body timing of the original dance.
-            float phase = Mathf.Repeat(time * .15f, 1);
-            int cue = DanceAt.Length - 1;
-            while (cue > 0 && phase < DanceAt[cue]) cue--;
-            int next = (cue + 1) % DanceAt.Length;
-            float blend = Mathf.SmoothStep(0, 1, (phase - DanceAt[cue]) / ((next == 0 ? 1 : DanceAt[next]) - DanceAt[cue]));
-            Vector3 pose = Vector3.Lerp(DanceBody[cue], DanceBody[next], blend);
-            float x = CenterX + (mirror ? -pose.x : pose.x) * (closed ? .25f : .7f);
-            y += pose.y * .55f;
+            if (frame.closed) Ripple(CenterX, y, (75 + frame.charge * 27) * effectScale,
+                color, (.20f + frame.charge * .26f) * effects);
             Matrix4x4 before = GUI.matrix;
-            GUIUtility.RotateAroundPivot((projection ? -90 : 0) + pose.z * (closed ? 12 : 38) * (mirror ? -1 : 1),
-                new Vector2(x, y));
-            GUI.color = Color.Lerp(Color.white, color, projection ? .07f : .18f);
-            GUI.DrawTextureWithTexCoords(new Rect(x - width / 2, y - size / 2, width, size),
-                spirit, mirror ? new Rect(1, 0, -1, 1) : new Rect(0, 0, 1, 1), true);
-            GUI.color = Color.white;
+            if (rotation != 0) GUI.matrix = RotateAbout(before, new Vector2(CenterX, y), rotation);
+            if (spirit.Articulated)
+                DrawGestureTrails(frame.time, new Vector2(CenterX, y), size, color, mirror, effects);
+            if (showPortrait)
+            {
+                Texture texture = spirit.Texture;
+                if (texture == null) Orb(CenterX, y, 42, color, .65f);
+                else
+                {
+                    float width = size * (spirit.Articulated ? SpiritRig.WidthScale : 2f / 3);
+                    float height = size * (spirit.Articulated ? SpiritRig.HeightScale : 1);
+                    GUI.DrawTextureWithTexCoords(new Rect(CenterX - width / 2, y - height / 2, width, height),
+                        texture, mirror ? new Rect(1, 0, -1, 1) : new Rect(0, 0, 1, 1), true);
+                }
+            }
             GUI.matrix = before;
         }
 
-        public void DrawProjection(int chapter, float time, float light, float charge, bool closed, bool mirror)
+        private void DrawGestureTrails(float time, Vector2 center, float size, Color color, bool mirror, float strength)
         {
-            BeginFrame();
-            Paint(new Rect(0, 0, Width, Height), Color.black);
-            Character(chapter, time, light, charge, closed, mirror, true);
-            EndFrame();
+            Vector2 scale = new Vector2(mirror ? -size : size, size);
+            for (int anchor = 0; anchor < 4; anchor++)
+            {
+                var trace = spirit.Trace(anchor);
+                Color tint = anchor % 2 == 0 ? color : Color.Lerp(color, new Color(.64f, .87f, .74f), .5f);
+                for (int index = 1; index < trace.Count; index++)
+                {
+                    var point = trace[index];
+                    float fade = Mathf.Pow(Mathf.Clamp01(1 - (time - point.Time) / .48f), 1.5f)
+                        * point.Energy * strength;
+                    if (fade < .015f) continue;
+                    Vector2 a = center + Vector2.Scale(trace[index - 1].Position, scale);
+                    Vector2 b = center + Vector2.Scale(point.Position, scale);
+                    Vector2 direction = b - a;
+                    if (direction.sqrMagnitude < .09f) continue;
+                    Matrix4x4 previous = GUI.matrix;
+                    GUI.matrix = RotateAbout(previous, a, Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg);
+                    float thickness = Mathf.Clamp(size / (anchor < 2 ? 92 : 145), .65f, 3.2f);
+                    Paint(new Rect(a.x, a.y - thickness / 2, direction.magnitude, thickness),
+                        Opacity(tint, fade * .55f));
+                    GUI.matrix = previous;
+                }
+            }
+        }
+
+        public void DrawProjection(SpiritFrame frame, bool mirror, bool sideways, Rect? bounds = null)
+        {
+            if (Event.current.type != EventType.Repaint) return;
+            Rect viewport = bounds ?? ScreenViewport;
+            Paint(viewport, Color.black);
+            Matrix4x4 matrix = BeginFrame(viewport);
+            DrawCharacter(frame, mirror, sideways ? -90 : 0, sideways ? 4.1f : 3.15f, true, 1);
+            EndFrame(matrix);
         }
 
         public void DrawControls(string heading, string message, string left, string right, float volume,
@@ -307,13 +337,13 @@ namespace Echoes
         {
             if (title == null)
             {
-                Font font = Font.CreateDynamicFontFromOSFont(new[] { "Microsoft YaHei", "PingFang SC", "Arial" }, 22);
-                title = new GUIStyle(GUI.skin.label) { font = font, fontSize = 27 };
-                body = new GUIStyle(GUI.skin.label) { font = font, fontSize = 17 };
-                button = new GUIStyle(GUI.skin.button) { font = font, fontSize = 16 };
+                interfaceFont = Font.CreateDynamicFontFromOSFont(new[] { "Microsoft YaHei", "PingFang SC", "Arial" }, 22);
+                title = new GUIStyle(GUI.skin.label) { font = interfaceFont, fontSize = 27 };
+                body = new GUIStyle(GUI.skin.label) { font = interfaceFont, fontSize = 17 };
+                button = new GUIStyle(GUI.skin.button) { font = interfaceFont, fontSize = 16 };
             }
-            BeginFrame();
-            if (characterOnly && settings == null) { EndFrame(); return; }
+            Matrix4x4 matrix = BeginFrame(ScreenViewport);
+            if (characterOnly && settings == null) { EndFrame(matrix); return; }
             if (GUI.Button(new Rect(1065, 27, 186, 36), settings == null ? "游戏设置 · F1" : "关闭设置 · F1", button))
                 toggleSettings();
             Paint(new Rect(26, 22, 689, 100), new Color(.02f, .05f, .09f, .85f));
@@ -333,13 +363,21 @@ namespace Echoes
                 if (GUI.Button(new Rect(935 + i * 100, 640, 91, 34), names[i], button)) select(i.ToString());
             if (settings != null)
             {
-                var panel = new Rect(724, 72, 527, 319);
+                var panel = new Rect(724, 72, 527, 357);
                 Paint(panel, new Color(.02f, .05f, .09f, .96f));
                 GUI.BeginGroup(panel);
                 settings(body, button);
                 GUI.EndGroup();
             }
-            EndFrame();
+            EndFrame(matrix);
+        }
+
+        public void Dispose()
+        {
+            spirit.Dispose();
+            UnityEngine.Object.Destroy(glow);
+            UnityEngine.Object.Destroy(ring);
+            if (interfaceFont != null) UnityEngine.Object.Destroy(interfaceFont);
         }
     }
 }

@@ -32,6 +32,11 @@ namespace Echoes
         private Frame remote = new Frame();
         private const string SaveKey = "EchoesUnity.Checkpoint.1.";
         private static readonly string[] Titles = { "沉睡森林", "回声之门", "星海回响" };
+#if UNITY_EDITOR
+        public static EchoesPlayer Active { get; private set; }
+        public static event Action CharacterWindowRequested;
+        private bool editorProjection;
+#endif
 
         [Serializable]
         private sealed class Frame
@@ -40,6 +45,7 @@ namespace Echoes
             public float time, light, charge, voice, progress;
             public bool closed, waiting, complete, paused, preview;
             public string title, message, left, right, phase;
+            public SpiritFrame spirit = new SpiritFrame { releaseAge = -1, turnAge = -1 };
         }
 
 #if UNITY_WEBGL && !UNITY_EDITOR
@@ -60,18 +66,30 @@ namespace Echoes
             camera.clearFlags = CameraClearFlags.SolidColor;
             camera.backgroundColor = Color.black;
             camera.cullingMask = 0;
+        }
+
+        private void OnEnable()
+        {
+            // Awake is not rerun when Unity reloads scripts during a Play Mode iteration.
             preview = Application.platform != RuntimePlatform.WebGLPlayer;
             view = new EchoesView();
             savedRevision = journey.Revision;
             Application.targetFrameRate = 60;
+#if UNITY_EDITOR
+            Active = this;
+#endif
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
-            exhibit.Pressed += option => Touch(option, true);
+            exhibit.Pressed += PhysicalTouch;
             comPort = PlayerPrefs.GetString("EchoesUnity.Port", comPort);
 #endif
 #if UNITY_WEBGL && !UNITY_EDITOR
             WebGLInput.captureAllKeyboardInput = false;
 #endif
         }
+
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+        private void PhysicalTouch(int option) { Touch(option, true); }
+#endif
 
         private void Update()
         {
@@ -144,21 +162,32 @@ namespace Echoes
                 message = journey.Phase == Stage.Replay
                     ? journey.Message + (journey.RequiredHand == Hand.Open ? " 当前要张手。" : " 当前要握拳。")
                     : journey.Message,
-                left = left, right = right, phase = journey.Phase.ToString()
+                left = left, right = right, phase = journey.Phase.ToString(), spirit = SpiritFrame.Read(journey)
             };
+        }
+
+        private void LateUpdate()
+        {
+            view?.UpdateSpirit(projection ? remote.spirit : SpiritFrame.Read(journey));
         }
 
         private void OnGUI()
         {
             if (projection)
             {
-                view.DrawProjection(remote.chapter, remote.time, remote.light, remote.charge, remote.closed, mirror);
+                view.DrawProjection(remote.spirit, mirror, true);
                 return;
             }
-            if (characterOnly)
-                view.DrawProjection(journey.Chapter, journey.Time, journey.Light, journey.Charge,
-                    journey.Gesture == Hand.Fist, mirror);
-            else view.DrawStage(journey, splitProjection);
+            SpiritFrame spirit = SpiritFrame.Read(journey);
+            if (characterOnly) view.DrawProjection(spirit, mirror, true);
+            else
+            {
+                bool split = splitProjection;
+#if UNITY_EDITOR
+                split |= editorProjection;
+#endif
+                view.DrawStage(journey, spirit, split);
+            }
             if (Application.platform == RuntimePlatform.WebGLPlayer) return;
             var state = Snapshot();
             view.DrawControls(state.title, state.message, state.left, state.right, state.voice,
@@ -206,7 +235,20 @@ namespace Echoes
             GUI.enabled = guiEnabled;
             if (GUI.Button(new Rect(371, 270, 132, 30), "关闭实体输出", button)) exhibit.StopOutput();
 #endif
+#if UNITY_EDITOR
+            if (GUI.Button(new Rect(20, 309, 183, 30), "打开独立人物窗口", button)) CharacterWindowRequested?.Invoke();
+            if (editorProjection) GUI.Label(new Rect(219, 309, 270, 29), "已分屏 · 背景保留淡光效", label);
+#endif
         }
+
+#if UNITY_EDITOR
+        public void SetEditorProjection(bool active) { editorProjection = active; }
+
+        public void DrawCharacterWindow(Rect viewport, bool mirrored, bool sideways)
+        {
+            view?.DrawProjection(SpiritFrame.Read(journey), mirrored, sideways, viewport);
+        }
+#endif
 
         public void BrowserHand(string value)
         {
@@ -290,12 +332,18 @@ namespace Echoes
 
         private void OnDisable()
         {
+#if UNITY_EDITOR
+            if (Active == this) Active = null;
+#endif
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+            exhibit.Pressed -= PhysicalTouch;
             exhibit.Dispose();
 #endif
 #if !UNITY_WEBGL || UNITY_EDITOR
             microphone.Stop();
 #endif
+            view?.Dispose();
+            view = null;
         }
 
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN

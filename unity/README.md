@@ -7,18 +7,23 @@
 3. 在编辑器里，松开空格是张手，按住空格是握拳，Z 是轻声，X 是舒适发声。A/B 选择，R 重试。通过底部按钮进入任意章节。按 **F1** 或点右上角**游戏设置**调背景时段和滚动速度、模拟手离开、查看纯黑人物。
 4. 安装同版本 WebGL Build Support 后，选择 `Echoes of Light > Build Web Preview`。输出位于 `unity/Builds/Web/`。在该目录运行 `python -m http.server 8780 --bind 127.0.0.1`，用桌面 Chrome 或 Edge 打开 `http://localhost:8780/`。
 
+Unity Play Mode 中按 **F1 → 打开独立人物窗口**，也可以用编辑器顶部的 **Echoes of Light → Character Projection**。把浮动窗口标题栏拖到第二块屏幕。人物窗的 **M** 切换镜像、**R** 切换横放和直立、**H** 隐藏控制条。关掉人物窗会让精灵回到 Game 视图。人物窗与 Game 读取同一个姿态，Game 分屏后仍显示较淡的手脚光迹和释放光圈。
+
+按住 **空格＋X** 蓄力，再松开空格，精灵随光圈起舞并转一周。轻声或静音的释放会产生光圈。手脚和衣料形变沿用旧版的舞蹈关键帧；高速转身采用同一张立绘的 2.5D 变形。
+
 在 Unity 游戏设置中可开启原生麦克风。首次使用时安静 2 秒，接着舒适地哼声 3 秒。本机保存该麦克风的校准，重新开启时复用。真实手势识别仍走浏览器，Unity Play Mode 内用空格和“模拟手离开”覆盖相同的输入状态。
 
 Windows 的 Unity 游戏设置可填写设备管理器里的 COM 号并连接 Arduino。A/B 输入和双灯、风扇共用一个 EOL3 串口。双灯和风扇各有启用开关，组合固件报告支持后才可启用风扇。暂停、失去窗口焦点、停止 Play Mode 或串口失联会取消输出。旧 EOL3 固件可继续测试触摸和双灯。接线与烧录见 [EOL3 展台说明](../docs/EXHIBIT_WIRING.md)。
 
-WebGL 导出支持摄像头和麦克风权限，按设备复用校准。双屏投影通过独立人物窗口实现。拖到第二块屏后双击全屏，M 切换镜像，H 隐藏提示。Unity 游戏中的纯黑人物模式用于检查构图，双实体屏的摆位和投影仍需现场验证。
+WebGL 导出支持摄像头和麦克风权限，按设备复用校准。导出版可用浏览器的双屏投影按钮打开人物窗，拖到第二块屏后双击全屏。D 盘编辑器里的独立窗口用于本机调试，双实体屏的摆位和投影仍需现场验证。
 
 ## 跨会话进度
 
 - [第 16 版玩法设置与组合固件](https://github.com/huanzro/creative-coding/commit/e7a8f4a37823369786e382cd06ac68e39cd4a4cd)。调整章节、时段、背景速度，合并串口。Unity 复用同一 EOL3 固件。
 - [第 15 版输入体验](https://github.com/huanzro/creative-coding/commit/fd5321324ee44a8e30657876e04d902419053ac4)。开局后手离开时旅程继续，未检测到手的时段不会当成张手或握拳；握拳蓄力清除。声音加快画面滚动，关卡计时保持原速。
 - [第 14 版场景响应](https://github.com/huanzro/creative-coding/commit/d5ad9549d848ca8a318b93e1e39ba70e7dd2dbf2)。三章张手醒光、握拳压暗并减慢背景，握拳后张手时扩散光波，声音带动视差和粒子。
-- [精灵和双屏投影](https://github.com/huanzro/creative-coding/commit/8586e2650970245beb3fefe7e76aaadcc47b5815)。Unity 复用原角色、舞蹈的躯干节奏与人物窗口的左向旋转。旧版的手脚分层和裙摆变形仍待迁移。布料、实体花朵等候选互动留待选定方案后实现。
+- [精灵和双屏投影](https://github.com/huanzro/creative-coding/commit/8586e2650970245beb3fefe7e76aaadcc47b5815)。Unity 复用原立绘、手肘、手腕、脚尖、裙摆和飘带的动作，增加独立人物窗与高速释放转身。
+- [下一版关卡与角色演出草案](../docs/UNITY_LEVEL_DESIGN.md)。
 
 三个场景复用现有作品素材，导入时从仓库自动拷贝，出处和 MediaPipe 许可见 [素材说明](../THIRD_PARTY.md)。网页端调用现有的识别、音量与硬件模块，`Journey.cs` 独立负责玩法。
 

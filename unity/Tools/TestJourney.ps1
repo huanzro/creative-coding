@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-$sources = 'Journey.cs', 'AtmosphereMotion.cs', 'ExhibitProtocol.cs' |
+$sources = 'Journey.cs', 'AtmosphereMotion.cs', 'ExhibitProtocol.cs', 'SpiritFrame.cs' |
     ForEach-Object { Join-Path $PSScriptRoot "../Assets/Scripts/$_" }
 Add-Type -Path $sources
 
@@ -105,6 +105,25 @@ Assert ($saved.Time -gt $time -and $saved.Held -eq 0 -and $saved.Charge -eq 0) '
 Assert ($saved.LastRelease -eq $release -and !$saved.HasResponse) 'Hand loss must not trigger a release.'
 $saved.SetHand([Echoes.Hand]::Fist)
 Assert ($saved.Gesture -eq 'Missing') 'A returning hand must open before rearming.'
+
+$dancer = [Echoes.Journey]::new()
+Hand $dancer Open .65 0
+Hand $dancer Fist .65 .3
+$dancer.SetHand([Echoes.Hand]::Open)
+$pose = [Echoes.SpiritFrame]::Read($dancer)
+Assert ($pose.releaseAge -eq 0 -and $pose.turnAge -eq -1) 'A slow release should emit a ring without spinning.'
+Hand $dancer Fist .7 .7
+$dancer.SetHand([Echoes.Hand]::Open)
+$pose = [Echoes.SpiritFrame]::Read($dancer)
+Assert ($pose.releaseAge -eq 0 -and $pose.turnAge -eq 0) 'An accelerated charged release should start one turn alongside the ring.'
+$turn = $dancer.LastSpin
+Hand $dancer Fist .45 .7
+$dancer.SetHand([Echoes.Hand]::Open)
+Assert ($dancer.LastSpin -eq $turn) 'A nearby second release must not restart the facing mid-turn.'
+Step $dancer 1.65 .7
+Assert (([Echoes.SpiritFrame]::Read($dancer)).turnAge -eq -1) 'The turn should finish automatically while travel continues.'
+$dancer.SelectChapter(2)
+Assert (([Echoes.SpiritFrame]::Read($dancer)).releaseAge -eq -1) 'A different chapter must not inherit the previous ring.'
 
 $noHand = [Echoes.Journey]::new()
 $noHand.SelectChapter(1)

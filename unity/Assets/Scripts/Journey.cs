@@ -34,6 +34,8 @@ namespace Echoes
         public bool Started { get; private set; }
         public float Time { get; private set; }
         public float LastRelease { get; private set; }
+        public float LastSpin { get; private set; }
+        public float DancePhase { get; private set; }
         public float Age { get; private set; }
         public float Distance { get; private set; }
         public float Progress { get; private set; }
@@ -68,6 +70,7 @@ namespace Echoes
             Lesson = chapter == 0 ? 0 : -1;
             Choice = Score = 0;
             Distance = Time = 0;
+            DancePhase = 0;
             ResetSegment();
             Revision++;
         }
@@ -94,6 +97,7 @@ namespace Echoes
             Gesture = Hand.Missing;
             Started = false;
             LastRelease = float.NegativeInfinity;
+            LastSpin = float.NegativeInfinity;
             Flock = Slot = WaveIndex = 0;
             Voice = Charge = Held = Light = openTime = fistTime = softTime = fullTime = 0;
             Choice = 0;
@@ -189,6 +193,9 @@ namespace Echoes
         {
             Light = 1;
             LastRelease = Time;
+            // Only an intentional, charged release during fast travel starts a turn.
+            if (Held >= .25f && Voice >= .58f && Charge >= .48f && Time - LastSpin >= 1.3f)
+                LastSpin = Time;
             switch (Phase)
             {
                 case Stage.Tutorial:
@@ -224,6 +231,7 @@ namespace Echoes
             Time += dt;
             Age += dt;
             Voice = float.IsNaN(voice) || float.IsInfinity(voice) ? 0 : Math.Max(0, Math.Min(1, voice));
+            DancePhase = (DancePhase + dt * (.164f + .122f * Voice)) % 1;
             Light = Math.Max(0, Light - dt * .9f);
             bool fist = Gesture == Hand.Fist;
             bool gentle = Gesture == Hand.Open && Voice >= .12f && Voice <= .45f;
