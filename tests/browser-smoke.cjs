@@ -146,6 +146,59 @@ async function verifyStartupCard(browser) {
   }
 }
 
+async function verifyReactiveBackground(browser) {
+  const page=await browser.newPage();
+  try {
+    await page.goto(base.href);
+    const scenes=await page.evaluate(async () => {
+      const {AtmosphereMotion,drawAtmosphere,loadAtmosphere}=await import('./atmosphere.js');
+      if(!await loadAtmosphere())throw new Error('Background artwork did not load');
+      const canvas=document.createElement('canvas');
+      canvas.width=360;canvas.height=240;
+      const context=canvas.getContext('2d',{willReadFrequently:true});
+      const sim={voice:.4,holding:false,passed:0,goal:3,time:3,elapsed:0,y:.5,distance:0,lastPower:-Infinity};
+      const frame=(scene,motion)=>{
+        drawAtmosphere(context,360,240,scene,sim,'dusk',motion);
+        return context.getImageData(0,0,360,240).data;
+      };
+      const mean=values=>{
+        let total=0;
+        for(let i=0;i<values.length;i+=4)total+=values[i]+values[i+1]+values[i+2];
+        return total/(values.length/4*3);
+      };
+      const difference=(a,b)=>{
+        let changed=0;
+        for(let i=0;i<a.length;i+=4){
+          if(Math.abs(a[i]-b[i])+Math.abs(a[i+1]-b[i+1])+Math.abs(a[i+2]-b[i+2])>=12)changed++;
+        }
+        return changed;
+      };
+      return ['forest','geometry','stars'].map(scene=>{
+        const motion=new AtmosphereMotion();
+        sim.holding=true;sim.lastPower=-Infinity;
+        for(let i=0;i<90;i++)motion.update(1/60,sim,true);
+        const closed=frame(scene,motion);
+        sim.holding=false;
+        for(let i=0;i<90;i++)motion.update(1/60,sim,true);
+        const opened=frame(scene,motion);
+        sim.lastPower=sim.time-.45;
+        const released=frame(scene,motion);
+        sim.lastPower=-Infinity;
+        motion.drift+=.15;
+        const moved=frame(scene,motion);
+        return {scene,wake:mean(opened)-mean(closed),release:difference(opened,released),scroll:difference(opened,moved)};
+      });
+    });
+    for(const state of scenes){
+      assert.ok(state.wake>5, JSON.stringify(state));
+      assert.ok(state.release>500, JSON.stringify(state));
+      assert.ok(state.scroll>600, JSON.stringify(state));
+    }
+  } finally {
+    await page.close();
+  }
+}
+
 async function verifyTouchController(browser) {
   const page = await browser.newPage();
   await page.goto(base.href);
@@ -203,8 +256,9 @@ async function main() {
     await verifySite(browser);
     await verifyDeniedPermissions(browser);
     await verifyStartupCard(browser);
+    await verifyReactiveBackground(browser);
     await verifyTouchController(browser);
-    console.log('Passed: in-scene device setup and calibration, permission denial, input lock, checkpoint, projection, assets, and mocked Web Serial.');
+    console.log('Passed: device setup, three responsive backgrounds, checkpoints, projection, public assets, and mocked Web Serial.');
   } finally {
     await browser.close();
   }

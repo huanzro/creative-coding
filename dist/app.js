@@ -2,12 +2,13 @@ import {ContinuitySimulation,CHAPTERS,band} from './continuity.js';
 import {GestureGate,handOpenness,clamp,LEVELS,worldToScreen} from './core.js';
 import {projectionSpiritScale,renderSpirit} from './spirit-renderer.js';
 import {drawContinuity} from './continuity-render.js';
-import {loadAtmosphere,drawAtmosphere,atmosphereAt} from './atmosphere.js';
+import {AtmosphereMotion,loadAtmosphere,drawAtmosphere,atmosphereAt} from './atmosphere.js';
 import {installInteractionControls} from './interaction-controls.js';
 import {installExhibitGame} from './exhibit-game.js';
 const $=id=>document.getElementById(id),canvas=$('world'),video=$('webcam'),handCanvas=$('hand-overlay'),hc=handCanvas.getContext('2d');
 let ctx=canvas.getContext('2d');const mainContext=ctx;
 const sim=new ContinuitySimulation(),gesture=new GestureGate();
+let atmosphereMotion=new AtmosphereMotion();
 let scene='forest',blackDisplay=false,manualPause=false,cameraActive=false,loading=false,stream=null,detector=null;
 let handPresent=false,lastInference=0,lastVideoTime=-1,frameTime=performance.now(),lastUI=0,calibration=null,cameraGeneration=0;
 let W=1000,H=800,dpr=1,projectionWindow=null,projectionCanvas=null,splitProjection=false;
@@ -43,6 +44,7 @@ function setScene(next,checkpoint=false){
  }else{
   saveIfChanged();
   scene=next;blackDisplay=false;
+  atmosphereMotion=new AtmosphereMotion();
   sim.reset(LEVELS.findIndex(level=>level.id===next));
   sim.configureChallenge(true);
   gesture.reset();manualPause=false;
@@ -77,6 +79,7 @@ $('resume-journey').onclick=()=>{
  try{checkpoint=JSON.parse(localStorage.getItem(CHECKPOINT_KEY));}catch{}
  if(!sim.restore(checkpoint)){signal('没有可恢复的当前版本检查点。','waiting');return;}
  scene=LEVELS[sim.levelIndex].id;blackDisplay=false;
+ atmosphereMotion=new AtmosphereMotion();
  gesture.reset();manualPause=false;savedRevision=sim.checkpointRevision;
  syncSceneControls();updateUI();
 };
@@ -146,7 +149,7 @@ let environment=atmosphereAt(0);
 loadAtmosphere().then(ready=>{if(!ready)$('asset-status').textContent='部分背景未加载，请刷新页面。';else $('asset-status').hidden=true;});
 function drawBackground(){
   if(blackDisplay){ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);return;}
-  environment=drawAtmosphere(ctx,W,H,scene,sim,$('time-of-day').value);
+  environment=drawAtmosphere(ctx,W,H,scene,sim,$('time-of-day').value,atmosphereMotion);
 }
 function drawPowers(){
   ctx.save();ctx.globalCompositeOperation='screen';
@@ -267,7 +270,9 @@ function frame(now){const dt=Math.min((now-frameTime)/1000,.04);frameTime=now;sp
    handPresent=false;sim.cancelInput();gesture.reset();
    signal('未收到新摄像头画面 · 旅程已暂停','waiting');
  }
- if(!paused())sim.update(dt,true);
+ const playing=!paused()&&!sim.complete;
+ if(playing)sim.update(dt,true);
+ atmosphereMotion.update(dt,sim,playing);
  interactions.afterUpdate(dt);exhibitGame.update(now);
  if(projectionWindow?.closed){
   projectionWindow=null;projectionCanvas=null;splitProjection=false;

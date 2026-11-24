@@ -1,4 +1,4 @@
-import {atmosphereAt} from '../dist/atmosphere.js';
+import {AtmosphereMotion,atmosphereAt} from '../dist/atmosphere.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {GestureGate, SpiritSimulation, handOpenness, LEVELS, worldToScreen} from '../dist/core.js';
@@ -88,6 +88,24 @@ test('time-of-day presets and automatic transitions are deterministic and bounde
   assert.equal(atmosphereAt(0).name,'薄暮');assert.equal(atmosphereAt(1).name,'破晓');assert.equal(atmosphereAt(.2,'night').name,'月夜');
   const a=atmosphereAt(.3332),b=atmosphereAt(.3334);assert.ok(Math.abs(a.strength-b.strength)<.001);
   for(let p=0;p<1;p+=.01){const v=atmosphereAt(p);assert.ok(v.warm.every(c=>c>=0&&c<=255));}
+});
+test('background flow responds to voice and hand without changing game progress',()=>{
+  const quiet=new AtmosphereMotion(),voice=new AtmosphereMotion(),fist=new AtmosphereMotion();
+  const openState=Object.freeze({voice:.7,holding:false,time:5,elapsed:5});
+  const heldState={...openState,holding:true};
+  for(let i=0;i<60;i++){
+    quiet.update(1/60,{...openState,voice:0},true);
+    voice.update(1/60,openState,true);
+    fist.update(1/60,heldState,true);
+  }
+  assert.ok(voice.drift>quiet.drift);
+  assert.ok(voice.drift>fist.drift);
+  assert.ok(voice.wake>fist.wake+.4);
+  const distance=voice.drift;
+  for(let i=0;i<60;i++)voice.update(1/60,openState,false);
+  assert.equal(voice.drift,distance);
+  assert.ok(voice.time>1.9);
+  assert.equal(openState.elapsed,5);
 });
 
 test('restored open-close gesture lifts once and then gravity lowers the spirit',()=>{

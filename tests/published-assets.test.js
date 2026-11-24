@@ -10,7 +10,7 @@ import {GestureGate} from '../dist/core.js';
 import {ContinuitySimulation} from '../dist/continuity.js';
 test('published artwork, spirit renderer, projection animation and physical protocols are unchanged',()=>{
  const baseline=JSON.parse(fs.readFileSync(new URL('./published-assets-baseline.json',import.meta.url)));
- const migrated=new Set(['app.js','index.html','style.css','interaction-controls.js','exhibit-game.js']);
+ const migrated=new Set(['app.js','index.html','style.css','interaction-controls.js','exhibit-game.js','atmosphere.js']);
  for(const name of Object.keys(baseline.files).filter(name=>!migrated.has(name))){
   const file=fs.readFileSync(new URL('../dist/'+name,import.meta.url));
   const hashes=[file];
