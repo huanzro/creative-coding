@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>光的回响 · Unity</title>
+  <link rel="stylesheet" href="echoes.css">
+  <script type="module" src="echoes.mjs"></script>
+</head>
+<body>
+  <main>
+    <div class="stage">
+      <canvas id="unity-canvas" tabindex="0" aria-label="光的回响游戏画面"></canvas>
+      <div id="loading" role="status">正在载入 Unity</div>
+      <div id="overlay" hidden>
+        <p id="chapter-number"></p>
+        <h1 id="title">光的回响</h1>
+        <p id="cue"></p>
+        <meter id="progress" min="0" max="1" value="0" aria-label="当前进度"></meter>
+      </div>
+    </div>
+    <div id="controls" hidden>
+      <div class="choices">
+        <button id="choice-a" type="button">A</button>
+        <button id="choice-b" type="button">B</button>
+        <button id="camera" type="button">开启摄像头</button>
+        <button id="mic" type="button">开启麦克风并校准</button>
+        <button id="preview" type="button" aria-pressed="false">键盘试玩</button>
+      </div>
+      <div class="sensors">
+        <p id="hand-status" role="status">等待开启摄像头</p>
+        <p id="mic-status" role="status">等待开启麦克风</p>
+        <meter id="voice" min="0" max="1" value="0" aria-label="声音"></meter>
+      </div>
+      <video id="input-video" muted playsinline hidden></video>
+      <details>
+        <summary>章节与展台设置</summary>
+        <div class="settings">
+          <button type="button" data-chapter="0">森林</button>
+          <button type="button" data-chapter="1">遗迹</button>
+          <button type="button" data-chapter="2">星海</button>
+          <button id="pause" type="button">暂停</button>
+          <button id="retry" type="button">重试本段</button>
+          <button id="restore" type="button">恢复进度</button>
+          <button id="calibrate-hand" type="button" disabled>校准手势</button>
+          <button id="project" type="button">打开双屏投影</button>
+          <select id="board" aria-label="硬件固件协议">
+            <option value="EOL3">EOL3 · 双灯和触摸</option>
+            <option value="EOL2">EOL2 · 风扇和彩灯</option>
+          </select>
+          <button id="serial" type="button">连接 Arduino</button>
+          <label><input id="arm" type="checkbox" disabled>启用实体输出</label>
+        </div>
+        <p id="hardware-status" role="status">尚未连接 Arduino</p>
+      </details>
+    </div>
+  </main>
+  <div id="projection-controls" hidden>双击全屏 · M 镜像 · H 隐藏提示</div>
+  <script>
+    window.echoesBuild = {
+      loader: "Build/{{{ LOADER_FILENAME }}}",
+      dataUrl: "Build/{{{ DATA_FILENAME }}}",
+      frameworkUrl: "Build/{{{ FRAMEWORK_FILENAME }}}",
+      codeUrl: "Build/{{{ CODE_FILENAME }}}",
+      streamingAssetsUrl: "StreamingAssets",
+      companyName: "Creative Coding",
+      productName: "Echoes of Light",
+      productVersion: "1.0"
+    };
+  </script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+<linker>
+  <assembly fullname="Assembly-CSharp">
+    <type fullname="Echoes.EchoesPlayer" preserve="all" />
+  </assembly>
+</linker>

@@ -1,0 +1,10 @@
+/Library/
+/Temp/
+/Logs/
+/UserSettings/
+/Obj/
+/Builds/
+/Assets/Resources/OriginalArt/
+/Assets/Resources/OriginalArt.meta
+*.csproj
+*.sln
