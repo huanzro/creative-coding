@@ -24,7 +24,7 @@
         <button id="choice-a" type="button">A</button>
         <button id="choice-b" type="button">B</button>
         <button id="camera" type="button">开启摄像头</button>
-        <button id="mic" type="button">开启麦克风并校准</button>
+        <button id="mic" type="button">开启麦克风</button>
         <button id="preview" type="button" aria-pressed="false">键盘试玩</button>
       </div>
       <div class="sensors">
@@ -43,13 +43,16 @@
           <button id="retry" type="button">重试本段</button>
           <button id="restore" type="button">恢复进度</button>
           <button id="calibrate-hand" type="button" disabled>校准手势</button>
-          <button id="project" type="button">打开双屏投影</button>
-          <select id="board" aria-label="硬件固件协议">
-            <option value="EOL3">EOL3 · 双灯和触摸</option>
-            <option value="EOL2">EOL2 · 风扇和彩灯</option>
+          <button id="calibrate-mic" type="button" disabled>校准声音</button>
+          <select id="time-of-day" aria-label="背景时段">
+            <option value="0">自动时段</option><option value="1">薄暮</option><option value="2">蓝调</option>
+            <option value="3">月夜</option><option value="4">破晓</option>
           </select>
+          <label>背景速度 <input id="scroll-speed" type="range" min="0.25" max="2" step="0.05" value="1"></label>
+          <button id="project" type="button">打开双屏投影</button>
           <button id="serial" type="button">连接 Arduino</button>
-          <label><input id="arm" type="checkbox" disabled>启用实体输出</label>
+          <label><input id="arm" type="checkbox" disabled>启用双灯</label>
+          <label><input id="fan" type="checkbox" disabled>启用风扇</label>
         </div>
         <p id="hardware-status" role="status">尚未连接 Arduino</p>
       </details>

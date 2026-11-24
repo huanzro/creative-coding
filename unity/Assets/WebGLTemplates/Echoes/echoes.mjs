@@ -2,11 +2,11 @@
    sends render state back for the HTML controls and the second display. */
 import { GestureGate, handOpenness } from './browser/core.js';
 import { MicrophoneInput } from './browser/audio-input.js';
-import { VolumeEnvelope } from './browser/volume-core.js';
+import { VolumeEnvelope, volumeSettings } from './browser/volume-core.js';
 import { comfortCalibration } from './browser/interaction-controls.js';
 import { ExhibitSerial } from './browser/exhibit-serial.js';
 import { TouchLampCue } from './browser/exhibit-game.js';
-import { SerialOutput, outputLevels } from './browser/physical-output.js';
+import { loadInputProfile, saveInputProfile } from './browser/input-profiles.js';
 
 const ui = id => document.getElementById(id);
 const canvas = ui('unity-canvas');
@@ -20,7 +20,7 @@ const source = new MicrophoneInput(stopAudio);
 const video = ui('input-video');
 const exhibit = new ExhibitSerial();
 const cue = new TouchLampCue();
-const legacy = new SerialOutput(navigator.serial, setHardwareStatus);
+const defaultHand = { openThreshold: gesture.openThreshold, closedThreshold: gesture.closedThreshold };
 let unity, state, stream, detector, projectionWindow, audioCalibration, handCalibration;
 let cameraGeneration = 0, lastInference = 0, lastVideoTime = -1, lastHandFrame = 0;
 let audioReady = false, lastTick = 0, mirror = false;
@@ -39,29 +39,33 @@ const canOutput = () => canPlay() && !state.preview;
 
 function setHardwareStatus(message) {
   text('hardware-status', message);
-  const connected = exhibit.port || legacy.connected;
-  ui('board').disabled = Boolean(connected);
-  ui('arm').disabled = !exhibit.ready && !legacy.connected;
-  ui('arm').checked = exhibit.armed || legacy.armed;
-  text('serial', connected ? '断开 Arduino' : '连接 Arduino');
+  ui('arm').disabled = !exhibit.ready;
+  ui('fan').disabled = !exhibit.ready || !exhibit.fanSupported;
+  text('serial', exhibit.port ? '断开 Arduino' : '连接 Arduino');
 }
 
 function stopOutputs() {
   if (exhibit.armed) exhibit.setArmed(false);
-  if (legacy.armed) legacy.setArmed(false);
   cue.clear();
-  ui('arm').checked = false;
+  ui('arm').checked = ui('fan').checked = false;
+}
+
+function updateOutputs(now) {
+  if (!exhibit.armed) return;
+  const lamps = ui('arm').checked ? cue.output(now) : {};
+  const fan = ui('fan').checked ? Math.round(state.voice * 132) : 0;
+  exhibit.setOutputs({ ...lamps, fan });
 }
 
 function choose(option, momentary) {
   if (!canPlay()) return;
   send('Choose', option);
-  if (exhibit.armed && canOutput()) {
+  if (exhibit.armed && canOutput() && ui('arm').checked) {
     const touch = option === 0 ? 'touchA' : 'touchB';
     const now = performance.now();
     cue.start(touch, now);
     if (momentary) cue.release(touch, now);
-    exhibit.setOutputs(cue.output(now));
+    updateOutputs(now);
     exhibit.flush();
   }
   if (state.preview) canvas.focus();
@@ -76,6 +80,7 @@ function stopCamera() {
   ui('calibrate-hand').disabled = true;
   gesture.reset();
   send('BrowserHand', 'unknown');
+  send('BrowserCameraReady', 0);
   text('camera', '开启摄像头');
   text('hand-status', '摄像头已关闭');
 }
@@ -108,9 +113,15 @@ async function toggleCamera() {
       });
     }
     if (generation !== cameraGeneration) return;
+    const saved = loadInputProfile('hand', stream.getVideoTracks()[0]);
+    const valid = Number.isFinite(saved?.openThreshold) && Number.isFinite(saved?.closedThreshold) &&
+      saved.closedThreshold > 0 && saved.openThreshold > saved.closedThreshold;
+    gesture.openThreshold = valid ? saved.openThreshold : defaultHand.openThreshold;
+    gesture.closedThreshold = valid ? saved.closedThreshold : defaultHand.closedThreshold;
     lastVideoTime = -1;
     lastHandFrame = performance.now();
     ui('calibrate-hand').disabled = false;
+    send('BrowserCameraReady', 1);
     text('camera', '关闭摄像头');
     text('hand-status', '把一只手放入画面，先张开');
   } catch (error) {
@@ -169,6 +180,10 @@ function calibrateHand(score, now) {
   gesture.closedThreshold = median + (calibration.open - median) * .28;
   gesture.reset();
   handCalibration = null;
+  saveInputProfile('hand', stream?.getVideoTracks()[0], {
+    openThreshold: gesture.openThreshold, closedThreshold: gesture.closedThreshold
+  });
+  send('BrowserCameraReady', 1);
   text('hand-status', '手势校准完成。请先张手。');
 }
 
@@ -179,7 +194,8 @@ function stopAudio() {
   volume.reset();
   send('BrowserAudioReady', 0);
   send('BrowserVoice', 0);
-  text('mic', '开启麦克风并校准');
+  ui('calibrate-mic').disabled = true;
+  text('mic', '开启麦克风');
   text('mic-status', '麦克风已关闭');
 }
 
@@ -188,10 +204,24 @@ async function toggleAudio() {
   ui('mic').disabled = true;
   try {
     if (!await source.start()) return;
-    audioCalibration = { start: performance.now(), quiet: [], comfortable: [] };
+    const saved = loadInputProfile('mic', source.stream?.getAudioTracks()[0]);
+    if (Number.isFinite(saved?.quietDb) && Number.isFinite(saved?.loudDb) && saved.loudDb >= saved.quietDb + 6) {
+      volume.configure(volumeSettings(saved));
+      volume.reset();
+      audioReady = true;
+      send('BrowserAudioReady', 1);
+    } else beginAudioCalibration();
+    ui('calibrate-mic').disabled = false;
     text('mic', '关闭麦克风');
   } catch (error) { text('mic-status', '麦克风未就绪。' + error.message); }
   finally { ui('mic').disabled = false; }
+}
+
+function beginAudioCalibration() {
+  if (!source.active) return;
+  audioReady = false;
+  send('BrowserAudioReady', 0);
+  audioCalibration = { start: performance.now(), quiet: [], comfortable: [] };
 }
 
 function sampleAudio(now, dt) {
@@ -218,6 +248,7 @@ function sampleAudio(now, dt) {
     }
     volume.configure(settings);
     volume.reset();
+    saveInputProfile('mic', source.stream?.getAudioTracks()[0], settings);
     audioReady = true;
     send('BrowserAudioReady', '1');
   }
@@ -229,19 +260,18 @@ function sampleAudio(now, dt) {
 }
 
 function tick(now) {
+  if (projectionWindow?.closed) {
+    projectionWindow = null;
+    send('SetSplit', 0);
+  }
   if (!document.hidden) {
     track(now);
     if (now - lastTick >= 58) {
       sampleAudio(now, Math.min(.1, (now - lastTick) / 1000));
       lastTick = now;
     }
-    if (canOutput()) {
-      if (exhibit.armed) exhibit.setOutputs(cue.output(now));
-      if (legacy.armed) legacy.send(outputLevels({
-        active: !state.complete, speed: state.voice * 2.2, glow: state.light,
-        scene: ['forest', 'geometry', 'stars'][state.chapter]
-      }), now);
-    } else stopOutputs();
+    if (canOutput() && !state.complete) updateOutputs(now);
+    else stopOutputs();
   }
   requestAnimationFrame(tick);
 }
@@ -270,11 +300,13 @@ function configurePrimary() {
   ui('choice-b').onclick = () => choose(1, true);
   ui('camera').onclick = toggleCamera;
   ui('mic').onclick = toggleAudio;
+  ui('calibrate-mic').onclick = beginAudioCalibration;
   ui('calibrate-hand').onclick = () => {
     if (!stream) return;
     handCalibration = { open: null, started: 0, samples: [] };
     gesture.reset();
     send('BrowserHand', 'unknown');
+    send('BrowserCameraReady', 0);
     stopOutputs();
   };
   ui('preview').onclick = () => {
@@ -294,6 +326,8 @@ function configurePrimary() {
     button.onclick = () => send('Select', button.dataset.chapter);
   ui('retry').onclick = () => send('Retry');
   ui('restore').onclick = () => send('Restore');
+  ui('time-of-day').onchange = event => send('SetTimeOfDay', event.target.value);
+  ui('scroll-speed').oninput = event => send('SetScrollSpeed', event.target.value);
   ui('pause').onclick = () => { stopOutputs(); send('Pause', Number(!state?.paused)); };
   ui('project').disabled = !channel;
   ui('project').onclick = () => {
@@ -302,10 +336,18 @@ function configurePrimary() {
     projectionWindow = window.open(url, 'echoes_projection_' + room, 'popup,width=960,height=540');
   };
   channel?.addEventListener('message', ({ data }) => {
-    if (data === 'ready' && state) channel.postMessage(JSON.stringify(state));
+    if (data === 'ready' && state && projectionWindow && !projectionWindow.closed) {
+      send('SetSplit', 1);
+      channel.postMessage(JSON.stringify(state));
+    }
   });
   exhibit.addEventListener('status', ({ detail }) => setHardwareStatus(detail));
-  exhibit.addEventListener('armed', () => setHardwareStatus(exhibit.ready ? 'EOL3 已连接' : '等待 EOL3 固件'));
+  exhibit.addEventListener('armed', ({ detail }) => {
+    if (!detail) { ui('arm').checked = ui('fan').checked = false; cue.clear(); }
+    setHardwareStatus(exhibit.ready ? 'EOL3 已连接' : '等待 EOL3 固件');
+  });
+  exhibit.addEventListener('fan', () => setHardwareStatus(exhibit.fanSupported
+    ? '组合固件已启用风扇' : '等待组合固件'));
   exhibit.addEventListener('touch', ({ detail }) => {
     if (!['touchA', 'touchB'].includes(detail.source)) return;
     if (detail.pressed) choose(detail.source === 'touchA' ? 0 : 1, false);
@@ -315,17 +357,16 @@ function configurePrimary() {
     ui('serial').disabled = true;
     try {
       if (exhibit.port) await exhibit.disconnect();
-      else if (legacy.connected) await legacy.disconnect();
-      else if (ui('board').value === 'EOL3') await exhibit.connect();
-      else await legacy.connect();
+      else await exhibit.connect();
     } catch (error) { setHardwareStatus('串口连接未完成。' + error.message); }
     finally { ui('serial').disabled = false; }
   };
-  ui('arm').onchange = () => {
-    const armed = ui('arm').checked && canOutput();
-    if (legacy.connected) legacy.setArmed(armed);
-    else exhibit.setArmed(armed);
-    ui('arm').checked = exhibit.armed || legacy.armed;
+  ui('arm').onchange = ui('fan').onchange = () => {
+    if (!canOutput() || state.complete) { stopOutputs(); return; }
+    if (!ui('arm').checked) cue.clear();
+    exhibit.setArmed(ui('arm').checked || ui('fan').checked);
+    updateOutputs(performance.now());
+    exhibit.flush();
   };
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { stopOutputs(); send('BrowserHand', 'unknown'); }
@@ -336,7 +377,6 @@ function configurePrimary() {
     stopAudio();
     detector?.close();
     void exhibit.disconnect();
-    void legacy.disconnect();
     channel?.close();
   });
 }

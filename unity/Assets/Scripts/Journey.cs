@@ -31,7 +31,9 @@ namespace Echoes
         public int Score { get; private set; }
         public Stage Phase { get; private set; }
         public Hand Gesture { get; private set; }
+        public bool Started { get; private set; }
         public float Time { get; private set; }
+        public float LastRelease { get; private set; }
         public float Age { get; private set; }
         public float Distance { get; private set; }
         public float Progress { get; private set; }
@@ -90,6 +92,8 @@ namespace Echoes
         private void ResetSegment()
         {
             Gesture = Hand.Missing;
+            Started = false;
+            LastRelease = float.NegativeInfinity;
             Flock = Slot = WaveIndex = 0;
             Voice = Charge = Held = Light = openTime = fistTime = softTime = fullTime = 0;
             Choice = 0;
@@ -145,7 +149,7 @@ namespace Echoes
                 Score = score;
                 return true;
             }
-            if (Gesture == Hand.Missing || Phase == Stage.Complete) return false;
+            if (!Started || Phase == Stage.Complete) return false;
             if ((Phase == Stage.Tutorial && Lesson == 2) || Phase == Stage.Fork)
             {
                 Choice = option;
@@ -176,6 +180,7 @@ namespace Echoes
             if (next == Gesture || (Gesture == Hand.Missing && next == Hand.Fist)) return;
             var previous = Gesture;
             Gesture = next;
+            if (next == Hand.Open) Started = true;
             if (next != Hand.Open) Held = Charge = 0;
             if (previous == Hand.Fist && next == Hand.Open && Phase != Stage.Complete) Release();
         }
@@ -183,6 +188,7 @@ namespace Echoes
         private void Release()
         {
             Light = 1;
+            LastRelease = Time;
             switch (Phase)
             {
                 case Stage.Tutorial:
@@ -214,25 +220,25 @@ namespace Echoes
 
         public void Step(float dt, float voice)
         {
-            if (Gesture == Hand.Missing || Phase == Stage.Complete || dt <= 0) return;
+            if (!Started || Phase == Stage.Complete || dt <= 0) return;
             Time += dt;
             Age += dt;
-            Voice = Math.Max(0, Math.Min(1, voice));
+            Voice = float.IsNaN(voice) || float.IsInfinity(voice) ? 0 : Math.Max(0, Math.Min(1, voice));
             Light = Math.Max(0, Light - dt * .9f);
             bool fist = Gesture == Hand.Fist;
-            bool gentle = !fist && Voice >= .12f && Voice <= .45f;
+            bool gentle = Gesture == Hand.Open && Voice >= .12f && Voice <= .45f;
             if (fist)
             {
                 Held += dt;
                 Charge += (Voice - Charge) * (1 - (float)Math.Exp(-dt / .16f));
             }
-            Distance += dt * (Phase == Stage.Travel ? (Choice == 0 ? .09f : .15f) :
+            Distance += dt * (1 + Voice) * (Phase == Stage.Travel ? (Choice == 0 ? .09f : .15f) :
                 Phase == Stage.Cross ? .18f : .018f);
             switch (Phase)
             {
                 case Stage.Tutorial:
                     if (fist) fistTime += dt;
-                    else openTime += dt;
+                    else if (Gesture == Hand.Open) openTime += dt;
                     if (gentle) softTime += dt;
                     if (fist && Voice >= .55f && Voice <= .9f) fullTime += dt;
                     Progress = Lesson == 0 ? Math.Min(1, (openTime + fistTime) * .6f) :
@@ -311,6 +317,13 @@ namespace Echoes
             if (Age < 2) return;
             if (Phase == Stage.Record)
             {
+                if (Gesture == Hand.Missing)
+                {
+                    Recording.Clear();
+                    Slot = 0;
+                    Change(Stage.RecordReady, "光印没有录到真实手势，把手放回镜头再重新记录。");
+                    return;
+                }
                 Recording.Add(Gesture);
                 Slot++;
                 Age = 0;

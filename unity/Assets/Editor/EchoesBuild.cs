@@ -18,7 +18,7 @@ namespace Echoes
         };
         private static readonly string[] BrowserModules = {
             "audio-input.js", "core.js", "volume-core.js", "exhibit-game.js",
-            "exhibit-serial.js", "physical-output.js", "interaction-controls.js"
+            "exhibit-serial.js", "physical-output.js", "interaction-controls.js", "input-profiles.js"
         };
 
         [InitializeOnLoadMethod]

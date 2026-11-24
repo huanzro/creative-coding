@@ -1,5 +1,7 @@
 $ErrorActionPreference = 'Stop'
-Add-Type -Path (Join-Path $PSScriptRoot '../Assets/Scripts/Journey.cs')
+$sources = 'Journey.cs', 'AtmosphereMotion.cs', 'ExhibitProtocol.cs' |
+    ForEach-Object { Join-Path $PSScriptRoot "../Assets/Scripts/$_" }
+Add-Type -Path $sources
 
 function Assert($condition, $message) {
     if (!$condition) { throw $message }
@@ -93,4 +95,38 @@ Assert ($saved.Chapter -eq 2 -and $saved.Round -eq 1 -and $saved.Phase -eq 'Wave
 $time = $saved.Time
 $saved.Step(.03, .65)
 Assert ($saved.Time -eq $time) 'Missing input should pause the restored game.'
+$saved.SetHand([Echoes.Hand]::Open)
+Step $saved .1 0
+$saved.SetHand([Echoes.Hand]::Fist)
+Step $saved .4 .7
+$release = $saved.LastRelease
+Hand $saved Missing .5 .65
+Assert ($saved.Time -gt $time -and $saved.Held -eq 0 -and $saved.Charge -eq 0) 'Losing the hand must continue a started journey without retaining charge.'
+Assert ($saved.LastRelease -eq $release -and !$saved.HasResponse) 'Hand loss must not trigger a release.'
+$saved.SetHand([Echoes.Hand]::Fist)
+Assert ($saved.Gesture -eq 'Missing') 'A returning hand must open before rearming.'
+
+$noHand = [Echoes.Journey]::new()
+$noHand.SelectChapter(1)
+Hand $noHand Open .1 .4
+[void]$noHand.Touch(0)
+Hand $noHand Missing 2.1 .4
+Assert ($noHand.Phase -eq 'RecordReady' -and $noHand.Recording.Count -eq 0) 'A time slot without a hand must not enter the recording.'
+
+$openMotion = [Echoes.AtmosphereMotion]::new()
+$fistMotion = [Echoes.AtmosphereMotion]::new()
+$quietMotion = [Echoes.AtmosphereMotion]::new()
+for ($i = 0; $i -lt 100; $i++) {
+    $openMotion.Step(.02, [Echoes.Hand]::Open, .8, $true, 1)
+    $fistMotion.Step(.02, [Echoes.Hand]::Fist, .8, $true, 1)
+    $quietMotion.Step(.02, [Echoes.Hand]::Open, 0, $true, 1)
+}
+Assert ($openMotion.Wake -gt $fistMotion.Wake -and $openMotion.Drift -gt $fistMotion.Drift) 'A fist should dim and slow the background.'
+Assert ($openMotion.Drift -gt $quietMotion.Drift) 'Voice should make visual parallax faster.'
+
+$touch = $enabled = 0
+Assert ([Echoes.ExhibitProtocol]::ReadInputs('EOL3 IN 3 7', [ref]$touch, [ref]$enabled)) 'The shared EOL3 connection must parse touch inputs.'
+Assert ($touch -eq 3 -and $enabled -eq 7) 'The two touch channels must remain distinct.'
+Assert ([Echoes.ExhibitProtocol]::Output(1, 1, .5, 200, $true) -eq "EOL3 IO 1 12 4 0 0 2 6 -1 166`n") 'Combined firmware should receive the two lamps and bounded fan in one packet.'
+Assert ([Echoes.ExhibitProtocol]::Output(1, 0, 0, 200, $false) -eq "EOL3 SET 1 0 0 0 0 0 0 -1`n") 'Old EOL3 firmware must receive the compatible command.'
 Write-Output 'Unity C# journey passed all three chapters, including retry and checkpoint restore.'

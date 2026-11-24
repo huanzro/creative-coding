@@ -2,6 +2,12 @@
 
 用户要求每次完成项目修改后同步 GitHub，包括从同一工作区的其他对话发起的修改。网站更新还要发布公开试玩页。遵循当次用户对修改和发布范围的要求。
 
+## 开发与调试
+
+- 游戏逻辑、画面和展台联动在 `unity/` 中修改。接续其他会话时先读 [Unity 工程说明](unity/README.md)，核对 `origin/main` 和工作树，保留其他会话的未提交改动。
+- 在 Unity Editor 的 Play Mode 复现、调整并测试。按 F1 打开游戏设置。验证手势和声音逻辑时可先用键盘模拟，在 Windows 中可用 Unity 连接麦克风和 EOL3 展台硬件。涉及真人输入、实体输出或双屏投影时，分别记录模拟和现场实测结果。编辑器无法启动时记录阻塞，仍可运行独立 C# 测试。
+- `dist/` 保留历史试玩版及 Unity 导入用的共享素材和浏览器设备模块。移植游戏改动时以 Unity 工程为目标，构建后再验证浏览器特有的权限、导出和投影窗口。
+
 ## GitHub
 
 1. 在本仓库检查未提交变更，读取 `origin/main` 的新进展。保留组员的改动。当前任务若从站点的检出目录开始，将相关网页源码同步回本仓库。
@@ -12,5 +18,5 @@
 ## 网站
 
 - 公开地址为 https://echoes-of-light-interactive-1031.tanbowl.chatgpt.site/ 。
-- 使用 Sites 技能。从本仓库的 `dist/` 同步本轮网站修改到 `../sites/echoes-light-share/`，读取该目录的 `.openai/hosting.json` 以复用原 Site。保留历史独立章节的访问路径。
+- 使用 Sites 技能并读取 `../sites/echoes-light-share/.openai/hosting.json` 以复用原 Site。Unity 试玩使用通过本机验证的 WebGL 构建；同步到发布检出时保留 `dist/` 提供的历史独立章节和展台调试页路径。
 - 确认发布版本和公开访问状态，检查入口是否展示当次新版。交付时附上公开网址。
