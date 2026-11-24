@@ -30,6 +30,10 @@ export function installInteractionControls(sim,isPaused){
  }
  const mic=new MicrophoneInput(()=>{clear();disarm();status('麦克风中断，旅程暂停。重新开启后再校准。');$('mic-toggle').textContent='重新开启麦克风';$('audio-calibrate').disabled=true;});
  const serial=new SerialOutput(navigator.serial,t=>{$('physical-status').textContent=t;$('hardware-arm').disabled=!serial.connected;$('serial-toggle').textContent=serial.connected?'断开 Arduino':'连接 Arduino';});
+ function canSample(){
+  const track=mic.stream?.getAudioTracks()[0];
+  return mic.active&&mic.context?.state==='running'&&track?.readyState==='live'&&!track.muted;
+ }
  function disarm(){serial.setArmed(false);$('hardware-arm').checked=false;}
  function beginCalibration(){clear();calibration={phase:'noise',time:0,noise:[],voice:[]};disarm();status('校准 1/2：保持安静 2 秒。');}
  $('mic-toggle').onclick=async()=>{
@@ -40,7 +44,11 @@ export function installInteractionControls(sim,isPaused){
   catch(e){clear();status('无法开启麦克风：'+e.message+'。允许权限后重试。');}
   finally{pending=false;$('mic-toggle').disabled=false;}
  };
- $('audio-calibrate').onclick=()=>{if(mic.active)beginCalibration();};
+ $('audio-calibrate').onclick=()=>{
+  if(!mic.active)return;
+  if(canSample())beginCalibration();
+  else{mic.stop();$('mic-toggle').click();}
+ };
  $('serial-toggle').onclick=async()=>{try{if(serial.connected)await serial.disconnect();else await serial.connect();}catch(e){$('physical-status').textContent='未连接：'+e.message;}};
  $('hardware-arm').onchange=()=>{serial.setArmed($('hardware-arm').checked&&!isPaused());$('hardware-arm').checked=serial.armed;};
  $('hardware-stop').onclick=disarm;
@@ -51,13 +59,23 @@ export function installInteractionControls(sim,isPaused){
   $('fan-preview').textContent='风力 '+Math.round(out.fan*100)+'%';$('light-preview').textContent='灯光 '+Math.round(out.light*100)+'%';
   window.dispatchEvent(new CustomEvent('echoes:outputs',{detail:{version:2,preview:out,armed:serial.armed,connected:serial.connected,simulated:false}}));
  },100);
- document.addEventListener('visibilitychange',()=>{if(document.hidden){disarm();clear();if(mic.active)status('页面已隐藏。回来后重新校准声音再继续。');}});
+ document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden)return;
+  disarm();
+  if(calibration){
+   clear();
+   status('因离开页面暂停了声音校准。回来后重新校准。');
+  }else{
+   snapshot={db:-100,level:0};
+   sim.audioReady=false;sim.controlVoice=0;envelope.reset();
+  }
+ });
  window.addEventListener('pagehide',()=>{clearInterval(timer);mic.stop();disarm();void serial.disconnect();});
  return {
   beforeUpdate(dt,now){
    lastFrame=now;
-   const track=mic.stream?.getAudioTracks()[0];
-   const canMeasure=mic.active&&mic.context?.state==='running'&&track?.readyState==='live'&&!track.muted&&!document.hidden;
+   if(document.hidden)return;
+   const canMeasure=canSample();
    if(!canMeasure&&(calibration||ready)){
     clear();disarm();
     if(mic.active)status('没有收到麦克风信号。请重新校准，或关闭后重新开启麦克风。');
@@ -75,6 +93,22 @@ export function installInteractionControls(sim,isPaused){
    snapshot=canMeasure&&ready?envelope.update(db,dt):{db,level:0};
    sim.audioReady=canMeasure&&ready;
    sim.controlVoice=sim.audioReady?snapshot.level:0;sim.trailStrength=1.5;
+  },
+  setupPrompt(){
+   const detail=$('audio-status').textContent;
+   if(pending)return {title:'正在开启麦克风',detail:'请在浏览器的权限提示中选择允许。'};
+   if(calibration){
+    const quiet=calibration.phase==='noise';
+    const remaining=Math.max(1,Math.ceil((quiet?2:3)-calibration.time));
+    return {
+     title:quiet?'保持安静':'开始轻轻哼声',
+     detail:quiet?`保持安静 ${remaining} 秒，然后会提示你哼声。`:`再舒服地哼声 ${remaining} 秒，不需要喊叫。`,
+    };
+   }
+   if(mic.active)return canSample()
+    ? {title:'重新校准麦克风',detail,button:'重新校准',action:()=>$('audio-calibrate').click()}
+    : {title:'等待麦克风信号',detail,button:'重新连接麦克风',action:()=>$('audio-calibrate').click()};
+   return {title:'先开启并校准麦克风',detail,button:'开启麦克风',action:()=>$('mic-toggle').click()};
   },
   afterUpdate(dt){
    if(isPaused()&&serial.armed)disarm();

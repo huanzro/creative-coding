@@ -88,14 +88,62 @@ async function verifyDeniedPermissions(browser) {
     };
   });
   await page.goto(base.href);
-  await page.locator('#camera-toggle').click();
-  await page.waitForFunction(() => document.getElementById('signal-text').textContent.includes('未获得摄像头权限'));
+  await page.locator('aside').evaluate(sidebar => { sidebar.scrollTop = sidebar.scrollHeight; });
+  await page.locator('#journey-start-action').click();
+  await page.waitForFunction(() => document.getElementById('pause-description').textContent.includes('未获得摄像头权限'));
   await page.locator('#mic-toggle').click();
   await page.waitForFunction(() => document.getElementById('audio-status').textContent.includes('无法开启麦克风'));
   assert.equal(await page.locator('#camera-toggle').isEnabled(), true);
   assert.equal(await page.locator('#mic-toggle').isEnabled(), true);
   assert.equal(await page.locator('#journey-clock').innerText(), '00:00');
   await page.close();
+}
+
+async function verifyStartupCard(browser) {
+  const page = await browser.newPage();
+  try {
+    await page.addInitScript(() => {
+      navigator.mediaDevices.getUserMedia = async ({video,audio}) => {
+        if (video) {
+          const canvas = document.createElement('canvas');
+          canvas.width=320;canvas.height=240;
+          const painter=canvas.getContext('2d');
+          let frames=0;
+          const stream=canvas.captureStream(20);
+          setInterval(() => {painter.fillStyle=frames++ % 2 ? '#808080' : '#828282';painter.fillRect(0,0,320,240);},50);
+          return stream;
+        }
+        if (audio) {
+          const context=new AudioContext(),oscillator=context.createOscillator(),gain=context.createGain();
+          const destination=context.createMediaStreamDestination();
+          gain.gain.value=.001;
+          oscillator.connect(gain).connect(destination);
+          oscillator.start();
+          await context.resume();
+          window.startupGain=gain;
+          return destination.stream;
+        }
+        throw new Error('Unexpected capture request');
+      };
+    });
+    await page.goto(base.href);
+    await page.locator('aside').evaluate(sidebar => { sidebar.scrollTop = sidebar.scrollHeight; });
+    const action=page.locator('#journey-start-action');
+    await action.click();
+    await page.waitForFunction(() => document.getElementById('journey-start-action').textContent==='开启麦克风');
+    await action.click();
+    await page.waitForFunction(() => document.getElementById('pause-title').textContent==='保持安静');
+    assert.match(await page.locator('#pause-description').innerText(), /秒/);
+    await page.waitForFunction(() => document.getElementById('pause-title').textContent==='开始轻轻哼声');
+    await page.evaluate(() => {window.startupGain.gain.value=.05;});
+    await page.waitForFunction(() => document.getElementById('pause-title').textContent==='请把手放回画面');
+    assert.equal(await action.isVisible(),false);
+    assert.match(await page.locator('#audio-status').innerText(), /声音已就绪/);
+    assert.equal(await page.locator('#journey-clock').innerText(), '00:00');
+    assert.equal(await page.locator('[data-touch-option="0"]').isEnabled(),false);
+  } finally {
+    await page.close();
+  }
 }
 
 async function verifyTouchController(browser) {
@@ -154,8 +202,9 @@ async function main() {
   try {
     await verifySite(browser);
     await verifyDeniedPermissions(browser);
+    await verifyStartupCard(browser);
     await verifyTouchController(browser);
-    console.log('Passed: device wait and denial, input lock, checkpoint, projection, assets, and two-channel touches with mocked Web Serial.');
+    console.log('Passed: in-scene device setup and calibration, permission denial, input lock, checkpoint, projection, assets, and mocked Web Serial.');
   } finally {
     await browser.close();
   }

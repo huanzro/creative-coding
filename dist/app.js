@@ -208,6 +208,33 @@ function shadeSceneCenter(){
   ctx.restore();
 }
 
+function updateStartupPrompt(ending){
+ const overlay=$('paused-overlay'),button=$('journey-start-action');
+ overlay.hidden=ending||!paused();
+ if(overlay.hidden)return;
+ let prompt;
+ if(!cameraActive){
+  const detail=$('signal-text').textContent;
+  prompt=loading
+   ? {title:'正在开启摄像头',detail:'请在浏览器中允许摄像头，手势模型可能需要几秒加载。'}
+   : {title:'先开启摄像头',detail:detail==='等待摄像头'?'允许摄像头后，游戏会继续引导声音校准。':detail,
+      button:'开启摄像头',action:startCamera};
+ }else if(!sim.audioReady){
+  prompt=interactions.setupPrompt();
+ }else if(manualPause){
+  prompt={title:'旅程已暂停',detail:'继续后，请把张开的手掌放回画面。',button:'继续旅程',action:togglePause};
+ }else if(calibration){
+  prompt={title:'正在校准手势',detail:$('signal-text').textContent};
+ }else{
+  prompt={title:handPresent?'请先张开手掌':'请把手放回画面',
+          detail:'掌心朝向镜头，完整张开手指并停留片刻。识别后旅程会自动开始。'};
+ }
+ showText('pause-title',prompt.title);
+ showText('pause-description',prompt.detail);
+ button.hidden=!prompt.action;
+ button.onclick=prompt.action??null;
+ if(prompt.action)showText('journey-start-action',prompt.button);
+}
 
 function updateUI(){
  $('scene-index').textContent=sim.tutorial!==null?'00 / LEARNING':String(sim.levelIndex+1).padStart(2,'0')+' / '+['CARE','COOPERATION','DIALOGUE'][sim.levelIndex];
@@ -226,9 +253,7 @@ function updateUI(){
  showText('completion-title',ending?'世界学会了回应你':CHAPTERS[sim.levelIndex].title+' · 已唤醒');
  showText('completion-score',sim.finishText);
  showText('completion-next',ending?'可在展台设置里重访任一章节。':'触摸 A 或 B 进入下一章 · 空格也可以');
- $('paused-overlay').hidden=!paused()||ending;
- showText('pause-title',manualPause?'旅程已暂停':!cameraActive?'先开启摄像头':!sim.audioReady?'先开启并校准麦克风':calibration?'正在校准手势':!handPresent?'请把手放回画面':'请先张开手掌');
- $('pause-description').textContent=manualPause?'点击右侧「继续旅程」，再张开手掌。':'开启摄像头并校准麦克风后，触摸 A 或 B 作出选择。等待设备时会保留进度。';
+ updateStartupPrompt(ending);
  exhibitGame.updateControls(sim.touchControls,ending);
  saveIfChanged();
 }

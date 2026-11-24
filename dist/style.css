@@ -51,6 +51,7 @@ body.immersive .journey-hud :is(#journey-feedback,#encounter-status,.stage-botto
 .journey-hud .stage-bottom>span:first-child{width:auto}
 .touch-choices{display:flex;flex-wrap:wrap;gap:6px 8px;pointer-events:auto}
 .touch-choices[hidden]{display:none}
+#journey-start-action{margin-top:12px;min-height:44px;pointer-events:auto}
 .touch-choices button{
  min-height:44px;padding:7px 12px;background:#0c1826ec;
  color:#f2d6a3;border:1px solid #c3a27088;border-radius:6px;letter-spacing:.15px;
