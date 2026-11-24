@@ -60,7 +60,7 @@ export function drawContinuity(ctx,W,H,s,echoSprite){
    text(good?'双通道正在接通':s.hand===recorded?'两边动作相同，换成相反动作':'把声音维持在中间亮区',W*.7,H*.67,good?GOLD:RED);
    bar(W*.64,H*.71,W*.2,s.slotGood/s.replayRequired,good?GOLD:RED);
   }
-  if(['record-ready','replay-ready','failed'].includes(s.phase))text(s.phase==='record-ready'?'空格：开始记录':s.phase==='failed'?'空格：保留记录，再合作一次':'空格：让回声替你守门',W*.72,H*.65,GOLD);
+  if(['record-ready','replay-ready','failed'].includes(s.phase))text('触摸 A 或 B · '+s.touchControls.labels[0],W*.72,H*.65,GOLD);
  }else{
   if(s.phase==='wave'){
    const w=s.objects[0];wave(w.x*W,w.amp,1,w.kind==='storm'?RED:BLUE);

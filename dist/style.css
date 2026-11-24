@@ -49,6 +49,17 @@ body.immersive .journey-hud :is(#journey-feedback,#encounter-status,.stage-botto
 .journey-hud #journey-feedback{padding:6px 10px;line-height:1.55}
 .journey-hud .stage-bottom{display:flex;flex-wrap:wrap;gap:6px 18px;padding:5px 8px;background:#08131dbb;width:fit-content}
 .journey-hud .stage-bottom>span:first-child{width:auto}
+.touch-choices{display:flex;flex-wrap:wrap;gap:6px 8px;pointer-events:auto}
+.touch-choices[hidden]{display:none}
+.touch-choices button{
+ min-height:44px;padding:7px 12px;background:#0c1826ec;
+ color:#f2d6a3;border:1px solid #c3a27088;border-radius:6px;letter-spacing:.15px;
+ touch-action:manipulation;
+}
+.touch-choices button:nth-child(2){color:#bce3fb;border-color:#78b4d688}
+.touch-choices button[aria-pressed=true]{background:#263343;border-color:currentColor;box-shadow:inset 0 -2px currentColor}
+.touch-choices button:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+.touch-choices button:disabled{opacity:.55}
 .world .chapter-card{bottom:auto;top:42%;z-index:4}
 .black-scene .world :is(.scene-label,.scene-top,.level-progress,.chapter-card,#paused-overlay,.journey-hud){display:none}
 @media(max-width:740px){

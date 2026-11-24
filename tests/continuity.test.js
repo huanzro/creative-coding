@@ -31,6 +31,28 @@ test('forest safe and risky routes have different requirements, duration and rew
  }
  assert.equal(totals[1]-totals[0],225);
 });
+test('touch A and B select fixed routes and phases while space still toggles',()=>{
+ const forest=fresh();
+ until(forest,()=>forest.phase==='fork');
+ assert.deepEqual(forest.touchControls.labels,['林荫绕路','风带捷径']);
+ assert.equal(forest.click(1),true);
+ assert.equal(forest.click(1),true);
+ assert.equal(forest.route,1);
+ assert.equal(forest.click(0),true);
+ assert.equal(forest.route,0);
+ tick(forest,15);
+ forest.click();
+ assert.equal(forest.route,1);
+
+ const stars=fresh(2);
+ assert.equal(stars.click(1),true);
+ assert.equal(stars.color,1);
+ assert.equal(stars.click(0),true);
+ assert.equal(stars.color,0);
+ stars.cancelInput();
+ assert.equal(stars.click(1),false);
+ assert.equal(stars.color,0);
+});
 test('unprotected gusts lose companions, while a nest lets the player recover locally',()=>{
  const s=fresh();until(s,()=>s.phase==='fork');s.click();hand(s,'closed');hand(s,'open');until(s,()=>s.phase==='nest');assert.equal(s.flock,2);
  until(s,()=>s.round===1);assert.equal(s.passed,1);assert.equal(s.score,300);

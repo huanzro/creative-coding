@@ -4,6 +4,7 @@
    forward while the rules give the world a memory of the player's actions. */
 import {SpiritSimulation,clamp} from './core.js';
 export const COLOR_NAMES=['同相 +','反相 −'];
+const ROUTE_NAMES=['林荫绕路','风带捷径'];
 export const band=v=>v<.12?'安静':v<=.45?'轻声':v<=.85?'舒适发声':'过强';
 export const CHAPTERS=[
  {title:'沉睡森林',subtitle:'照顾一群会害怕的光。选一条路，并承担选择的后果。'},
@@ -55,18 +56,35 @@ export class ContinuitySimulation extends SpiritSimulation{
  cancelHold(){this.cancelInput();}
  // No keyboard or pointer action calls these gesture transitions.
  hold(){return this.setHand('closed');} release(){return this.setHand('open');}
- click(){
-  if(this.time-this.lastClick<.2||this.hand==='unknown')return false;
+ get touchControls(){
+  if(this.complete)return {labels:['下一章','下一章']};
+  if(this.tutorial===2||(this.tutorial===null&&this.levelIndex===0&&this.phase==='fork')){
+   return {labels:ROUTE_NAMES,selected:this.route};
+  }
+  if(this.levelIndex===2)return {labels:COLOR_NAMES,selected:this.color};
+  if(this.levelIndex===1){
+   const action={'record-ready':'开始记录',record:'重新记录','replay-ready':'开始合作',failed:'重试合作'}[this.phase];
+   if(action)return {labels:[action,action]};
+  }
+  return {labels:['暖光','蓝光']};
+ }
+ click(choice){
+  if(choice!==undefined&&choice!==0&&choice!==1)return false;
+  const directChoice=choice!==undefined&&this.touchControls.selected!==undefined;
+  if(this.hand==='unknown'||(!directChoice&&this.time-this.lastClick<.2))return false;
   if(this.complete&&this.levelIndex===CHAPTERS.length-1)return false;
   this.lastClick=this.time;this.count++;
   if(this.complete)return 'next';
   if(this.tutorial!==null){
-   if(this.tutorial===2){this.route=1-this.route;this.learn.clicked=true;this.say('路口已经换边。握拳再张手，确认你想走的路。');}
+   if(this.tutorial===2){
+    this.route=choice??1-this.route;this.learn.clicked=true;
+    this.say('已选'+ROUTE_NAMES[this.route]+'。握拳再张手，确认你想走的路。');
+   }
    else this.say('点击收到了。先完成眼前的手势与声音练习，前方才会出现选择。');
    return true;
   }
   if(this.levelIndex===0){
-   if(this.phase==='fork'){this.route=1-this.route;this.say(this.route?'已选风带捷径：更快并多带回一束光；风到来时必须握拳。':'已选林荫绕路：保持张手、轻声引导，路更长但没有风带。');}
+   if(this.phase==='fork'){this.route=choice??1-this.route;this.say(this.route?'已选风带捷径：更快并多带回一束光；风到来时必须握拳。':'已选林荫绕路：保持张手、轻声引导，路更长但没有风带。');}
    else this.say('当前没有岔路。'+this.objective);
   }
   if(this.levelIndex===1){
@@ -76,7 +94,7 @@ export class ContinuitySimulation extends SpiritSimulation{
     this.say('回声开始守门。它握拳时你张手，它张手时你握拳。轻轻哼声维持光桥。');
    }
   }
-  if(this.levelIndex===2){this.color=1-this.color;this.say(this.color?'已选反相：你的波谷抵消风暴的波峰。':'已选同相：你的波峰与星光叠加。');}
+  if(this.levelIndex===2){this.color=choice??1-this.color;this.say(this.color?'已选反相：你的波谷抵消风暴的波峰。':'已选同相：你的波峰与星光叠加。');}
   return true;
  }
  power(){return this.click();}
@@ -84,7 +102,7 @@ export class ContinuitySimulation extends SpiritSimulation{
   this.count++;this.glow=1;this.lastPower=this.time;this.waves.push({age:0,radius:0,x:.5,y:this.y});
   if(this.tutorial!==null){
    if(this.tutorial===0&&this.learn.open>=.5&&this.learn.closed>=.5){this.tutorial=1;this.checkpointRevision++;this.say('我认得你的收与放了。张手轻声、握拳舒适发声，看看光圈怎样改变。');}
-   else if(this.tutorial===1&&this.learn.soft>=.7&&this.learn.full>=.7){this.tutorial=2;this.checkpointRevision++;this.say('我记住了你的声音范围。按一次空格模拟点击，选路，再握拳张手确认。');}
+   else if(this.tutorial===1&&this.learn.soft>=.7&&this.learn.full>=.7){this.tutorial=2;this.checkpointRevision++;this.say('我记住了你的声音范围。触摸 A 或 B 选路，再握拳张手确认。');}
    else if(this.tutorial===2&&this.learn.clicked){
     const selectedRoute=this.route;
     this.tutorial=null;this.checkpointRevision++;this.setup();
@@ -255,7 +273,7 @@ export class ContinuitySimulation extends SpiritSimulation{
   return true;
  }
  get objective(){
-  if(this.tutorial!==null)return ['庭院：张手认识 → 握拳收光 → 张手释放','庭院：张手轻声 + 握拳舒适发声，再张手','庭院：空格模拟点击选路，握拳张手确认'][this.tutorial];
+  if(this.tutorial!==null)return ['庭院：张手认识 → 握拳收光 → 张手释放','庭院：张手轻声 + 握拳舒适发声，再张手','庭院：触摸 A 或 B 选路，再握拳张手确认'][this.tutorial];
   if(this.levelIndex===0)return '护送 '+(this.round+1)+'/3 · '+({gather:'张手轻声，邀请 '+this.quota+' 束萤火',fork:'点击选择路线，握拳张手出发',travel:this.route?'风带靠近时握拳护光':'张手轻声，引导队伍走林荫路',nest:'张手轻声，让萤火入巢'}[this.phase]);
   if(this.levelIndex===1)return '双声门 '+(this.round+1)+'/3 · '+({'record-ready':'点击开始留下动作',record:'保持一个动作，光印亮满时记录','replay-ready':'点击，让你的回声开始守门',replay:'做回声的相反动作，并维持中间声音',failed:'记录保留，点击重试合作',cross:'双通道已打开，正在穿行'}[this.phase]);
   return '星海 '+(this.round+1)+'/3 · '+({wave:this.objects[0]?.kind==='storm'?'反相抵消风暴':'同相增强星灯',resolved:'合成成功，下一道波正在接近','wave-retry':'这一道波会再来',compose:'自由发出三道波，让世界回应',answer:'世界正在补上你的反相波'}[this.phase]);

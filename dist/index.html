@@ -6,7 +6,8 @@
 <div id="chapter-complete" class="chapter-card" hidden><h2 id="completion-title"></h2><p id="completion-score"></p><p id="completion-next"></p></div>
 <div id="paused-overlay" hidden><h2 id="pause-title">等待设备</h2><p id="pause-description"></p></div>
 <div class="journey-hud"><p id="encounter-status"></p><p id="journey-feedback" role="status" aria-live="polite"></p>
-<div class="stage-bottom"><span>手势 <strong id="hand-state">等待</strong></span><span>声音 <strong id="voice-state">等待</strong></span><span><kbd>SPACE</kbd> 代替点击</span></div></div></section>
+<div class="touch-choices" id="touch-choices" role="group" aria-label="两路触摸控制"><button type="button" data-touch-option="0" disabled>A · 暖光</button><button type="button" data-touch-option="1" disabled>B · 蓝光</button></div>
+<div class="stage-bottom"><span>手势 <strong id="hand-state">等待</strong></span><span>声音 <strong id="voice-state">等待</strong></span><span><kbd>SPACE</kbd> 备用点击</span></div></div></section>
 <aside><section class="control-section"><h3>01 <span>真实握拳与张手</span></h3><p class="level-help">开启摄像头后，先完整张开手掌，再尝试握拳。光圈会跟着你的手收拢与展开。</p><div class="camera-preview"><video id="webcam" autoplay playsinline muted></video><canvas id="hand-overlay" width="320" height="240"></canvas><span id="camera-placeholder">摄像头尚未开启</span></div><button id="camera-toggle" class="primary full">开启摄像头</button><button id="calibrate" class="quiet full" disabled>校准我的手势</button><div class="signal"><span id="signal-dot"></span><p id="signal-text" role="status">等待摄像头</p></div></section>
 <section id="touch-game" class="control-section"></section>
 <section class="session"><div><span class="eyebrow">ACCEPTED RESPONSES</span><p><strong id="count">00</strong><span>次回应</span></p></div><span id="response-flash">✧</span></section>

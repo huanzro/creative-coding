@@ -51,15 +51,16 @@ function setScene(next,checkpoint=false){
  }
  syncSceneControls();updateUI();
 }
-function clickInput(){
+function clickInput(choice){
  if(paused())return false;
- const action=sim.click();
+ const action=sim.click(choice);
  if(action==='next')setScene(LEVELS[sim.levelIndex+1].id,true);
  return Boolean(action);
 }
 function togglePause(){manualPause=!manualPause;sim.cancelInput();gesture.reset();updateUI();}
 function clickKey(event){
  if(event.code!=='Space'||event.altKey||event.ctrlKey||event.metaKey)return false;
+ if(event.target?.closest?.('[data-touch-option]'))return false;
  event.preventDefault();
  if(!event.repeat)clickInput();
  return true;
@@ -224,15 +225,16 @@ function updateUI(){
  $('chapter-complete').hidden=!sim.complete;
  showText('completion-title',ending?'世界学会了回应你':CHAPTERS[sim.levelIndex].title+' · 已唤醒');
  showText('completion-score',sim.finishText);
- showText('completion-next',ending?'可在展台设置里重访任一章节。':'点击进入下一章 · 空格也可以');
+ showText('completion-next',ending?'可在展台设置里重访任一章节。':'触摸 A 或 B 进入下一章 · 空格也可以');
  $('paused-overlay').hidden=!paused()||ending;
  showText('pause-title',manualPause?'旅程已暂停':!cameraActive?'先开启摄像头':!sim.audioReady?'先开启并校准麦克风':calibration?'正在校准手势':!handPresent?'请把手放回画面':'请先张开手掌');
- $('pause-description').textContent=manualPause?'点击右侧「继续旅程」，再张开手掌。':'使用真实握拳／张手和声音。空格只代替点击传感器。设备未就绪时不会丢失进度。';
+ $('pause-description').textContent=manualPause?'点击右侧「继续旅程」，再张开手掌。':'开启摄像头并校准麦克风后，触摸 A 或 B 作出选择。等待设备时会保留进度。';
+ exhibitGame.updateControls(sim.touchControls,ending);
  saveIfChanged();
 }
 
 const interactions=installInteractionControls(sim,paused);
-const exhibitGame=installExhibitGame($('touch-game'),{isBlocked:paused,respondToTouch:clickInput});
+const exhibitGame=installExhibitGame($('touch-game'),$('touch-choices'),{isBlocked:paused,respondToTouch:clickInput});
 setScene('forest');
 function frame(now){const dt=Math.min((now-frameTime)/1000,.04);frameTime=now;spiritTime+=dt;
  interactions.beforeUpdate(dt,now);trackHand(now);

@@ -3,9 +3,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Verify chip type, pixel count and wire labels before enabling either strip.
-const uint16_t PIXELS_A = 0;
-const uint16_t PIXELS_B = 0;
+// Exhibition configuration: two verified 15-pixel GRB strips.
+const uint16_t PIXELS_A = 15;
+const uint16_t PIXELS_B = 15;
 Adafruit_NeoPixel lampA(PIXELS_A, 6, NEO_GRB + NEO_KHZ800);
 Adafruit_NeoPixel lampB(PIXELS_B, 7, NEO_GRB + NEO_KHZ800);
 Servo flower;
@@ -26,7 +26,7 @@ struct Input {
 // For a verified active-high push-pull module, set activeHigh=true.
 Input inputs[] = {
   {2, true,  false, 45,  false, false, 0},
-  {3, false, false, 45,  false, false, 0},
+  {3, true,  false, 45,  false, false, 0},
   {4, true,  false, 110, false, false, 0},
 };
 

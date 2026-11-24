@@ -16,6 +16,12 @@ async function verifySite(browser) {
   assert.equal(await page.locator('#pause-title').innerText(), '先开启摄像头');
   assert.equal(await page.locator('#journey-clock').innerText(), '00:00');
   assert.equal(await page.locator('#lift,#power,#audio-demo,#demo-db,#keyboard-mode').count(), 0);
+  const a = page.locator('[data-touch-option="0"]');
+  const b = page.locator('[data-touch-option="1"]');
+  assert.equal(await a.isDisabled(), true);
+  assert.equal(await b.isDisabled(), true);
+  assert.match(await a.innerText(), /A · 暖光/);
+  assert.match(await b.innerText(), /B · 蓝光/);
 
   for (const key of ['w','ArrowUp','x','e']) await page.keyboard.press(key);
   await page.keyboard.down('Space');
@@ -32,6 +38,8 @@ async function verifySite(browser) {
   await page.getByRole('button', {name:'继续上次旅程'}).click();
   assert.equal(await page.locator('#scene-title').innerText(), '回声之门');
   assert.match(await page.locator('#level-progress').innerText(), /2\/3/);
+  assert.match(await a.innerText(), /A · 开始记录/);
+  assert.match(await b.innerText(), /B · 开始记录/);
   await page.locator('#black-display').click();
   assert.equal(await page.locator('body.black-scene').count(), 1);
   await page.locator('#black-display').click();
@@ -90,12 +98,64 @@ async function verifyDeniedPermissions(browser) {
   await page.close();
 }
 
+async function verifyTouchController(browser) {
+  const page = await browser.newPage();
+  await page.goto(base.href);
+  await page.evaluate(async () => {
+    const packets = [], choices = [];
+    let input;
+    const port = {
+      readable: new ReadableStream({start(controller) { input = controller; }}),
+      writable: new WritableStream({write(bytes) { packets.push(new TextDecoder().decode(bytes)); }}),
+      async open() {},
+      async close() {},
+    };
+    Object.defineProperty(navigator, 'serial', {value:{async requestPort() { return port; }}, configurable:true});
+    const {installExhibitGame} = await import('./exhibit-game.js');
+    const fixture = document.createElement('div');
+    fixture.id = 'touch-controller-fixture';
+    fixture.innerHTML = '<div></div><div><button data-touch-option></button><button data-touch-option></button></div>';
+    document.body.append(fixture);
+    const state = {packets, choices, blocked:false, send:line => input.enqueue(new TextEncoder().encode(line + '\n'))};
+    state.controller = installExhibitGame(fixture.firstElementChild, fixture.lastElementChild, {
+      isBlocked:() => state.blocked,
+      respondToTouch:choice => { choices.push(choice); return true; },
+    });
+    state.controller.updateControls({labels:['林荫绕路','风带捷径'],selected:0},false);
+    window.touchFixture = state;
+  });
+  const fixture = page.locator('#touch-controller-fixture');
+  await fixture.getByRole('button', {name:/连接 Arduino/}).click();
+  await page.waitForFunction(() => document.querySelector('#touch-controller-fixture #game-touch-status').textContent.includes('串口已打开'));
+  await page.evaluate(() => window.touchFixture.send('EOL3 IN 0 3'));
+  await fixture.getByRole('checkbox', {name:'启用实体灯光'}).check();
+  await page.evaluate(() => {
+    window.touchFixture.send('EOL3 IN 1 3');
+    window.touchFixture.send('EOL3 IN 3 3');
+  });
+  await page.waitForFunction(() => window.touchFixture.packets.some(packet => / 12 4 0 0 3 12 -1\n$/.test(packet)));
+  assert.deepEqual(await page.evaluate(() => window.touchFixture.choices), [0,1]);
+  await page.evaluate(() => window.touchFixture.send('EOL3 IN 0 3'));
+  await fixture.getByRole('button', {name:'B · 风带捷径'}).click();
+  assert.deepEqual(await page.evaluate(() => window.touchFixture.choices), [0,1,1]);
+  await page.evaluate(() => {
+    const fixture = window.touchFixture;
+    fixture.blocked = true;
+    fixture.controller.update(performance.now());
+  });
+  await page.waitForFunction(() => / 0 0 0 0 0 0 -1\n$/.test(window.touchFixture.packets.at(-1)));
+  assert.equal(await fixture.getByRole('checkbox', {name:'启用实体灯光'}).isChecked(), false);
+  await fixture.getByRole('button', {name:'断开 Arduino'}).click();
+  await page.close();
+}
+
 async function main() {
   const browser = await chromium.launch({channel:'msedge',headless:true,args:['--no-proxy-server']});
   try {
     await verifySite(browser);
     await verifyDeniedPermissions(browser);
-    console.log('Passed: device wait and denial, input lock, checkpoint, projection, narrow layout, and all public asset routes.');
+    await verifyTouchController(browser);
+    console.log('Passed: device wait and denial, input lock, checkpoint, projection, assets, and two-channel touches with mocked Web Serial.');
   } finally {
     await browser.close();
   }
