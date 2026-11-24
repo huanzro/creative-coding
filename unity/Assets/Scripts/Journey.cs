@@ -1,6 +1,6 @@
 /* ARTISTIC RATIONALE
- * The hand first shelters light, then cooperates with a memory, then answers a wave.
- * Keeping the spirit at the center lets the changing world show the player's progress.
+ * Amber offers a path and scarlet warns that a system can lead someone astray.
+ * The player learns to lift, read a moving signal, and decide which help to use.
  */
 using System;
 using System.Collections.Generic;
@@ -8,7 +8,7 @@ using System.Collections.Generic;
 namespace Echoes
 {
     public enum Hand { Missing, Open, Fist }
-    public enum Stage { Tutorial, Gather, Fork, Travel, Nest, RecordReady, Record,
+    public enum Stage { Tutorial, Prologue, Gather, Fork, Travel, Nest, RecordReady, Record,
         ReplayReady, Replay, ReplayFailed, Cross, Wave, WaveResult, Compose, Answer, Complete }
 
     public sealed class Journey
@@ -18,8 +18,17 @@ namespace Echoes
         };
         private int windPassed;
         private float exposure, markedTime, openTime, fistTime, softTime, fullTime;
-        private bool choiceMade, responseActive, waveCorrect;
+        private bool responseActive, waveCorrect;
         private float responseAmplitude;
+        private float lastObserve, lastAssist;
+        public readonly SpiritFlight Flight = new SpiritFlight();
+        public readonly FireflyCourse Fireflies = new FireflyCourse();
+        private readonly List<float> amberMarks = new List<float>(7);
+        public IReadOnlyList<float> AmberMarks => amberMarks;
+        public float OpeningTime { get; private set; }
+        public bool EnteredFromOpening { get; private set; }
+        public bool IsOpening => Phase == Stage.Prologue;
+        public bool IsObserving => PoseTime - lastObserve < 2f;
 
         public int Chapter { get; private set; }
         public int Round { get; private set; }
@@ -34,6 +43,7 @@ namespace Echoes
         public bool Started { get; private set; }
         public float Time { get; private set; }
         public float LastRelease { get; private set; }
+        public float ReleaseAltitude { get; private set; }
         public float LastSpin { get; private set; }
         public float DancePhase { get; private set; }
         public float PoseTime { get; private set; }
@@ -62,22 +72,56 @@ namespace Echoes
         public bool Aligned => Math.Abs(Preview - Target) <= .16f;
         public readonly List<Hand> Recording = new List<Hand>(4);
         public readonly List<float> Phrase = new List<float>(3);
-        public Hand RequiredHand => Slot < Recording.Count && Recording[Slot] == Hand.Open ? Hand.Fist : Hand.Open;
+        public Hand RequiredHand
+        {
+            get
+            {
+                Hand recorded = Slot < Recording.Count ? Recording[Slot] : Hand.Open;
+                return Choice == 0 ? recorded : recorded == Hand.Open ? Hand.Fist : Hand.Open;
+            }
+        }
 
-        public Journey() { SelectChapter(0); }
+        public Journey() { SelectPractice(); }
+
+        public void SelectPractice() => Enter(0, true, true);
 
         public void SelectChapter(int chapter)
         {
             if (chapter < 0 || chapter > 2) return;
+            Enter(chapter, false, true);
+        }
+
+        private void Enter(int chapter, bool practice, bool newTrip)
+        {
             Chapter = chapter;
+            EnteredFromOpening = false;
             Round = 0;
-            Lesson = chapter == 0 ? 0 : -1;
-            Choice = Score = 0;
+            Lesson = practice ? 0 : -1;
+            if (newTrip)
+            {
+                Score = 0;
+                amberMarks.Clear();
+            }
             Distance = Time = 0;
             DancePhase = 0;
             PoseTime = 0;
             ResetSegment();
             Revision++;
+        }
+
+        public void PlayOpening()
+        {
+            Enter(0, false, true);
+            OpeningTime = 0;
+            Change(Stage.Prologue, "");
+        }
+
+        public void FinishOpening()
+        {
+            if (!IsOpening) return;
+            Enter(0, false, false);
+            Flight.Reset(.035f);
+            EnteredFromOpening = true;
         }
 
         public void Restore(int chapter, int round, int lesson, int score)
@@ -94,6 +138,7 @@ namespace Echoes
 
         public void Retry()
         {
+            if (IsOpening) { OpeningTime = 0; return; }
             if (Phase != Stage.Complete) ResetSegment();
         }
 
@@ -102,16 +147,20 @@ namespace Echoes
             Gesture = Hand.Missing;
             Started = false;
             LastRelease = float.NegativeInfinity;
+            ReleaseAltitude = 0;
             LastSpin = float.NegativeInfinity;
             LastTouch = float.NegativeInfinity;
             TouchOption = 0;
+            lastObserve = lastAssist = float.NegativeInfinity;
             PoseVoice = 0;
             Flock = Slot = WaveIndex = 0;
             Voice = Charge = Held = Light = openTime = fistTime = softTime = fullTime = 0;
             Choice = 0;
-            choiceMade = responseActive = false;
+            responseActive = false;
             Recording.Clear();
             Phrase.Clear();
+            Flight.Reset();
+            Fireflies.Reset();
             StartRound();
         }
 
@@ -120,22 +169,22 @@ namespace Echoes
             if (Lesson >= 0)
             {
                 string[] cues = {
-                    "先张手，再握拳半秒，最后张手释放光。",
-                    "张手轻声，握拳舒适发声，再张手释放光。",
-                    "触摸 A 或 B 选路，再握拳、张手确认。"
+                    "先张手让精灵看见你。握拳半秒再张开，看看光圈和滑翔。",
+                    "张手轻声，再握拳发声半秒，保持发声并张手，看看光迹。",
+                    "继续练习，或触摸 A / B 进入故事。"
                 };
                 Change(Stage.Tutorial, cues[Lesson]);
             }
             else if (Chapter == 0)
             {
                 Flock = 0;
-                Change(Stage.Gather, "张手轻声，邀请萤火靠近。");
+                Change(Stage.Gather, "张手轻声，带黄萤火走过断路。红光急促闪动时，从它下方滑过。");
             }
             else if (Chapter == 1)
             {
                 Recording.Clear();
                 Slot = 0;
-                Change(Stage.RecordReady, "触摸 A 或 B 开始记录动作。");
+                Change(Stage.RecordReady, "门只记得你的动作片段。触摸 A 或 B，留下自己的节拍。");
             }
             else
             {
@@ -153,21 +202,29 @@ namespace Echoes
 
         public bool Touch(int option)
         {
-            if (option < 0 || option > 1) return false;
+            if (option < 0 || option > 1 || IsOpening) return false;
             if (Phase == Stage.Complete && Chapter < 2)
             {
-                int score = Score;
-                SelectChapter(Chapter + 1);
-                Score = score;
+                Enter(Chapter + 1, false, false);
                 return true;
             }
             if (!Started || Phase == Stage.Complete) return false;
+            if (Phase == Stage.Tutorial && Lesson == 2)
+            {
+                PlayOpening();
+                return true;
+            }
             LastTouch = PoseTime;
             TouchOption = option;
-            if ((Phase == Stage.Tutorial && Lesson == 2) || Phase == Stage.Fork)
+            if (Lesson < 0 && option == 0) lastObserve = PoseTime;
+            if (Chapter == 0 && Lesson < 0 && option == 1 && Phase != Stage.Fork && PoseTime - lastAssist >= 3f)
+            {
+                lastAssist = PoseTime;
+                Flight.Assist();
+            }
+            if (Phase == Stage.Fork)
             {
                 Choice = option;
-                choiceMade = true;
                 Message = option == 0 ? "已选林荫绕路。握拳、张手确认。" : "已选风带捷径。握拳、张手确认。";
             }
             if (Phase == Stage.RecordReady || Phase == Stage.Record)
@@ -180,29 +237,36 @@ namespace Echoes
             {
                 Slot = 0;
                 markedTime = 0;
-                Change(Stage.Replay, "做出与回声相反的动作，同时维持舒适的声音。");
+                Choice = option;
+                Change(Stage.Replay, option == 0
+                    ? "沿用自己的节拍，跟着光印重做，同时保持声音。"
+                    : "借用残影的补位，它张手时你握拳，同时保持声音。");
             }
             else if (Chapter == 2)
             {
                 Choice = option;
+                if (Phase == Stage.Answer && option == 0 && Age >= 2.2f)
+                    AdvanceRound("最后一颗星，留给决定何时出发的人。");
             }
             return true;
         }
 
         public void SetHand(Hand next)
         {
-            if (next == Gesture || (Gesture == Hand.Missing && next == Hand.Fist)) return;
+            if (IsOpening || next == Gesture || (Gesture == Hand.Missing && next == Hand.Fist)) return;
             var previous = Gesture;
             Gesture = next;
             if (next == Hand.Open) Started = true;
             if (next != Hand.Open) Held = Charge = 0;
-            if (previous == Hand.Fist && next == Hand.Open && Phase != Stage.Complete) Release();
+            if (previous == Hand.Fist && next == Hand.Open && Held >= .13f && Phase != Stage.Complete) Release();
         }
 
         private void Release()
         {
             Light = 1;
             LastRelease = PoseTime;
+            ReleaseAltitude = Flight.Height;
+            Flight.Release(Voice);
             // Only an intentional, charged release during fast travel starts a turn.
             if (Held >= .25f && Voice >= .58f && Charge >= .48f && PoseTime - LastSpin >= 1.3f)
                 LastSpin = PoseTime;
@@ -210,10 +274,9 @@ namespace Echoes
             {
                 case Stage.Tutorial:
                     bool passed = Lesson == 0 && openTime >= .5f && fistTime >= .5f ||
-                                  Lesson == 1 && softTime >= .7f && fullTime >= .7f ||
-                                  Lesson == 2 && choiceMade;
+                                  Lesson == 1 && softTime >= .7f && fullTime >= .7f;
                     if (!passed) break;
-                    Lesson = Lesson == 2 ? -1 : Lesson + 1;
+                    Lesson++;
                     Revision++;
                     StartRound();
                     break;
@@ -238,9 +301,16 @@ namespace Echoes
         public void Step(float dt, float voice, bool advanceJourney = true)
         {
             if (dt <= 0) return;
+            if (IsOpening)
+            {
+                OpeningTime += dt;
+                if (OpeningTime >= OpeningTiming.Duration) FinishOpening();
+                return;
+            }
             PoseTime += dt;
             PoseVoice = float.IsNaN(voice) || float.IsInfinity(voice) ? 0 : Math.Max(0, Math.Min(1, voice));
             DancePhase = (DancePhase + dt * (.164f + .122f * PoseVoice)) % 1;
+            Flight.Step(dt, Gesture);
             if (!advanceJourney || !Started || Phase == Stage.Complete) return;
             Time += dt;
             Age += dt;
@@ -255,6 +325,20 @@ namespace Echoes
             }
             Distance += dt * (1 + Voice) * (Phase == Stage.Travel ? (Choice == 0 ? .09f : .15f) :
                 Phase == Stage.Cross ? .18f : .018f);
+            if (Lesson < 0)
+            {
+                FireflyKind signal = Fireflies.Step(dt, Voice, Flight.Height, Gesture, IsObserving);
+                if (signal == FireflyKind.Amber)
+                {
+                    Light = Math.Max(Light, .78f);
+                    if (amberMarks.Count < 7) amberMarks.Add(Fireflies.Altitude);
+                }
+                else if (signal == FireflyKind.Scarlet)
+                {
+                    Flight.Deflect();
+                    Light *= .35f;
+                }
+            }
             switch (Phase)
             {
                 case Stage.Tutorial:
@@ -263,7 +347,7 @@ namespace Echoes
                     if (gentle) softTime += dt;
                     if (fist && Voice >= .55f && Voice <= .9f) fullTime += dt;
                     Progress = Lesson == 0 ? Math.Min(1, (openTime + fistTime) * .6f) :
-                        Lesson == 1 ? Math.Min(1, (softTime + fullTime) / 1.4f) : choiceMade ? 1 : 0;
+                        Lesson == 1 ? Math.Min(1, (softTime + fullTime) / 1.4f) : 1;
                     break;
                 case Stage.Gather:
                 case Stage.Nest:
@@ -301,7 +385,7 @@ namespace Echoes
                     break;
                 case Stage.Answer:
                     Progress = Math.Min(1, Age / 6);
-                    if (Age >= 6) AdvanceRound("世界学会了接住你的回响。");
+                    if (Age >= 6 && Gesture == Hand.Open) AdvanceRound("你张开了手，光在最后一颗星上停了下来。");
                     break;
             }
         }
@@ -350,13 +434,13 @@ namespace Echoes
                 Age = 0;
                 if (Slot < SlotCount) return;
                 if (Recording.Contains(Hand.Open) && Recording.Contains(Hand.Fist))
-                    Change(Stage.ReplayReady, "回声已经记下你的动作。触摸 A 或 B 开始合作。");
+                    Change(Stage.ReplayReady, "A 按自己的节拍重来，B 让回声补另一半。两种方式都能过门。");
                 else Change(Stage.RecordReady, "只记下了一种动作。请重录，加入张手和握拳。");
                 return;
             }
             if (markedTime < .85f)
             {
-                Change(Stage.ReplayFailed, "相反动作和声音没有同时稳定。保留记录，触摸重试。");
+                Change(Stage.ReplayFailed, "回声失去同步，但你的原节拍还在。可按 A 回到原节拍，或按 B 再借一次帮助。");
                 return;
             }
             Light = 1;

@@ -8,6 +8,7 @@ namespace Echoes
     {
         private readonly Journey journey = new Journey();
         private EchoesView view;
+        private OpeningSound openingSound;
         private bool preview, projection, mirror, audioReady, cameraReady, paused, inputReady;
         private bool settings, characterOnly, splitProjection, noHand;
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
@@ -45,7 +46,7 @@ namespace Echoes
             public float time, light, charge, voice, progress;
             public bool closed, waiting, complete, paused, preview;
             public string title, message, left, right, phase;
-            public SpiritFrame spirit = new SpiritFrame { releaseAge = -1, turnAge = -1, touchAge = -1 };
+            public SpiritFrame spirit = new SpiritFrame { releaseAge = -1, turnAge = -1, touchAge = -1, openingTime = -1 };
         }
 
 #if UNITY_WEBGL && !UNITY_EDITOR
@@ -73,6 +74,9 @@ namespace Echoes
             // Awake is not rerun when Unity reloads scripts during a Play Mode iteration.
             preview = Application.platform != RuntimePlatform.WebGLPlayer;
             view = new EchoesView();
+            if (FindObjectOfType<AudioListener>() == null)
+                gameObject.AddComponent<AudioListener>();
+            openingSound = new OpeningSound(gameObject);
             savedRevision = journey.Revision;
             Application.targetFrameRate = 60;
 #if UNITY_EDITOR
@@ -101,6 +105,7 @@ namespace Echoes
             if (keyboard && Input.GetKeyDown(KeyCode.A)) Choose("0");
             if (keyboard && Input.GetKeyDown(KeyCode.B)) Choose("1");
             if (keyboard && Input.GetKeyDown(KeyCode.R)) Retry("");
+            if (keyboard && Input.GetKeyDown(KeyCode.Escape)) journey.FinishOpening();
             inputReady = preview || audioReady && cameraReady && now - lastAudioAt < .5f && now - lastHandAt < .5f;
             float voice = preview ? (keyboard && Input.GetKey(KeyCode.X) ? .7f :
                 keyboard && Input.GetKey(KeyCode.Z) ? .3f : 0) : liveVoice;
@@ -114,15 +119,16 @@ namespace Echoes
                     ? noHand || !keyboard ? Hand.Missing : Input.GetKey(KeyCode.Space) ? Hand.Fist : Hand.Open
                     : liveHand;
                 journey.SetHand(gesture);
-                journey.Step(dt, inputReady ? voice : 0, inputReady);
+                journey.Step(journey.IsOpening ? Time.unscaledDeltaTime : dt, inputReady ? voice : 0, inputReady);
             }
             else journey.SetHand(Hand.Missing);
             view.Advance(journey);
+            openingSound.Follow(journey.IsOpening ? journey.OpeningTime : -1, paused);
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
-            exhibit.Tick(now, !paused && Application.isFocused, journey.Voice);
+            exhibit.Tick(now, !paused && !journey.IsOpening && Application.isFocused, journey.Voice);
 #endif
 
-            if (savedRevision != journey.Revision)
+            if (!journey.IsOpening && savedRevision != journey.Revision)
             {
                 savedRevision = journey.Revision;
                 PlayerPrefs.SetInt(SaveKey + "chapter", journey.Chapter);
@@ -144,21 +150,26 @@ namespace Echoes
 
         private Frame Snapshot()
         {
-            string left = "A", right = "B";
-            if (journey.Phase == Stage.Fork || journey.Phase == Stage.Tutorial && journey.Lesson == 2)
+            string left = "A · 看轨迹", right = "B · 借一步";
+            if (journey.Phase == Stage.Tutorial)
+                left = right = journey.Lesson == 2 ? "进入序幕" : "练习中";
+            else if (journey.Phase == Stage.Fork)
             { left = "A · 林荫绕路"; right = "B · 风带捷径"; }
             else if (journey.Phase == Stage.Complete && journey.Chapter < 2) left = right = "下一章";
+            else if (journey.Phase == Stage.Answer)
+            { left = "A · 点最后一颗星"; right = "B · 看回响"; }
             else if (journey.Chapter == 2 && journey.Phase != Stage.Complete)
             { left = "A · 同相"; right = "B · 反相"; }
             else if (journey.Phase == Stage.RecordReady || journey.Phase == Stage.Record) left = right = "记录动作";
-            else if (journey.Phase == Stage.ReplayReady || journey.Phase == Stage.ReplayFailed) left = right = "与回声合作";
+            else if (journey.Phase == Stage.ReplayReady || journey.Phase == Stage.ReplayFailed)
+            { left = "A · 自己的节拍"; right = "B · 借用回声"; }
             return new Frame {
                 chapter = journey.Chapter, round = journey.Round, lesson = journey.Lesson, choice = journey.Choice,
                 flock = journey.Flock, quota = journey.Quota, score = journey.Score, time = journey.Time,
                 light = journey.Light, charge = journey.Charge, voice = journey.Voice, progress = journey.Progress,
                 closed = journey.Gesture == Hand.Fist, complete = journey.Phase == Stage.Complete,
                 waiting = !inputReady || !journey.Started, paused = paused, preview = preview,
-                title = journey.Lesson >= 0 ? "回声庭院" : Titles[journey.Chapter],
+                title = journey.IsOpening ? "序幕" : journey.Lesson >= 0 ? "回声庭院 · 试玩" : Titles[journey.Chapter],
                 message = journey.Phase == Stage.Replay
                     ? journey.Message + (journey.RequiredHand == Hand.Open ? " 当前要张手。" : " 当前要握拳。")
                     : journey.Message,
@@ -189,6 +200,11 @@ namespace Echoes
                 view.DrawStage(journey, spirit, split);
             }
             if (Application.platform == RuntimePlatform.WebGLPlayer) return;
+            if (journey.IsOpening)
+            {
+                if (!characterOnly) view.DrawOpeningControls(journey.OpeningTime, journey.FinishOpening);
+                return;
+            }
             var state = Snapshot();
             view.DrawControls(state.title, state.message, state.left, state.right, state.voice,
                 option => Choose(option.ToString()), Select, () => Retry(""), () => Restore(""),
@@ -237,16 +253,23 @@ namespace Echoes
 #endif
 #if UNITY_EDITOR
             if (GUI.Button(new Rect(20, 309, 183, 30), "打开独立人物窗口", button)) CharacterWindowRequested?.Invoke();
-            if (editorProjection) GUI.Label(new Rect(219, 309, 270, 29), "已分屏 · 背景保留淡光效", label);
+            if (GUI.Button(new Rect(218, 309, 138, 30), "预览片头", button)) PlayOpening();
+            if (editorProjection) GUI.Label(new Rect(367, 309, 143, 29), "已分屏", label);
 #endif
         }
 
 #if UNITY_EDITOR
         public void SetEditorProjection(bool active) { editorProjection = active; }
 
-        public void DrawCharacterWindow(Rect viewport, bool mirrored, bool sideways)
+        public void DrawCharacterWindow(Rect viewport, bool mirrored, bool sideways, float characterScale, float lightReach)
         {
-            view?.DrawProjection(SpiritFrame.Read(journey), mirrored, sideways, viewport);
+            view?.DrawProjection(SpiritFrame.Read(journey), mirrored, sideways, viewport, characterScale, lightReach);
+        }
+
+        public void PlayOpening()
+        {
+            settings = paused = characterOnly = false;
+            journey.PlayOpening();
         }
 #endif
 
@@ -294,9 +317,10 @@ namespace Echoes
 
         public void Select(string value)
         {
-            if (!int.TryParse(value, out int chapter) || chapter < 0 || chapter > 2) return;
+            if (!int.TryParse(value, out int chapter) || chapter < -1 || chapter > 2) return;
             // Selecting a chapter is an explicit entry point, not a progress checkpoint.
-            journey.SelectChapter(chapter);
+            if (chapter == -1) journey.SelectPractice();
+            else journey.SelectChapter(chapter);
             savedRevision = journey.Revision;
         }
 
@@ -342,6 +366,8 @@ namespace Echoes
 #if !UNITY_WEBGL || UNITY_EDITOR
             microphone.Stop();
 #endif
+            openingSound?.Dispose();
+            openingSound = null;
             view?.Dispose();
             view = null;
         }

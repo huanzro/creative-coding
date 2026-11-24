@@ -5,25 +5,28 @@ namespace Echoes
     internal struct SpiritArm
     {
         public Vector3 upper, lower;
-        public float curl, light;
+        public float curl, light, wristFlex;
 
-        public SpiritArm(Vector3 upper, Vector3 lower, float curl = 0, float light = 0)
+        public SpiritArm(Vector3 upper, Vector3 lower, float curl = 0, float light = 0, float wristFlex = 0)
         {
             this.upper = upper;
             this.lower = lower;
             this.curl = curl;
             this.light = light;
+            this.wristFlex = wristFlex;
         }
 
         public static SpiritArm Blend(SpiritArm a, SpiritArm b, float weight) =>
             new SpiritArm(Vector3.Lerp(a.upper, b.upper, weight), Vector3.Lerp(a.lower, b.lower, weight),
-                Mathf.Lerp(a.curl, b.curl, weight), Mathf.Lerp(a.light, b.light, weight));
+                Mathf.Lerp(a.curl, b.curl, weight), Mathf.Lerp(a.light, b.light, weight),
+                Mathf.Lerp(a.wristFlex, b.wristFlex, weight));
     }
 
     internal struct SpiritPose
     {
         public SpiritArm left, right;
         public float time, shift, lift, pitch, yaw, lean, nod, look, tilt, flare, ribbon, step, blink, glow, pivot;
+        public float settle, tuck, extension, breath, expression, centerPivot;
     }
 
     internal static class SpiritMotion
@@ -46,9 +49,22 @@ namespace Echoes
             new Vector3(-.64f, .94f, -.35f), .18f, .36f);
         private static readonly SpiritArm Push = new SpiritArm(new Vector3(.50f, -.10f, -.85f),
             new Vector3(.22f, .12f, -.92f), .06f, .64f);
+        private static readonly SpiritArm Wing = new SpiritArm(new Vector3(.94f, -.18f, .29f),
+            new Vector3(.85f, -.14f, .38f), .18f, .22f, -15);
+        private static readonly SpiritArm Sweep = new SpiritArm(new Vector3(.70f, -.62f, -.48f),
+            new Vector3(.84f, .05f, -.61f), .20f, 0, -28);
+        private static readonly SpiritArm TouchLight = new SpiritArm(new Vector3(.55f, -.25f, -.88f),
+            new Vector3(.45f, .08f, -.92f), .11f, .08f, 13);
+        private static readonly SpiritArm CoverHead = new SpiritArm(new Vector3(.61f, .66f, -.11f),
+            new Vector3(-.66f, .92f, -.29f), .42f, 0, 17);
+        private static readonly SpiritArm HoldAbove = new SpiritArm(new Vector3(.49f, .72f, -.27f),
+            new Vector3(.14f, .96f, -.21f), .23f, .46f, 17);
+        private static readonly SpiritArm Brace = new SpiritArm(new Vector3(.76f, -.58f, -.36f),
+            new Vector3(.38f, -.72f, -.72f), .45f, 0, 27);
 
         public static SpiritPose Sample(SpiritFrame frame, float tracked, float closed, float voice, float[] dance)
         {
+            if (frame.openingTime >= 0) return ActOpening(frame.openingTime);
             SpiritDance.Sample(frame.phase, dance);
             float time = frame.motionTime;
             float draw = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(.105f, .30f, voice));
@@ -59,11 +75,13 @@ namespace Echoes
             float turn = frame.turnAge < 0 ? 0 : Mathf.Clamp01(frame.turnAge / 1.25f);
             float spinBody = Mathf.Sin(turn * Mathf.PI);
             float trailing = frame.turnAge < 0 ? 0 : Mathf.Clamp01((frame.turnAge - .095f) / 1.23f);
-            float idle = Mathf.Sin(time * 2.15f);
+            float idle = Mathf.Sin(time * 1.95f);
+            float breath = Mathf.Sin(time * 2.16f + .35f * Mathf.Sin(time * .71f));
             var pose = new SpiritPose {
-                time = time, yaw = -8 + dance[3] * 14, lean = dance[2] * 21, step = (dance[12] - dance[16]) * .004f,
-                lift = .048f + idle * .022f, blink = 1 - Envelope(Mathf.Repeat(time + .4f, 4.3f), .055f, .075f, .15f) * .89f,
-                look = dance[4] * 24, shift = dance[0] * .009f, glow = frame.light * .78f + draw * .22f
+                time = time, yaw = -8 + dance[3] * 9, lean = dance[2] * 15, step = (dance[12] - dance[16]) * .0025f,
+                lift = .037f + idle * .014f, blink = Blink(time),
+                look = dance[4] * 17, shift = dance[0] * .0055f, glow = frame.light * .78f + draw * .22f,
+                breath = breath, expression = .22f * closed, centerPivot = .24f
             };
 
             // Each gesture uses a different task vocabulary in each chapter.
@@ -125,8 +143,81 @@ namespace Echoes
             pose.lean += 6 * spinBody;
             pose.left = SpiritArm.Blend(pose.left, Hold, spinBody * .7f);
             pose.right = SpiritArm.Blend(pose.right, High, spinBody);
+            float reachUp = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(.06f, .80f, frame.verticalSpeed)) *
+                (1 - closed) * (1 - spinBody * .73f);
+            float glide = frame.glide * (1 - spinBody * .82f);
+            float footDrop = Mathf.SmoothStep(0, 1, 1 - Mathf.Clamp01(frame.altitude / .14f)) * glide;
+            pose.left = SpiritArm.Blend(pose.left, HoldAbove, reachUp * .61f);
+            pose.right = SpiritArm.Blend(pose.right, Reach, reachUp * .46f);
+            pose.left = SpiritArm.Blend(pose.left, Wing, glide * .91f);
+            pose.right = SpiritArm.Blend(pose.right, Wing, glide * .76f);
+            pose.yaw += 16 * glide + 7 * glide * idle;
+            pose.lean += glide * (-6 + 4.6f * idle);
+            pose.nod += -12 * reachUp + 10 * glide;
+            pose.pitch += 16 * glide - 12 * reachUp;
+            pose.extension = glide * .91f + .24f * reachUp;
+            pose.settle = footDrop * .47f;
+            pose.flare += glide * .22f + reachUp * .13f;
+            pose.ribbon += glide * (.38f + .40f * flight);
+            // An elbow and a wrist follow the chest with different phase delays.
+            pose.left.lower.y += .065f * Mathf.Sin(time * 2.16f - .55f) * (1 - closed);
+            pose.right.lower.y += .075f * Mathf.Sin(time * 2.16f - 1.12f) * (1 - closed);
+            pose.left.wristFlex += 5 * Mathf.Sin(time * 2.3f - .88f);
+            pose.right.wristFlex += 7 * Mathf.Sin(time * 2.3f - 1.27f);
             return pose;
         }
+
+        private static SpiritPose ActOpening(float t)
+        {
+            var shot = OpeningStoryboard.Sample(t);
+            float sweep = OpeningStoryboard.Window(t, .6f, 2.0f, 3.5f, 4.75f);
+            float yellow = OpeningStoryboard.Window(t, 4.0f, 6.2f, 7.08f, 7.64f);
+            float rescue = OpeningStoryboard.Window(t, 10.87f, 12.60f, 15.35f, 17.68f);
+            float chase = OpeningStoryboard.Window(t, 17.3f, 19.23f, 21.17f, 22.5f);
+            float red = OpeningStoryboard.Window(t, 22.62f, 25.1f, 26.8f, 27.43f);
+            float falling = OpeningStoryboard.Window(t, 7.4f, 8.1f, 10.45f, 12.21f) +
+                OpeningStoryboard.Window(t, 27.4f, 28.3f, 30.57f, 31.5f);
+            float knees = OpeningStoryboard.Window(t, 30.57f, 31.48f, 33.2f, 34.1f);
+            float rub = OpeningStoryboard.Window(t, 33.0f, 34.19f, 35.04f, 36.65f);
+            float settle = OpeningStoryboard.Ease(34.7f, 37.4f, t);
+            var pose = new SpiritPose
+            {
+                time = t, pitch = shot.Attitude.x, yaw = -shot.Attitude.y, lean = shot.Attitude.z,
+                left = Rest, right = Rest, centerPivot = 1, blink = Blink(t),
+                breath = Mathf.Sin(t * (falling > .62f ? 3.3f : 2.16f)),
+                extension = .36f * chase + .42f * rescue,
+                nod = 13 * sweep + 11 * yellow - 27 * rescue - 26 * chase + 13 * rub,
+                look = -11 * (yellow + red) + 8 * falling + 11 * rub, tilt = -6 * rub + 7 * red,
+                expression = .80f * falling + .70f * knees + .23f * red,
+                tuck = .7f * falling + .77f * knees, settle = knees * .39f + .18f * rub,
+                step = (.37f * sweep * Mathf.Sin(t * 4.9f)) + .38f * rescue - .27f * chase + .32f * knees,
+                lift = .040f * sweep * Mathf.Abs(Mathf.Sin(t * 4.9f)),
+                flare = shot.Rush * .88f + falling * .26f,
+                ribbon = shot.Rush * .86f + rescue * .26f + .08f * Mathf.Sin(t * 2.8f - .5f),
+                glow = .34f * (yellow + rescue + chase) + .52f * red
+            };
+            pose.left = SpiritArm.Blend(pose.left, Sweep, sweep * .91f);
+            pose.right = SpiritArm.Blend(pose.right, Sweep, sweep);
+            pose.right = SpiritArm.Blend(pose.right, TouchLight, Mathf.Max(yellow, red));
+            pose.left = SpiritArm.Blend(pose.left, Offer, .41f * (yellow + red));
+            pose.left = SpiritArm.Blend(pose.left, Wing, .68f * falling);
+            pose.right = SpiritArm.Blend(pose.right, High, .68f * falling);
+            pose.left = SpiritArm.Blend(pose.left, HoldAbove, Mathf.Max(rescue, chase * .65f));
+            pose.right = SpiritArm.Blend(pose.right, HoldAbove, Mathf.Max(.87f * rescue, chase));
+            pose.left = SpiritArm.Blend(pose.left, Hold, knees * .82f);
+            pose.right = SpiritArm.Blend(pose.right, Brace, knees);
+            pose.right = SpiritArm.Blend(pose.right, CoverHead, rub);
+            pose.right.wristFlex += Mathf.Sin((t - 33.9f) * 10.9f) * rub * 11;
+            pose.left = SpiritArm.Blend(pose.left, Brace, rub * .58f);
+            pose.left = SpiritArm.Blend(pose.left, Reach, settle * .88f);
+            pose.right = SpiritArm.Blend(pose.right, Offer, settle);
+            pose.blink *= 1 - knees * .82f;
+            return pose;
+        }
+
+        private static float Blink(float time) =>
+            1 - Envelope(Mathf.Repeat(time + .38f * Mathf.Sin(time * .57f) + .7f, 4.48f),
+                .055f, .074f, .158f) * .94f;
 
         private static void ApplyTouch(ref SpiritPose pose, int side, float cue,
             SpiritArm left, SpiritArm right, float turnLeft, float turnRight, float dip)
@@ -135,18 +226,18 @@ namespace Echoes
             {
                 pose.left = SpiritArm.Blend(pose.left, left, cue);
                 pose.right = SpiritArm.Blend(pose.right, Rest, cue * .62f);
-                pose.yaw += turnLeft * cue;
-                pose.look -= 17 * cue;
+                pose.yaw -= turnLeft * cue;
+                pose.look += 17 * cue;
             }
             else
             {
                 pose.right = SpiritArm.Blend(pose.right, right, cue);
                 pose.left = SpiritArm.Blend(pose.left, Reach, cue * .70f);
-                pose.yaw += turnRight * cue;
+                pose.yaw -= turnRight * cue;
                 pose.pitch += dip * cue;
                 pose.nod += dip * cue * .52f;
                 pose.lift -= Mathf.Max(0, dip) * .0022f * cue;
-                pose.look += 18 * cue;
+                pose.look -= 18 * cue;
             }
             pose.lean += (side == 0 ? 6 : -6) * cue;
             pose.shift += (side == 0 ? -.11f : .11f) * cue;

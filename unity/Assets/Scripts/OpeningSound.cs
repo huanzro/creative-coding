@@ -1,0 +1,107 @@
+using System;
+using UnityEngine;
+
+namespace Echoes
+{
+    internal sealed class OpeningSound : IDisposable
+    {
+        private const int Rate = 24000;
+        private const double FullTurn = Math.PI * 2;
+        private readonly AudioSource source;
+        private AudioClip clip;
+        private float lastTime = -1;
+
+        public OpeningSound(GameObject owner)
+        {
+            source = owner.AddComponent<AudioSource>();
+            source.playOnAwake = false;
+            source.spatialBlend = 0;
+            source.volume = .74f;
+        }
+
+        public void Follow(float time, bool muted)
+        {
+            if (time < 0)
+            {
+                if (lastTime >= 0) source.Stop();
+                lastTime = time;
+                return;
+            }
+            if (muted)
+            {
+                if (source.isPlaying) source.Pause();
+                return;
+            }
+            if (clip == null)
+            {
+                clip = Compose();
+                source.clip = clip;
+            }
+            if (lastTime < 0 || time + .05f < lastTime || !source.isPlaying)
+            {
+                source.time = Mathf.Clamp(time, 0, clip.length - .08f);
+                source.Play();
+            }
+            if (Math.Abs(source.time - time) > .57f)
+                source.time = Mathf.Clamp(time, 0, clip.length - .08f);
+            lastTime = time;
+        }
+
+        // Four warm notes travel with the same insect. The red answer arrives
+        // a semitone away. A short earth sound closes the fall without a flash.
+        private static AudioClip Compose()
+        {
+            float[] samples = new float[(int)(OpeningTiming.Duration * Rate)];
+            var random = new System.Random(53);
+            double wind = 0, rumble = 0;
+            for (int i = 0; i < samples.Length; i++)
+            {
+                double t = (double)i / Rate;
+                double noise = random.NextDouble() * 2 - 1;
+                wind += (noise - wind) * .016;
+                rumble += (noise - rumble) * .005;
+                double air = Bell(t, OpeningTiming.FirstFall + 1.3, 1.24) +
+                             .84 * Bell(t, OpeningTiming.SecondFall + .92, 1.05);
+                double canopy = .043 * Tone(t, 130.813) + .020 * Tone(t, 196) + .014 * Tone(t, 261.626);
+                double notes = Pluck(t, 3.3, 523.25, .18) + Pluck(t, 5.3, 659.25, .22) +
+                    Pluck(t, OpeningTiming.Catch + .75, 783.99, .31) + Pluck(t, 16.55, 523.25, .22) +
+                    Pluck(t, 18.9, 659.25, .24) + Pluck(t, 20.2, 783.99, .21) +
+                    Pluck(t, 24.0, 698.46, .12) + Pluck(t, OpeningTiming.RedContact, 554.37, .25) +
+                    Pluck(t, 35.0, 392.0, .14);
+                double red = Bell(t, OpeningTiming.RedContact + .55, .84) * .085 * (Tone(t, 146.83) + Tone(t, 155.56));
+                double land = Bell(t, OpeningTiming.Impact + .04, .096) * (rumble * 1.19 + Tone(t, 54) * .23);
+                double fade = Math.Min(1, t / 1.45) * Math.Min(1, (OpeningTiming.Duration - t) / 1.48);
+                samples[i] = (float)Math.Max(-1, Math.Min(1, fade *
+                    (canopy * (1 - .45 * Math.Min(1, air)) + notes + red + land + wind * (.16 + .79 * air))));
+            }
+            var rendered = AudioClip.Create("Echoes opening score", samples.Length, 1, Rate, false);
+            rendered.SetData(samples, 0);
+            return rendered;
+        }
+
+        private static double Tone(double time, double hz) => Math.Sin(FullTurn * hz * time);
+        private static double Bell(double time, double center, double width)
+        {
+            double x = (time - center) / width;
+            return Math.Exp(-x * x);
+        }
+
+        private static double Pluck(double time, double at, double hz, double gain)
+        {
+            double x = time - at;
+            if (x <= 0 || x > 2.8) return 0;
+            return gain * (1 - Math.Exp(-x * 28)) * Math.Exp(-x * 2.15) *
+                (.74 * Tone(x, hz) + .16 * Tone(x, hz * 2.01) + .10 * Tone(x, hz * 3.09));
+        }
+
+        public void Dispose()
+        {
+            if (source != null)
+            {
+                source.Stop();
+                UnityEngine.Object.Destroy(source);
+            }
+            if (clip != null) UnityEngine.Object.Destroy(clip);
+        }
+    }
+}

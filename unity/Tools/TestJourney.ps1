@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-$sources = 'Journey.cs', 'AtmosphereMotion.cs', 'ExhibitProtocol.cs', 'SpiritFrame.cs' |
+$sources = 'Journey.cs', 'AtmosphereMotion.cs', 'ExhibitProtocol.cs', 'SpiritFrame.cs', 'OpeningTiming.cs', 'SpiritFlight.cs', 'FireflyCourse.cs' |
     ForEach-Object { Join-Path $PSScriptRoot "../Assets/Scripts/$_" }
 Add-Type -Path $sources
 
@@ -29,9 +29,13 @@ Hand $game Fist .9 .7
 Hand $game Open .1 0
 Assert ($game.Lesson -eq 2) 'The voice lesson should accept the two ranges.'
 [void]$game.Touch(0)
-Hand $game Fist .35 0
-Hand $game Open .02 0
-Assert ($game.Phase -eq 'Gather') 'Route confirmation should enter the forest.'
+Assert ($game.Phase -eq 'Prologue' -and $game.OpeningTime -eq 0) 'Finishing the practice should begin the opening.'
+$game.SetHand([Echoes.Hand]::Fist)
+$game.Step(.5, .8, $false)
+Assert ($game.OpeningTime -gt 0 -and $game.Gesture -eq 'Missing' -and !$game.Touch(1)) 'The opening plays through a lost input, with stage controls held.'
+Step $game 38 0
+Assert ($game.Phase -eq 'Gather' -and $game.Chapter -eq 0 -and $game.Lesson -eq -1) 'The opening must enter the actual first chapter, bypassing practice.'
+Hand $game Open .05 .3
 
 for ($round = 0; $round -lt 3; $round++) {
     Step $game 8 .3
@@ -108,6 +112,9 @@ Assert ($saved.Gesture -eq 'Missing') 'A returning hand must open before rearmin
 
 $dancer = [Echoes.Journey]::new()
 Hand $dancer Open .65 0
+Hand $dancer Fist .06 0
+$dancer.SetHand([Echoes.Hand]::Open)
+Assert (([Echoes.SpiritFrame]::Read($dancer)).releaseAge -eq -1) 'A brief interruption in tracking must not launch the character.'
 Hand $dancer Fist .65 .3
 $dancer.SetHand([Echoes.Hand]::Open)
 $pose = [Echoes.SpiritFrame]::Read($dancer)
@@ -138,6 +145,40 @@ $gameTime = $dancer.Time
 $dancer.Step(.2, 0, $false)
 Assert ($dancer.Time -eq $gameTime -and $dancer.PoseTime -gt $pose.motionTime) 'When the device is unavailable, the pose may settle without advancing the chapter.'
 
+$flight = [Echoes.SpiritFlight]::new()
+$flight.Reset(.11)
+$flight.Release(.3)
+for ($i=0; $i -lt 18; $i++) { $flight.Step(.02,[Echoes.Hand]::Open) }
+Assert ($flight.Height -gt .36 -and $flight.Speed -gt 0) 'A release must visibly lift the character.'
+for ($i=0; $i -lt 72; $i++) { $flight.Step(.02,[Echoes.Hand]::Open) }
+Assert ($flight.Speed -lt -.1 -and $flight.Glide -gt .6) 'An open hand should glide through the downward phase.'
+for ($i=0; $i -lt 400; $i++) { $flight.Step(.02,[Echoes.Hand]::Open) }
+Assert ($flight.Height -eq 0 -and $flight.Glide -lt .01 -and [Echoes.SpiritFlight]::ScreenY($flight.Height) -gt .77) 'The glide must settle near the bottom rather than bounce.'
+
+$flies = [Echoes.FireflyCourse]::new(17)
+for ($i=0; $i -lt 129; $i++) { [void]$flies.Step(.02,.3,.27,[Echoes.Hand]::Open,$false) }
+Assert ($flies.Kind -eq 'None') 'Allow initial breathing room before the first firefly.'
+$last = 'None'
+$appearances = 0
+$amber = $scarlet = 0
+for ($i=0; $i -lt 4000; $i++) {
+    $active = $flies.Kind.ToString()
+    if ($active -ne 'None' -and $last -eq 'None') {
+        $appearances++
+        if ($active -eq 'Scarlet') { $scarlet++ }
+    }
+    $last = $active
+    $height = if ($active -eq 'Scarlet') { $flies.Altitude } else { .27 }
+    $result = $flies.Step(.02,.3,$height,[Echoes.Hand]::Open,$false)
+    if ($result -eq 'Amber') { $amber++ }
+}
+Assert ($appearances -ge 5 -and $appearances -lt 18 -and $amber -gt 0 -and $scarlet -gt 0) 'A seeded run should offer sparse yellow and red encounters with catchable yellow.'
+
+$skip = [Echoes.Journey]::new()
+$skip.PlayOpening()
+$skip.FinishOpening()
+Assert ($skip.Phase -eq 'Gather' -and $skip.EnteredFromOpening -and $skip.Flight.Height -lt .1) 'Skipping enters the same forest arrival position.'
+
 $noHand = [Echoes.Journey]::new()
 $noHand.SelectChapter(1)
 Hand $noHand Open .1 .4
@@ -161,4 +202,4 @@ Assert ([Echoes.ExhibitProtocol]::ReadInputs('EOL3 IN 3 7', [ref]$touch, [ref]$e
 Assert ($touch -eq 3 -and $enabled -eq 7) 'The two touch channels must remain distinct.'
 Assert ([Echoes.ExhibitProtocol]::Output(1, 1, .5, 200, $true) -eq "EOL3 IO 1 12 4 0 0 2 6 -1 166`n") 'Combined firmware should receive the two lamps and bounded fan in one packet.'
 Assert ([Echoes.ExhibitProtocol]::Output(1, 0, 0, 200, $false) -eq "EOL3 SET 1 0 0 0 0 0 0 -1`n") 'Old EOL3 firmware must receive the compatible command.'
-Write-Output 'Unity C# journey passed all three chapters, including retry and checkpoint restore.'
+Write-Output 'Unity C# passed practice, opening handoff, flight, sparse fireflies, all three chapters, and EOL3.'

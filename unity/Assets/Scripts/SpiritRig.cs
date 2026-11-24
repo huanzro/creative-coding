@@ -11,13 +11,13 @@ namespace Echoes
         private static readonly Color[] Accent = {
             new Color(.95f,.66f,.29f), new Color(.39f,.79f,.93f), new Color(.75f,.59f,1f)
         };
-        private static readonly int ViewProjection = Shader.PropertyToID("_AvatarViewProjection");
+        private static readonly int SceneLight = Shader.PropertyToID("_SceneLight");
         private readonly Texture2D fallback;
         private readonly Material material;
         private readonly RenderTexture target;
         private readonly CommandBuffer commands;
         private readonly SpiritModel model;
-        private readonly Matrix4x4 projection, view;
+        private readonly Camera portraitCamera;
         private readonly float[] dance = new float[SpiritDance.TrackCount];
         private readonly Vector3[] anchors = new Vector3[4];
         private readonly List<TracePoint>[] traces = new List<TracePoint>[4];
@@ -42,67 +42,89 @@ namespace Echoes
             this.fallback = fallback;
             var shader = Resources.Load<Shader>("SpiritPortrait");
             if (shader == null || !shader.isSupported) return;
-            target = new RenderTexture(576, 768, 24, RenderTextureFormat.ARGB32) {
+            var descriptor = new RenderTextureDescriptor(672, 896, RenderTextureFormat.ARGB32, 24) {
+                msaaSamples = 2
+            };
+            descriptor.msaaSamples = Mathf.Max(1, SystemInfo.GetRenderTextureSupportedMSAASampleCount(descriptor));
+            target = new RenderTexture(descriptor) {
                 name = "Echoes shared 3D character", filterMode = FilterMode.Bilinear,
                 wrapMode = TextureWrapMode.Clamp
             };
             commands = new CommandBuffer { name = "Echoes 3D character" };
             material = new Material(shader);
             model = new SpiritModel(material, commands);
-            view = Matrix4x4.Scale(new Vector3(1, 1, -1)) *
-                Matrix4x4.Translate(new Vector3(0, -1.16f, 5.6f));
-            projection = Matrix4x4.Perspective(28f, .75f, .1f, 25f);
-            material.SetMatrix(ViewProjection, GL.GetGPUProjectionMatrix(projection, true) * view);
+            var cameraObject = new GameObject("Echoes portrait camera") { hideFlags = HideFlags.HideAndDontSave };
+            cameraObject.transform.position = new Vector3(0, 1.16f, -5.6f);
+            portraitCamera = cameraObject.AddComponent<Camera>();
+            portraitCamera.enabled = false;
+            portraitCamera.cullingMask = 0;
+            portraitCamera.clearFlags = CameraClearFlags.SolidColor;
+            portraitCamera.backgroundColor = Color.clear;
+            portraitCamera.allowHDR = false;
+            portraitCamera.allowMSAA = descriptor.msaaSamples > 1;
+            portraitCamera.useOcclusionCulling = false;
+            portraitCamera.renderingPath = RenderingPath.Forward;
+            portraitCamera.nearClipPlane = .1f;
+            portraitCamera.farClipPlane = 25;
+            portraitCamera.fieldOfView = 30.5f;
+            portraitCamera.aspect = .75f;
+            portraitCamera.targetTexture = target;
+            portraitCamera.AddCommandBuffer(CameraEvent.BeforeForwardAlpha, commands);
             for (int i = 0; i < traces.Length; i++) traces[i] = new List<TracePoint>(18);
         }
 
         public IReadOnlyList<TracePoint> Trace(int index) => traces[index];
+        public Vector2 Landmark(int index)
+        {
+            Vector3 viewport = portraitCamera.WorldToViewportPoint(anchors[index]);
+            return new Vector2((viewport.x - .5f) * WidthScale, (.5f - viewport.y) * HeightScale);
+        }
 
         public void Render(SpiritFrame frame)
         {
             if (model == null) return;
-            if (rendered && target.IsCreated() && frame.motionTime == lastSample && frame.hand == previous.hand &&
+            bool opening = frame.openingTime >= 0;
+            float time = opening ? frame.openingTime : frame.motionTime;
+            if (rendered && target.IsCreated() && time == lastSample && frame.hand == previous.hand &&
                 frame.touchAge == previous.touchAge && frame.touch == previous.touch &&
                 frame.turnAge == previous.turnAge && frame.releaseAge == previous.releaseAge &&
-                frame.chapter == previous.chapter) return;
+                frame.chapter == previous.chapter && frame.openingTime == previous.openingTime) return;
             if (!target.IsCreated() && !target.Create()) return;
 
-            float elapsed = frame.motionTime - lastSample;
-            float blend = elapsed <= 0 || elapsed > .4f ? 1 : 1 - Mathf.Exp(-elapsed / .11f);
+            float elapsed = time - lastSample;
+            float blend = elapsed <= 0 || elapsed > .4f ? 1 : 1 - Mathf.Exp(-elapsed / .145f);
             tracked = Mathf.Lerp(tracked, frame.hand == Hand.Missing ? 0 : 1, blend);
             closed = Mathf.Lerp(closed, frame.hand == Hand.Fist ? 1 : 0, blend);
             voice = Mathf.Lerp(voice, frame.voice, blend);
-            lastSample = frame.motionTime;
+            lastSample = time;
             previous = frame;
             SpiritPose pose = SpiritMotion.Sample(frame, tracked, closed, voice, dance);
             commands.Clear();
-            commands.SetRenderTarget(target);
-            commands.DisableScissorRect();
-            commands.SetViewport(new Rect(0, 0, target.width, target.height));
-            commands.ClearRenderTarget(true, true, Color.clear);
-            model.Draw(pose, Accent[Mathf.Clamp(frame.chapter, 0, Accent.Length - 1)], anchors);
-            RenderTexture active = RenderTexture.active;
-            try
+            Color tint = Accent[Mathf.Clamp(frame.chapter, 0, Accent.Length - 1)];
+            if (opening)
             {
-                RenderTexture.active = target;
-                Graphics.ExecuteCommandBuffer(commands);
+                var shot = OpeningStoryboard.Sample(time);
+                tint = Color.Lerp(tint, new Color(.52f,.80f,1), Mathf.Max(shot.Ruin, shot.Sky) * .75f);
+                tint = Color.Lerp(tint, new Color(1,.33f,.26f),
+                    OpeningStoryboard.Window(time, 24.3f, 27.3f, 29.6f, 31.6f) * .89f);
             }
-            finally { RenderTexture.active = active; }
+            material.SetVector(SceneLight, new Vector4(tint.r, tint.g, tint.b, opening ? .31f : .17f));
+            model.Draw(pose, tint, anchors);
+            portraitCamera.Render();
             rendered = true;
-            UpdateTrails(frame.motionTime, frame.turnAge >= 0 || frame.touchAge >= 0 || frame.releaseAge >= 0);
+            if (!opening)
+                UpdateTrails(time, frame.glide > .10f || frame.turnAge >= 0 || frame.touchAge >= 0 || frame.releaseAge >= 0);
         }
 
         private void UpdateTrails(float time, bool active)
         {
             float elapsed = time - lastTrail;
             if (elapsed >= 0 && elapsed < 1f / 32) return;
-            Matrix4x4 logicalProjection = projection * view;
             for (int i = 0; i < traces.Length; i++)
             {
                 var trail = traces[i];
                 if (elapsed > .25f || elapsed < 0) trail.Clear();
-                Vector4 viewport = logicalProjection * new Vector4(anchors[i].x, anchors[i].y, anchors[i].z, 1);
-                var point = new Vector2(viewport.x * WidthScale, -viewport.y * HeightScale) / (2 * viewport.w);
+                Vector2 point = Landmark(i);
                 float speed = trail.Count == 0 ? 0 : Vector2.Distance(point, trail[trail.Count - 1].Position) / elapsed;
                 float energy = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(.04f, .83f, speed)) * (active ? 1 : .35f);
                 trail.Add(new TracePoint(point, time, energy));
@@ -113,6 +135,12 @@ namespace Echoes
 
         public void Dispose()
         {
+            if (portraitCamera != null)
+            {
+                portraitCamera.RemoveCommandBuffer(CameraEvent.BeforeForwardAlpha, commands);
+                portraitCamera.targetTexture = null;
+                UnityEngine.Object.Destroy(portraitCamera.gameObject);
+            }
             model?.Dispose();
             commands?.Dispose();
             if (target != null) { target.Release(); UnityEngine.Object.Destroy(target); }
