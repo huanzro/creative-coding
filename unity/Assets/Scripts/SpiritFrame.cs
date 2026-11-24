@@ -5,16 +5,19 @@ namespace Echoes
     [Serializable]
     public struct SpiritFrame
     {
-        public int chapter;
-        public float time, phase, voice, light, charge, releaseAge, turnAge;
+        public int chapter, touch;
+        public Hand hand;
+        public float time, motionTime, phase, voice, light, charge, releaseAge, turnAge, touchAge;
         public bool closed;
 
         public static SpiritFrame Read(Journey journey) => new SpiritFrame {
-            chapter = journey.Chapter, time = journey.Time, phase = journey.DancePhase,
-            voice = journey.Voice, light = journey.Light, charge = journey.Charge,
+            chapter = journey.Chapter, time = journey.Time, motionTime = journey.PoseTime, phase = journey.DancePhase,
+            voice = journey.PoseVoice, light = journey.Light, charge = journey.Charge,
+            touch = journey.TouchOption, hand = journey.Gesture,
             closed = journey.Gesture == Hand.Fist,
-            releaseAge = Age(journey.Time, journey.LastRelease, 2.2f),
-            turnAge = Age(journey.Time, journey.LastSpin, 1.35f)
+            releaseAge = Age(journey.PoseTime, journey.LastRelease, 2.2f),
+            turnAge = Age(journey.PoseTime, journey.LastSpin, 1.35f),
+            touchAge = Age(journey.PoseTime, journey.LastTouch, .95f)
         };
 
         private static float Age(float now, float start, float lifetime)

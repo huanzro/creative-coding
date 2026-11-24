@@ -124,6 +124,19 @@ Step $dancer 1.65 .7
 Assert (([Echoes.SpiritFrame]::Read($dancer)).turnAge -eq -1) 'The turn should finish automatically while travel continues.'
 $dancer.SelectChapter(2)
 Assert (([Echoes.SpiritFrame]::Read($dancer)).releaseAge -eq -1) 'A different chapter must not inherit the previous ring.'
+$pose = [Echoes.SpiritFrame]::Read($dancer)
+Assert ($pose.touchAge -eq -1 -and $pose.hand -eq [Echoes.Hand]::Missing) 'A new chapter must start without a stale touch or gesture.'
+Hand $dancer Open .12 .3
+Assert ($dancer.Touch(1)) 'Touch B should reach the same journey input as its keyboard simulation.'
+$pose = [Echoes.SpiritFrame]::Read($dancer)
+Assert ($pose.touchAge -eq 0 -and $pose.touch -eq 1 -and $pose.voice -gt .1) 'The projection should carry touch and voice with the pose.'
+Hand $dancer Fist .5 .7
+Hand $dancer Missing .65 0
+$pose = [Echoes.SpiritFrame]::Read($dancer)
+Assert ($pose.hand -eq [Echoes.Hand]::Missing -and $pose.releaseAge -eq -1 -and $pose.touchAge -eq -1) 'Losing sight of the hand must settle the avatar without a release pose.'
+$gameTime = $dancer.Time
+$dancer.Step(.2, 0, $false)
+Assert ($dancer.Time -eq $gameTime -and $dancer.PoseTime -gt $pose.motionTime) 'When the device is unavailable, the pose may settle without advancing the chapter.'
 
 $noHand = [Echoes.Journey]::new()
 $noHand.SelectChapter(1)

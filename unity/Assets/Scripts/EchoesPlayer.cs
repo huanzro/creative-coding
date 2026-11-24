@@ -45,7 +45,7 @@ namespace Echoes
             public float time, light, charge, voice, progress;
             public bool closed, waiting, complete, paused, preview;
             public string title, message, left, right, phase;
-            public SpiritFrame spirit = new SpiritFrame { releaseAge = -1, turnAge = -1 };
+            public SpiritFrame spirit = new SpiritFrame { releaseAge = -1, turnAge = -1, touchAge = -1 };
         }
 
 #if UNITY_WEBGL && !UNITY_EDITOR
@@ -114,7 +114,7 @@ namespace Echoes
                     ? noHand || !keyboard ? Hand.Missing : Input.GetKey(KeyCode.Space) ? Hand.Fist : Hand.Open
                     : liveHand;
                 journey.SetHand(gesture);
-                if (inputReady) journey.Step(dt, voice);
+                journey.Step(dt, inputReady ? voice : 0, inputReady);
             }
             else journey.SetHand(Hand.Missing);
             view.Advance(journey);

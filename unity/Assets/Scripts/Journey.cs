@@ -36,6 +36,10 @@ namespace Echoes
         public float LastRelease { get; private set; }
         public float LastSpin { get; private set; }
         public float DancePhase { get; private set; }
+        public float PoseTime { get; private set; }
+        public float PoseVoice { get; private set; }
+        public float LastTouch { get; private set; }
+        public int TouchOption { get; private set; }
         public float Age { get; private set; }
         public float Distance { get; private set; }
         public float Progress { get; private set; }
@@ -71,6 +75,7 @@ namespace Echoes
             Choice = Score = 0;
             Distance = Time = 0;
             DancePhase = 0;
+            PoseTime = 0;
             ResetSegment();
             Revision++;
         }
@@ -98,6 +103,9 @@ namespace Echoes
             Started = false;
             LastRelease = float.NegativeInfinity;
             LastSpin = float.NegativeInfinity;
+            LastTouch = float.NegativeInfinity;
+            TouchOption = 0;
+            PoseVoice = 0;
             Flock = Slot = WaveIndex = 0;
             Voice = Charge = Held = Light = openTime = fistTime = softTime = fullTime = 0;
             Choice = 0;
@@ -154,6 +162,8 @@ namespace Echoes
                 return true;
             }
             if (!Started || Phase == Stage.Complete) return false;
+            LastTouch = PoseTime;
+            TouchOption = option;
             if ((Phase == Stage.Tutorial && Lesson == 2) || Phase == Stage.Fork)
             {
                 Choice = option;
@@ -192,10 +202,10 @@ namespace Echoes
         private void Release()
         {
             Light = 1;
-            LastRelease = Time;
+            LastRelease = PoseTime;
             // Only an intentional, charged release during fast travel starts a turn.
-            if (Held >= .25f && Voice >= .58f && Charge >= .48f && Time - LastSpin >= 1.3f)
-                LastSpin = Time;
+            if (Held >= .25f && Voice >= .58f && Charge >= .48f && PoseTime - LastSpin >= 1.3f)
+                LastSpin = PoseTime;
             switch (Phase)
             {
                 case Stage.Tutorial:
@@ -225,13 +235,16 @@ namespace Echoes
             }
         }
 
-        public void Step(float dt, float voice)
+        public void Step(float dt, float voice, bool advanceJourney = true)
         {
-            if (!Started || Phase == Stage.Complete || dt <= 0) return;
+            if (dt <= 0) return;
+            PoseTime += dt;
+            PoseVoice = float.IsNaN(voice) || float.IsInfinity(voice) ? 0 : Math.Max(0, Math.Min(1, voice));
+            DancePhase = (DancePhase + dt * (.164f + .122f * PoseVoice)) % 1;
+            if (!advanceJourney || !Started || Phase == Stage.Complete) return;
             Time += dt;
             Age += dt;
-            Voice = float.IsNaN(voice) || float.IsInfinity(voice) ? 0 : Math.Max(0, Math.Min(1, voice));
-            DancePhase = (DancePhase + dt * (.164f + .122f * Voice)) % 1;
+            Voice = PoseVoice;
             Light = Math.Max(0, Light - dt * .9f);
             bool fist = Gesture == Hand.Fist;
             bool gentle = Gesture == Hand.Open && Voice >= .12f && Voice <= .45f;

@@ -251,7 +251,7 @@ namespace Echoes
             Paint(new Rect(x - radius, y - radius, radius * 2, radius * 2), Opacity(color, alpha), ring);
 
         public void UpdateSpirit(SpiritFrame frame) =>
-            spirit.Render(frame.time, frame.phase, frame.voice, frame.light, frame.turnAge, frame.closed);
+            spirit.Render(frame);
 
         private static Matrix4x4 RotateAbout(Matrix4x4 parent, Vector2 center, float degrees) =>
             parent * Matrix4x4.Translate(center) * Matrix4x4.Rotate(Quaternion.Euler(0, 0, degrees))
@@ -278,7 +278,7 @@ namespace Echoes
             Matrix4x4 before = GUI.matrix;
             if (rotation != 0) GUI.matrix = RotateAbout(before, new Vector2(CenterX, y), rotation);
             if (spirit.Articulated)
-                DrawGestureTrails(frame.time, new Vector2(CenterX, y), size, color, mirror, effects);
+                DrawGestureTrails(frame.motionTime, new Vector2(CenterX, y), size, color, mirror, effects);
             if (showPortrait)
             {
                 Texture texture = spirit.Texture;
