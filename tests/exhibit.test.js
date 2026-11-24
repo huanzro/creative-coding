@@ -14,6 +14,13 @@ test('EOL3 represents optional touch inputs separately and rejects damaged frame
     'EOL3 SET 42 64 0 3 0 9 0 120\n',
   );
 });
+test('the EOL3 capability enables a single bounded lamp, servo and fan packet',()=>{
+  assert.deepEqual(readExhibitFrame('EOL3 CAP FAN'),{type:'fan'});
+  assert.equal(readExhibitFrame('EOL3 CAP FAN EXTRA'),null);
+  const levels={lampA:[12,4,0],lampB:[0,3,12],servo:90,fan:255};
+  assert.equal(encodeExhibitOutput(11,levels,true),'EOL3 IO 11 12 4 0 0 3 12 90 166\n');
+  assert.equal(encodeExhibitOutput(11,levels),'EOL3 SET 11 12 4 0 0 3 12 90\n');
+});
 
 test('serial arming requires EOL3, touch reports both edges, and disarming clears outputs', async () => {
   const writes = [];

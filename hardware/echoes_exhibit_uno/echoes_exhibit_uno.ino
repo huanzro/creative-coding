@@ -1,17 +1,25 @@
 #include <Adafruit_NeoPixel.h>
-#include <Servo.h>
 #include <stdlib.h>
 #include <string.h>
+#include <util/atomic.h>
+#if !defined(__AVR_ATmega328P__) || F_CPU != 16000000UL
+#error "The combined exhibit firmware targets a 16 MHz ATmega328P Uno R3."
+#endif
 
 // Exhibition configuration: two verified 15-pixel GRB strips.
 const uint16_t PIXELS_A = 15;
 const uint16_t PIXELS_B = 15;
 Adafruit_NeoPixel lampA(PIXELS_A, 6, NEO_GRB + NEO_KHZ800);
 Adafruit_NeoPixel lampB(PIXELS_B, 7, NEO_GRB + NEO_KHZ800);
-Servo flower;
 const uint8_t SERVO_PIN = 5;
+const uint8_t FAN_PIN = 9;
+const uint8_t FAN_LIMIT = 166;
 const uint8_t LIMIT = 64;
 const unsigned long WATCHDOG_MS = 800;
+constexpr uint16_t FAN_TIMER_TOP = F_CPU / 25000UL - 1;
+constexpr uint16_t SERVO_FRAME_TICKS = 500; // 20 ms at 40 us per Timer1 cycle.
+volatile uint8_t servoPulseTicks = 0;
+volatile uint16_t servoPhase = 0;
 
 struct Input {
   uint8_t pin;
@@ -37,32 +45,62 @@ bool outputLive = false;
 unsigned long lastOutput = 0;
 unsigned long lastReport = 0;
 uint32_t colorA = 0, colorB = 0;
-int lastAngle = -1;
+uint32_t targetA = 0, targetB = 0;
 
-void setLamp(Adafruit_NeoPixel &lamp, uint32_t &past, uint8_t r, uint8_t g, uint8_t b) {
-  uint32_t next = lamp.Color(r, g, b);
-  if (next == past) return;
-  past = next;
+ISR(TIMER1_OVF_vect) {
+  static uint8_t framePulse = 0;
+  const uint16_t phase = servoPhase;
+  if (phase == 0) {
+    framePulse = servoPulseTicks;
+    if (framePulse) PORTD |= _BV(PD5);
+  }
+  if (phase == framePulse) PORTD &= ~_BV(PD5);
+  servoPhase = phase + 1 == SERVO_FRAME_TICKS ? 0 : phase + 1;
+}
+
+void setFan(uint8_t duty) {
+  // The external open-collector stage on D9 inverts the signal.
+  if (duty == 0) {
+    TCCR1A = _BV(WGM11);
+    digitalWrite(FAN_PIN, HIGH);
+  } else {
+    OCR1A = uint32_t(duty) * (FAN_TIMER_TOP + 1) / 255;
+    TCCR1A = _BV(WGM11) | _BV(COM1A1) | _BV(COM1A0);
+  }
+}
+
+void showLamp(Adafruit_NeoPixel &lamp, uint32_t &previous, uint32_t next) {
+  if (previous == next || !lamp.canShow()) return;
+  uint16_t phase;
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE) { phase = servoPhase; }
+  const uint16_t leadTicks = (uint32_t(lamp.numPixels()) * 30 + 199) / 40;
+  // NeoPixel transmission masks interrupts. Send only during the servo's low interval.
+  if (servoPulseTicks && (phase < 55 || phase + leadTicks >= SERVO_FRAME_TICKS)) return;
+  previous = next;
   lamp.fill(next);
   lamp.show();
 }
 
 void setServo(int angle) {
-  if (lastAngle == angle) return;
-  lastAngle = angle;
-  if (angle < 0) {
-    if (flower.attached()) flower.detach();
-    pinMode(SERVO_PIN, OUTPUT);
-    digitalWrite(SERVO_PIN, LOW);
-    return;
+  ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+    if (angle < 0) {
+      TIMSK1 &= ~_BV(TOIE1);
+      servoPulseTicks = 0;
+      PORTD &= ~_BV(PD5);
+    } else {
+      if (!servoPulseTicks) {
+        servoPhase = 0;
+        TIFR1 = _BV(TOV1);
+        TIMSK1 |= _BV(TOIE1);
+      }
+      servoPulseTicks = (544 + 1856UL * angle / 180 + 20) / 40;
+    }
   }
-  flower.write(angle);
-  if (!flower.attached()) flower.attach(SERVO_PIN);
 }
 
 void stopOutputs() {
-  setLamp(lampA, colorA, 0, 0, 0);
-  setLamp(lampB, colorB, 0, 0, 0);
+  targetA = targetB = 0;
+  setFan(0);
   setServo(-1);
   outputLive = false;
 }
@@ -72,9 +110,11 @@ void readCommand(char *line, unsigned long now) {
   char *word = strtok_r(line, " ", &saved);
   if (!word || strcmp(word, "EOL3") != 0) return;
   word = strtok_r(NULL, " ", &saved);
-  if (!word || strcmp(word, "SET") != 0) return;
-  long field[8];
-  for (uint8_t i = 0; i < 8; ++i) {
+  if (!word) return;
+  const bool withFan = strcmp(word, "IO") == 0;
+  if (!withFan && strcmp(word, "SET") != 0) return;
+  long field[9] = {};
+  for (uint8_t i = 0; i < (withFan ? 9 : 8); ++i) {
     word = strtok_r(NULL, " ", &saved);
     if (!word || strlen(word) > 5) return;
     char *end;
@@ -84,8 +124,10 @@ void readCommand(char *line, unsigned long now) {
   if (strtok_r(NULL, " ", &saved) || field[0] < 0 || field[0] > 65535) return;
   for (uint8_t i = 1; i <= 6; ++i) if (field[i] < 0 || field[i] > LIMIT) return;
   if (field[7] != -1 && (field[7] < 60 || field[7] > 120)) return;
-  setLamp(lampA, colorA, field[1], field[2], field[3]);
-  setLamp(lampB, colorB, field[4], field[5], field[6]);
+  if (field[8] < 0 || field[8] > FAN_LIMIT) return;
+  targetA = lampA.Color(field[1], field[2], field[3]);
+  targetB = lampB.Color(field[4], field[5], field[6]);
+  setFan(field[8]);
   setServo(field[7]);
   outputLive = true;
   lastOutput = now;
@@ -117,12 +159,21 @@ void scanInputs(unsigned long now) {
     Serial.print(mask);
     Serial.print(' ');
     Serial.println(enabled);
+    Serial.println(F("EOL3 CAP FAN"));
   }
 }
 
 void setup() {
   pinMode(SERVO_PIN, OUTPUT);
   digitalWrite(SERVO_PIN, LOW);
+  digitalWrite(FAN_PIN, HIGH);
+  pinMode(FAN_PIN, OUTPUT);
+  TCCR1A = _BV(WGM11);
+  TCCR1B = 0;
+  TIMSK1 = 0;
+  TCNT1 = 0;
+  ICR1 = FAN_TIMER_TOP;
+  TCCR1B = _BV(WGM13) | _BV(WGM12) | _BV(CS10);
   lampA.begin();
   lampB.begin();
   lampA.clear();
@@ -154,4 +205,6 @@ void loop() {
       else overflow = true;
     }
   }
+  showLamp(lampA, colorA, targetA);
+  showLamp(lampB, colorB, targetB);
 }

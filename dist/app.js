@@ -16,6 +16,7 @@ let handPresent=false,lastInference=0,lastVideoTime=-1,frameTime=performance.now
 let W=1000,H=800,dpr=1,projectionWindow=null,projectionCanvas=null,splitProjection=false;
 let savedRevision=0;
 const CHECKPOINT_KEY='echoes-body-v2';
+const PRESENTATION_KEY='echoes-presentation-v1';
 const PROJECTION_LABEL='开启双屏投影 · 人物独立窗口';
 function resize(){const r=canvas.getBoundingClientRect();W=r.width;H=r.height;sim.aspect=W/Math.max(1,H);dpr=Math.min(devicePixelRatio||1,2);canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);}
 new ResizeObserver(resize).observe(canvas);
@@ -66,28 +67,46 @@ function clickInput(choice){
 function togglePause(){manualPause=!manualPause;sim.cancelInput();gesture.reset();updateUI();}
 function clickKey(event){
  if(event.code!=='Space'||event.altKey||event.ctrlKey||event.metaKey)return false;
- if(event.target?.closest?.('[data-touch-option],#journey-start-action'))return false;
+ if($('game-settings').open||event.target?.closest?.('[data-touch-option],#journey-start-action'))return false;
  event.preventDefault();
  if(!event.repeat)clickInput();
  return true;
 }
 window.addEventListener('keydown',clickKey);
 document.addEventListener('visibilitychange',()=>{if(document.hidden){sim.cancelInput();gesture.reset();}});
-$('pause').onclick=togglePause;$('reset').onclick=()=>{sim.retry();gesture.reset();updateUI();};
-$('immersive').onclick=()=>document.body.classList.toggle('immersive');
+$('settings-open').onclick=$('settings-immersive').onclick=()=>$('game-settings').showModal();
+function closeSettings(){$('game-settings').close();}
+function togglePanels(){
+ const hidden=document.body.classList.toggle('immersive');
+ showText('settings-panels',hidden?'恢复侧栏':'隐藏侧栏');
+ closeSettings();
+}
+$('pause').onclick=()=>{togglePause();closeSettings();};
+$('reset').onclick=()=>{sim.retry();gesture.reset();updateUI();closeSettings();};
+$('immersive').onclick=$('settings-panels').onclick=togglePanels;
 $('fullscreen').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}catch{signal('浏览器暂不支持全屏。','waiting');}};
-$('time-of-day').onchange=()=>$('time-of-day').blur();
-document.querySelectorAll('[data-scene]').forEach(b=>b.onclick=()=>setScene(b.dataset.scene));
+const presentationInputs=[$('time-of-day'),$('scroll-speed')];
+try{
+ const saved=JSON.parse(localStorage.getItem(PRESENTATION_KEY));
+ for(const input of presentationInputs){
+  if(Array.from(input.options).some(option=>option.value===saved?.[input.id]))input.value=saved[input.id];
+ }
+}catch{}
+for(const input of presentationInputs)input.onchange=()=>{
+ try{localStorage.setItem(PRESENTATION_KEY,JSON.stringify(Object.fromEntries(presentationInputs.map(field=>[field.id,field.value]))));}
+ catch{}
+};
+document.querySelectorAll('[data-scene]').forEach(button=>button.onclick=()=>{setScene(button.dataset.scene);closeSettings();});
 $('resume-journey').onclick=()=>{
  let checkpoint;
  try{checkpoint=JSON.parse(localStorage.getItem(CHECKPOINT_KEY));}catch{}
  const started=sim.started;
- if(!sim.restore(checkpoint)){signal('没有可恢复的当前版本检查点。','waiting');return;}
+ if(!sim.restore(checkpoint)){showText('settings-message','还没有可继续的检查点。');return;}
  sim.started=started;
  scene=LEVELS[sim.levelIndex].id;blackDisplay=false;
  atmosphereMotion=new AtmosphereMotion();
  gesture.reset();manualPause=false;savedRevision=sim.checkpointRevision;
- syncSceneControls();updateUI();
+ showText('settings-message','');syncSceneControls();updateUI();closeSettings();
 };
 window.addEventListener('pagehide',saveIfChanged);
 async function startCamera(){
@@ -289,8 +308,8 @@ function frame(now){const dt=Math.min((now-frameTime)/1000,.04);frameTime=now;sp
  }
  const playing=!paused()&&!sim.complete;
  if(playing)sim.update(dt,true);
- atmosphereMotion.update(dt,sim,playing);
- interactions.afterUpdate(dt);exhibitGame.update(now);
+ atmosphereMotion.update(dt,sim,playing,Number($('scroll-speed').value));
+ exhibitGame.update(now,interactions.afterUpdate(dt));
  if(projectionWindow?.closed){
   projectionWindow=null;projectionCanvas=null;splitProjection=false;
   projectionButton.textContent=PROJECTION_LABEL;

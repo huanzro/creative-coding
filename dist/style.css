@@ -61,6 +61,20 @@ body.immersive .journey-hud :is(#journey-feedback,#encounter-status,.stage-botto
 .touch-choices button[aria-pressed=true]{background:#263343;border-color:currentColor;box-shadow:inset 0 -2px currentColor}
 .touch-choices button:focus-visible{outline:2px solid currentColor;outline-offset:2px}
 .touch-choices button:disabled{opacity:.55}
+.header-controls,.settings-actions,.settings-heading{display:flex;align-items:center;gap:8px}
+.header-controls button,.settings-actions button{font-size:12px}
+#settings-immersive{display:none;position:absolute;right:15px;top:15px;z-index:6;font-size:12px}
+body.immersive #settings-immersive{display:block}
+#game-settings{width:min(94vw,460px);max-height:calc(100dvh - 24px);padding:19px 22px 22px;border:1px solid #abbed052;border-radius:12px;background:#0c1723;color:#dbe5ec}
+#game-settings::backdrop{background:#020711aa}
+.settings-heading{justify-content:space-between}
+.settings-heading h2{font:400 23px Georgia,'Songti SC',serif;margin:0}
+#game-settings>section{padding-top:14px;margin-top:14px;border-top:1px solid var(--line)}
+#game-settings h3{margin:0 0 10px}
+#game-settings .select-line:first-child{margin-top:0}
+.settings-actions{flex-wrap:wrap;margin-top:10px}
+#settings-message:empty{display:none}
+@media(max-width:420px){.header-controls{gap:4px}.header-controls button{font-size:11px;padding:9px 6px}}
 .world .chapter-card{bottom:auto;top:42%;z-index:4}
 .black-scene .world :is(.scene-label,.scene-top,.level-progress,.chapter-card,#paused-overlay,.journey-hud){display:none}
 @media(max-width:740px){

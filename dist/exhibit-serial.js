@@ -1,16 +1,19 @@
 export const TOUCH_CHANNELS = ['touchA', 'touchB', 'fabric'];
 export const OFF = Object.freeze({lampA: Object.freeze([0, 0, 0]), lampB: Object.freeze([0, 0, 0]), servo: null});
 
-export function encodeExhibitOutput(sequence, {lampA, lampB, servo} = OFF) {
+export function encodeExhibitOutput(sequence, {lampA, lampB, servo, fan} = OFF, withFan = false) {
   const color = rgb => Array.from({length: 3}, (_, index) => {
     const value = rgb?.[index];
     return Number.isFinite(value) ? Math.max(0, Math.min(64, Math.round(value))) : 0;
   });
   const angle = Number.isFinite(servo) ? Math.max(60, Math.min(120, Math.round(servo))) : -1;
-  return ['EOL3', 'SET', sequence, ...color(lampA), ...color(lampB), angle].join(' ') + '\n';
+  const packet = ['EOL3', withFan ? 'IO' : 'SET', sequence, ...color(lampA), ...color(lampB), angle];
+  if (withFan) packet.push(Number.isFinite(fan) ? Math.max(0, Math.min(166, Math.round(fan))) : 0);
+  return packet.join(' ') + '\n';
 }
 
 export function readExhibitFrame(line) {
+  if (line === 'EOL3 CAP FAN') return {type:'fan'};
   const state = /^EOL3 IN ([0-7]) ([0-7])$/.exec(line);
   if (state) {
     const mask = Number(state[1]), enabled = Number(state[2]);
@@ -36,6 +39,7 @@ export class ExhibitSerial extends EventTarget {
     this.armed = false;
     this.ready = false;
     this.inputs = null;
+    this.fanSupported = false;
   }
 
   emit(type, detail) {
@@ -91,6 +95,13 @@ export class ExhibitSerial extends EventTarget {
 
   handleFrame(frame) {
     if (!frame) return;
+    if (frame.type === 'fan') {
+      if (!this.fanSupported) {
+        this.fanSupported = true;
+        this.emit('fan', true);
+      }
+      return;
+    }
     if (frame.type === 'ack') {
       this.emit('ack', frame.sequence);
       return;
@@ -118,6 +129,8 @@ export class ExhibitSerial extends EventTarget {
         this.ready = false;
         this.inputs = null;
         this.setArmed(false);
+        this.fanSupported = false;
+        this.emit('fan', false);
         this.emit('inputs', null);
       }
       this.emit('status', '等待 EOL3 串口数据，请确认烧录了展台固件');
@@ -140,7 +153,7 @@ export class ExhibitSerial extends EventTarget {
 
   flush() {
     if (!this.writer || this.writing || this.closing || !this.ready) return;
-    const packet = encodeExhibitOutput(this.sequence++ & 65535, this.armed ? this.outputs : OFF);
+    const packet = encodeExhibitOutput(this.sequence++ & 65535, this.armed ? this.outputs : OFF, this.fanSupported);
     this.writing = this.writer.write(new TextEncoder().encode(packet))
       .catch(() => queueMicrotask(() => void this.disconnect()))
       .finally(() => { this.writing = null; });
@@ -160,7 +173,7 @@ export class ExhibitSerial extends EventTarget {
         await Promise.race([this.writing, new Promise(resolve => setTimeout(resolve, 200))]);
         if (wasReady && !this.writing) {
           await Promise.race([
-            this.writer.write(new TextEncoder().encode(encodeExhibitOutput(this.sequence++ & 65535))),
+            this.writer.write(new TextEncoder().encode(encodeExhibitOutput(this.sequence++ & 65535, OFF, this.fanSupported))),
             new Promise(resolve => setTimeout(resolve, 200)),
           ]).catch(() => {});
         }
@@ -172,6 +185,8 @@ export class ExhibitSerial extends EventTarget {
       this.reader = this.writer = this.port = this.reading = null;
       await port?.close().catch(() => {});
       this.closing = false;
+      this.fanSupported = false;
+      this.emit('fan', false);
       this.emit('armed', false);
       this.emit('inputs', null);
       this.emit('status', '未连接');

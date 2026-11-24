@@ -1,6 +1,6 @@
 import {VolumeEnvelope,volumeSettings,ambientCalibration} from './volume-core.js';
 import {MicrophoneInput} from './audio-input.js';
-import {SerialOutput,outputLevels,OUTPUT_ZERO} from './physical-output.js';
+import {outputLevels} from './physical-output.js';
 import {loadInputProfile,saveInputProfile} from './input-profiles.js';
 
 export function comfortCalibration(noise,voice){
@@ -20,31 +20,29 @@ export function comfortCalibration(noise,voice){
 }
 export function installInteractionControls(sim,isPaused){
  const panel=document.createElement('section');panel.className='control-section interaction-controls';
- panel.innerHTML=`<h3>02 <span>真实声音</span></h3><p class="level-help">首次使用这支麦克风时，先安静 2 秒，再舒适地哼声 3 秒。下次开启会沿用本机设置。</p><button id="mic-toggle" class="primary full">开启麦克风</button><p id="audio-status" class="level-help" role="status">麦克风未开启。</p><meter id="volume-meter" min="0" max="1" value="0" aria-label="真实麦克风声音能量"></meter><div class="sensor-readout"><span id="volume-db">— dBFS</span><strong id="volume-speed">0%</strong></div><button id="audio-calibrate" class="quiet full" disabled>重新校准我的声音</button><h3 class="output-heading">展台硬件</h3><p class="level-help"><a href="exhibit-hardware.html">双灯、舵机与触摸调试</a></p><div class="sensor-readout"><span id="fan-preview">风力 0%</span><span id="light-preview">灯光 0%</span></div><details><summary>原有风力与灯光接口</summary><button id="serial-toggle" class="quiet full">连接 Arduino</button><label class="toggle-line"><span>启用实际输出</span><input id="hardware-arm" type="checkbox" disabled></label><button id="hardware-stop" class="quiet full">停止硬件输出</button><p id="physical-status" class="level-help">尚未连接</p></details>`;
+ panel.innerHTML=`<h3>02 <span>真实声音</span></h3><p class="level-help">首次使用这支麦克风时，先安静 2 秒，再舒适地哼声 3 秒。下次开启会沿用本机设置。</p><button id="mic-toggle" class="primary full">开启麦克风</button><p id="audio-status" class="level-help" role="status">麦克风未开启。</p><meter id="volume-meter" min="0" max="1" value="0" aria-label="真实麦克风声音能量"></meter><div class="sensor-readout"><span id="volume-db">— dBFS</span><strong id="volume-speed">0%</strong></div><button id="audio-calibrate" class="quiet full" disabled>重新校准我的声音</button>`;
  document.querySelector('aside .control-section').after(panel);
  const $=id=>panel.querySelector('#'+id),envelope=new VolumeEnvelope();
- let calibration=null,ready=false,pending=false,snapshot={db:-100,level:0},lastFrame=-Infinity,levels=OUTPUT_ZERO,lastPassed=0,pulse=0;
+ let calibration=null,ready=false,pending=false,snapshot={db:-100,level:0},lastPassed=0,pulse=0;
  let missingSince=null;
  const status=t=>$('audio-status').textContent=t;
  function clear(){
   ready=false;calibration=null;missingSince=null;snapshot={db:-100,level:0};
   sim.audioReady=false;sim.controlVoice=0;envelope.reset();sim.cancelInput();
  }
- const mic=new MicrophoneInput(()=>{clear();disarm();status('麦克风已断开，请重新开启。');$('mic-toggle').textContent='重新开启麦克风';$('audio-calibrate').disabled=true;});
- const serial=new SerialOutput(navigator.serial,t=>{$('physical-status').textContent=t;$('hardware-arm').disabled=!serial.connected;$('serial-toggle').textContent=serial.connected?'断开 Arduino':'连接 Arduino';});
+ const mic=new MicrophoneInput(()=>{clear();status('麦克风已断开，请重新开启。');$('mic-toggle').textContent='重新开启麦克风';$('audio-calibrate').disabled=true;});
  const audioTrack=()=>mic.stream?.getAudioTracks()[0];
  function canSample(){
   const track=audioTrack();
   return mic.active&&mic.context?.state==='running'&&track?.readyState==='live'&&!track.muted;
  }
- function disarm(){serial.setArmed(false);$('hardware-arm').checked=false;}
- function beginCalibration(){clear();calibration={phase:'noise',time:0,noise:[],voice:[]};disarm();status('校准 1/2：保持安静 2 秒。');}
+ function beginCalibration(){clear();calibration={phase:'noise',time:0,noise:[],voice:[]};status('校准 1/2：保持安静 2 秒。');}
  function applySettings(settings,detail){
   envelope.configure(settings);envelope.reset();ready=true;status(detail);
  }
  $('mic-toggle').onclick=async()=>{
   if(pending)return;
-  if(mic.active){mic.stop();clear();disarm();status('麦克风已关闭，旅程暂停。');$('mic-toggle').textContent='开启麦克风';$('audio-calibrate').disabled=true;return;}
+  if(mic.active){mic.stop();clear();status('麦克风已关闭，旅程暂停。');$('mic-toggle').textContent='开启麦克风';$('audio-calibrate').disabled=true;return;}
   pending=true;$('mic-toggle').disabled=true;
   try{
    if(await mic.start()){
@@ -63,27 +61,19 @@ export function installInteractionControls(sim,isPaused){
   if(canSample())beginCalibration();
   else{mic.stop();$('mic-toggle').click();}
  };
- $('serial-toggle').onclick=async()=>{try{if(serial.connected)await serial.disconnect();else await serial.connect();}catch(e){$('physical-status').textContent='未连接：'+e.message;}};
- $('hardware-arm').onchange=()=>{serial.setArmed($('hardware-arm').checked&&!isPaused());$('hardware-arm').checked=serial.armed;};
- $('hardware-stop').onclick=disarm;
  const timer=setInterval(()=>{
-  const active=performance.now()-lastFrame<300&&!document.hidden&&!isPaused(),out=active?levels:OUTPUT_ZERO;
-  serial.send(out,performance.now());$('volume-meter').value=snapshot.level;
+  $('volume-meter').value=snapshot.level;
   $('volume-db').textContent=snapshot.db.toFixed(1)+' dBFS';$('volume-speed').textContent=Math.round(snapshot.level*100)+'%';
-  $('fan-preview').textContent='风力 '+Math.round(out.fan*100)+'%';$('light-preview').textContent='灯光 '+Math.round(out.light*100)+'%';
-  window.dispatchEvent(new CustomEvent('echoes:outputs',{detail:{version:2,preview:out,armed:serial.armed,connected:serial.connected,simulated:false}}));
  },100);
  document.addEventListener('visibilitychange',()=>{
   if(!document.hidden)return;
-  disarm();
   snapshot={db:-100,level:0};
   sim.audioReady=false;sim.controlVoice=0;envelope.reset();
   missingSince=null;
  });
- window.addEventListener('pagehide',()=>{clearInterval(timer);mic.stop();disarm();void serial.disconnect();});
+ window.addEventListener('pagehide',()=>{clearInterval(timer);mic.stop();});
  return {
   beforeUpdate(dt,now){
-   lastFrame=now;
    if(document.hidden)return;
    const canMeasure=canSample();
    if(canMeasure){
@@ -131,9 +121,8 @@ export function installInteractionControls(sim,isPaused){
    return {title:'先开启麦克风',detail,button:'开启麦克风',action:()=>$('mic-toggle').click()};
   },
   afterUpdate(dt){
-   if(isPaused()&&serial.armed)disarm();
    if(sim.passed>lastPassed)pulse=1;else pulse=Math.max(0,pulse-dt*.6);lastPassed=sim.passed;
-   levels=outputLevels({active:sim.started&&!sim.complete&&!isPaused(),speed:sim.speedMultiplier,glow:sim.glow,pulse,scene:sim.level.id});
+   return outputLevels({active:sim.started&&!sim.complete&&!isPaused(),speed:sim.speedMultiplier,glow:sim.glow,pulse,scene:sim.level.id});
   }
  };
 }

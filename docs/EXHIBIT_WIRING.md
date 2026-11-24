@@ -10,6 +10,7 @@
 | 微型舵机 | D5 | SIG 接 D5，电源正极接符合铭牌的独立低压电源，负极接公共 GND。按铭牌、插头定义或数据手册确认三个针脚。 |
 | 灯 A（触摸区） | D6 | D6 → 330–470 Ω → 第一颗灯的 DIN。灯的 5V 接外置稳压 5V，GND 接公共 GND。 |
 | 灯 B（实体花） | D7 | D7 → 独立的 330–470 Ω → 第一颗灯的 DIN。电源与 A 并联。 |
+| 四针 PWM 风扇 | D9 | 使用外置反相开集电极驱动和与风扇铭牌匹配的电源，按 [风扇接线](HARDWARE.md#uno-接收示例) 的 D9 方案连接。 |
 | Arduino UNO R3 | USB | 数据线接电脑，实现串口通信并给 UNO 自己供电。 |
 
 ## 电源怎么分
@@ -42,14 +43,16 @@ UNO D5 ─────────────── 舵机 SIG
 
 ## 先测哪一路
 
-1. Arduino IDE 选择 **Arduino Uno**，在库管理器安装 **Servo** 和 **Adafruit NeoPixel**。打开 `hardware/echoes_exhibit_uno/echoes_exhibit_uno.ino`，核对顶部常量和输入配置后编译、上传。这是一份独立固件，测试这一版时使用 EOL3 调试页。
+1. Arduino IDE 选择 **Arduino Uno**，在库管理器安装 **Adafruit NeoPixel**。打开 `hardware/echoes_exhibit_uno/echoes_exhibit_uno.ino`，核对顶部常量和输入配置后编译、上传。组合固件在同一 USB 串口运行触摸、双灯、舵机和风扇。
 2. 保持灯和舵机暂不接电，关闭 Arduino IDE 串口监视器，在桌面 Edge／Chrome 打开[展台硬件调试](https://echoes-of-light-interactive-1031.tanbowl.chatgpt.site/exhibit-hardware.html)。点「连接 Arduino」并选 UNO 端口。显示 EOL3 已连接后，逐个按下、松开，检查 D2、D3、D4。
 3. 只接灯 A，舵机选择「释放」，勾选「启用实体输出」，选 10% 或更低的亮度并发送。测试 B 时可以把 A 的颜色设为黑色。回执证明 Arduino 收到了命令，用眼睛确认每串灯实际亮起。
 4. 再接舵机供电并试 90°。确认正常后再测试小幅度行程，最后安装花瓣。停止按钮、离开页面或 800 ms 内没有有效输出包时，固件熄灯并释放舵机。
 
 ## 留给创作代码的接口
 
-游戏中启用「实体灯光」后，A 联动暖灯，B 联动蓝灯，松手后渐熄。网页 A/B 与实体触摸使用同一套选择规则。暂停、离开页面或断连会停止游戏灯光。舵机保留在 EOL3 中，游戏发送 `servo: null`，需要测试角度时先断开游戏串口，再使用独立调试页。
+游戏中在「展台硬件」连接一次。启用实体灯光后，A 联动暖灯，B 联动蓝灯，松手后渐熄。网页 A/B 与实体触摸使用同一套选择规则。可单独启用风扇随速度变化，或让背景光跟随场景。暂停、离开页面或断连会关闭游戏输出。舵机保留在 EOL3 中，游戏发送 `servo: null`。测试角度前先断开游戏串口，再使用独立调试页。
+
+组合固件仍接受旧的 `EOL3 SET`。它额外报告 `EOL3 CAP FAN`，主要游戏页面此时可用 `EOL3 IO <seq> <rA> <gA> <bA> <rB> <gB> <bB> <angle> <fan>` 在同一帧发出所有输出。风扇请求限制在 0–166，零表示 PWM 0%，风扇是否完全停转取决于型号。Timer1 在 D9 生成 25 kHz，同时为 D5 分配舵机脉冲。舵机实际行程和风扇波形需要现场测量。[UNO R3 官方引脚图](https://content.arduino.cc/assets/Pinout-UNOrev3_latest.pdf) · [Arduino PWM 说明](https://docs.arduino.cc/tutorials/generic/secrets-of-arduino-pwm/)
 
 `dist/exhibit-serial.js` 中的 `ExhibitSerial` 管理 USB 串口。正式游戏可复用这一类，在页面按钮触发的操作里连接，并由同一个页面拥有串口。一个 COM 口只能被一个页面或程序占用。
 
