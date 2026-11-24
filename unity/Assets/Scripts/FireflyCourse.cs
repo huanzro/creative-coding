@@ -7,6 +7,7 @@ namespace Echoes
     // Only one firefly approaches at a time. Red is a warning with a readable exit.
     public sealed class FireflyCourse
     {
+        internal const float ContactDuration = .78f;
         private readonly Random random;
         private float untilArrival, quiet, pulseLeft;
         private bool previousWasScarlet;
@@ -65,7 +66,7 @@ namespace Echoes
         {
             Kind = FireflyKind.None;
             Response = result;
-            pulseLeft = result == FireflyKind.None ? 0 : .78f;
+            pulseLeft = result == FireflyKind.None ? 0 : ContactDuration;
             quiet = 1.3f;
             untilArrival = 1.9f + (float)random.NextDouble() * 2.8f;
             return result;

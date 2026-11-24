@@ -51,15 +51,17 @@ namespace Echoes
         // a semitone away. A short earth sound closes the fall without a flash.
         private static AudioClip Compose()
         {
-            float[] samples = new float[(int)(OpeningTiming.Duration * Rate)];
+            int length = (int)(OpeningTiming.Duration * Rate);
+            float[] samples = new float[length * 2];
             var random = new System.Random(53);
-            double wind = 0, rumble = 0;
-            for (int i = 0; i < samples.Length; i++)
+            double wind = 0, rumble = 0, leafNoise = 0;
+            for (int i = 0; i < length; i++)
             {
                 double t = (double)i / Rate;
                 double noise = random.NextDouble() * 2 - 1;
                 wind += (noise - wind) * .016;
                 rumble += (noise - rumble) * .005;
+                leafNoise += (noise - leafNoise) * .086;
                 double air = Bell(t, OpeningTiming.FirstFall + 1.3, 1.24) +
                              .84 * Bell(t, OpeningTiming.SecondFall + .92, 1.05);
                 double canopy = .043 * Tone(t, 130.813) + .020 * Tone(t, 196) + .014 * Tone(t, 261.626);
@@ -69,12 +71,22 @@ namespace Echoes
                     Pluck(t, 24.0, 698.46, .12) + Pluck(t, OpeningTiming.RedContact, 554.37, .25) +
                     Pluck(t, 35.0, 392.0, .14);
                 double red = Bell(t, OpeningTiming.RedContact + .55, .84) * .085 * (Tone(t, 146.83) + Tone(t, 155.56));
-                double land = Bell(t, OpeningTiming.Impact + .04, .096) * (rumble * 1.19 + Tone(t, 54) * .23);
+                double land = Bell(t, OpeningTiming.Impact + .017, .078) * (rumble * 1.19 + Tone(t, 54) * .23);
+                double rolls = .71 * Bell(t, 31.74, .103) + .44 * Bell(t, 32.20, .103) + .23 * Bell(t, 32.79, .16);
+                double brush = Bell(t, 1.66, .23) + .78 * Bell(t, 2.65, .27) + .42 * Bell(t, 3.07, .22)
+                    + 1.42 * Bell(t, 31.43, .21) + rolls;
+                double pebbles = .72 * Bell(t, 8.41, .14) + .49 * Bell(t, 9.08, .096);
+                double close = .19 * Bell(t, 7.00, .34) + .36 * Bell(t, 26.78, .31);
+                double quiet = 1 - Math.Max(0, close);
                 double fade = Math.Min(1, t / 1.45) * Math.Min(1, (OpeningTiming.Duration - t) / 1.48);
-                samples[i] = (float)Math.Max(-1, Math.Min(1, fade *
-                    (canopy * (1 - .45 * Math.Min(1, air)) + notes + red + land + wind * (.16 + .79 * air))));
+                double ground = land + rumble * rolls * .56 + (leafNoise - wind) * (brush * .42 + pebbles * .32);
+                double airBed = (canopy * (1 - .45 * Math.Min(1, air)) + wind * (.16 + .79 * air)) * quiet;
+                double pan = .27 * Math.Sin(t * .41) + .19 * Bell(t, 26.69, 1.42);
+                double focal = notes + red;
+                samples[i * 2] = (float)Math.Max(-1, Math.Min(1, fade * (ground + airBed + focal * (1 - pan))));
+                samples[i * 2 + 1] = (float)Math.Max(-1, Math.Min(1, fade * (ground + airBed + focal * (1 + pan))));
             }
-            var rendered = AudioClip.Create("Echoes opening score", samples.Length, 1, Rate, false);
+            var rendered = AudioClip.Create("Echoes opening score", length, 2, Rate, false);
             rendered.SetData(samples, 0);
             return rendered;
         }

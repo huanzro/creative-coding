@@ -174,6 +174,17 @@ for ($i=0; $i -lt 4000; $i++) {
 }
 Assert ($appearances -ge 5 -and $appearances -lt 18 -and $amber -gt 0 -and $scarlet -gt 0) 'A seeded run should offer sparse yellow and red encounters with catchable yellow.'
 
+$projection = [Echoes.Journey]::new()
+$projection.SelectChapter(0)
+for ($i = 0; $i -lt 500 -and $projection.Fireflies.Pulse -eq 0; $i++) {
+    [void]$projection.Fireflies.Step(.02, .3, .27, [Echoes.Hand]::Open, $false)
+}
+$handoff = [Echoes.SpiritFrame]::Read($projection, 1)
+Assert ($handoff.cast -eq 1 -and $handoff.fireflyResponse -eq 'Amber' -and $handoff.fireflyPulse -gt 0) 'Both displays should get the same cast and live firefly handoff.'
+$projection.SelectChapter(1)
+$handoff = [Echoes.SpiritFrame]::Read($projection, 1)
+Assert ($handoff.cast -eq 1 -and $handoff.fireflyPulse -eq 0) 'A chapter change must clear the old fly without changing the cast.'
+
 $skip = [Echoes.Journey]::new()
 $skip.PlayOpening()
 $skip.FinishOpening()

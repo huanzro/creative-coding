@@ -13,16 +13,19 @@ namespace Echoes
 {
     internal sealed class SpiritModel : IDisposable
     {
-        private static readonly Color Skin = new Color(.97f, .77f, .679f);
-        private static readonly Color Hair = new Color(.94f, .90f, .823f);
+        private static readonly Color Skin = new Color(.95f, .75f, .652f);
+        private static readonly Color Hair = new Color(.93f, .901f, .828f);
         private static readonly Color Gold = new Color(.91f, .70f, .39f);
-        private static readonly Color Ink = new Color(.17f, .12f, .22f);
         private static readonly Color Silk = new Color(.98f, .916f, .745f);
         private static readonly Color Moss = new Color(.48f, .69f, .59f);
         private static readonly Color DeepSilk = new Color(.28f, .45f, .43f);
         private static readonly Vector3 Neck = new Vector3(0, 1.73f, -.015f);
         private readonly Mesh sphere = MakeSphere(), petal = MakePetal();
-        private readonly Mesh bodice = MakeBodice(), gown = MakeGown(), trim = MakeTrim();
+        private readonly Mesh bodice = MakeBodice(), trim = MakeTrim();
+        private readonly SpiritSkirt skirt = new SpiritSkirt();
+        private static readonly Color[] SkirtColors = {
+            new Color(.93f, .863f, .703f), new Color(.59f, .763f, .644f), new Color(.35f, .565f, .483f)
+        };
         private readonly SpiritSweptMesh[] arms = MakePair("Continuous arm"),
             legs = MakePair("Continuous leg"), ribbons = MakePair("Curved silk ribbon");
         private readonly MaterialPropertyBlock properties = new MaterialPropertyBlock();
@@ -30,6 +33,9 @@ namespace Echoes
         private readonly CommandBuffer commands;
         private Matrix4x4 root, joint;
         private static readonly int Tint = Shader.PropertyToID("_Tint");
+        private static readonly int Fabric = Shader.PropertyToID("_Fabric");
+        private static readonly int Face = Shader.PropertyToID("_Face");
+        private static readonly int Expression = Shader.PropertyToID("_Expression");
 
         public SpiritModel(Material material, CommandBuffer commands)
         {
@@ -58,6 +64,13 @@ namespace Echoes
                 Vector3 to = new Vector3(side * .028f, 1.42f, -.187f * breathing);
                 Leaf(from, to, Vector3.right, .041f, .019f, Gold);
                 Ball(from + new Vector3(0, .005f, -.016f), Vector3.one * .018f, Silk);
+                Vector3 seed = new Vector3(side * .12f, 1.26f, -.179f * breathing);
+                for (int seam = 0; seam < 3; seam++)
+                {
+                    Vector3 stitch = seed + new Vector3(-side * seam * .028f, seam * .033f, -.003f);
+                    Leaf(stitch, stitch + new Vector3(side * .022f, .037f, -.003f), Vector3.forward,
+                        .007f, .008f, Color.Lerp(Gold, Silk, .43f));
+                }
             }
             Ball(new Vector3(0, 1.448f, -.181f * breathing), new Vector3(.052f, .065f, .025f), Gold);
             Ball(new Vector3(0, 1.452f, -.205f * breathing), new Vector3(.033f, .043f, .023f), accent, .24f + .32f * pose.glow);
@@ -93,16 +106,19 @@ namespace Echoes
                 new Vector3(.044f,.014f,.041f), Gold, 0);
             Ball(hand, new Vector3(.042f, .050f, .030f), Skin, 0, Quaternion.FromToRotation(Vector3.up, forward));
             Vector3 knuckle = Vector3.Cross(spread, forward).normalized;
+            Vector3 contact = hand + forward * .073f;
             for (int finger = 0; finger < 4; finger++)
             {
                 float fingerSpread = finger - 1.5f;
-                float length = .059f - Mathf.Abs(fingerSpread - .13f) * .007f;
+                float curl = arm.curl * (finger == 0 ? 1 - arm.point : 1);
+                float length = .063f - Mathf.Abs(fingerSpread - .13f) * .006f;
                 Vector3 baseOfFinger = hand + forward * .030f + spread * (.018f * fingerSpread);
-                Vector3 bend = baseOfFinger + forward * (length * .58f) + knuckle * (.022f * arm.curl);
-                Vector3 tip = bend + forward * (length * Mathf.Lerp(.46f, .09f, arm.curl)) +
-                    knuckle * (.021f * arm.curl) + spread * (.003f * fingerSpread);
+                Vector3 bend = baseOfFinger + forward * (length * .58f) + knuckle * (.022f * curl);
+                Vector3 tip = bend + forward * (length * Mathf.Lerp(.46f, .09f, curl)) +
+                    knuckle * (.021f * curl) + spread * (.003f * fingerSpread);
                 Limb(baseOfFinger, bend, .011f, Skin);
                 Limb(bend, tip, .0094f, Skin);
+                if (finger == 0) contact = Vector3.Lerp(contact, tip, arm.point);
             }
             Limb(hand - spread * (side * .022f), hand - spread * (side * .058f) +
                 forward * .031f + knuckle * (-.006f + .020f * arm.curl), .015f, Skin);
@@ -111,7 +127,7 @@ namespace Echoes
                 Vector3 light = hand + forward * .12f + new Vector3(0, .048f, -.045f);
                 Ball(light, Vector3.one * Mathf.Lerp(.010f, .034f, arm.light), accent, .61f);
             }
-            anchors[index] = root.MultiplyPoint3x4(hand + forward * .055f);
+            anchors[index] = root.MultiplyPoint3x4(contact);
         }
 
         private void DrawFoot(SpiritPose pose, int side, Vector3[] anchors, int index)
@@ -135,28 +151,13 @@ namespace Echoes
 
         private void DrawDress(SpiritPose pose, Color accent)
         {
-            float swell = 1 + pose.flare * .15f;
-            Piece(gown, new Vector3(0, 1.111f, 0), Quaternion.identity, new Vector3(.50f * swell,.68f,.39f * swell),
-                Color.Lerp(Moss, Silk, .64f), 0);
-            for (int tier = 0; tier < 3; tier++)
+            skirt.Drape(pose);
+            for (int layer = 0; layer < SpiritSkirt.Layers; layer++)
             {
-                int count = tier == 2 ? 8 : 10;
-                for (int index = 0; index < count; index++)
-                {
-                    float angle = (index + tier * .46f) * 2 * Mathf.PI / count;
-                    float flutter = Mathf.Sin(pose.time * 2.86f + angle * 2 - tier * .8f) * .82f +
-                        Mathf.Sin(pose.time * 4.99f - angle * 3) * .18f;
-                    Vector3 radial = new Vector3(Mathf.Sin(angle), 0, Mathf.Cos(angle));
-                    Vector3 tangent = new Vector3(Mathf.Cos(angle), 0, -Mathf.Sin(angle));
-                    Vector3 start = radial * (.165f + tier * .007f) + Vector3.up * (1.12f - tier * .04f);
-                    float radius = .36f + tier * .076f + pose.flare * .18f;
-                    float height = .71f - tier * .123f + flutter * .028f + pose.flare * .112f;
-                    Vector3 end = radial * radius + tangent * (pose.ribbon * (.11f + tier * .031f))
-                        + Vector3.up * height;
-                    Color cloth = Color.Lerp(Silk, tier == 1 ? Gold : Moss, .10f + .13f * tier + .07f * flutter);
-                    if (index % 3 == 0) cloth = Color.Lerp(cloth, accent, .17f);
-                    Leaf(start, end, tangent, .159f - tier * .014f, .089f, cloth);
-                }
+                Color cloth = Color.Lerp(SkirtColors[layer], accent, .045f);
+                properties.SetVector(Tint, new Vector4(cloth.r, cloth.g, cloth.b, 0));
+                properties.SetFloat(Fabric, 1 - layer * .19f);
+                commands.DrawMesh(skirt.Mesh, joint, material, layer, 0, properties);
             }
             for (int side = -1; side <= 1; side += 2)
             {
@@ -175,10 +176,15 @@ namespace Echoes
 
         private void DrawHead(SpiritPose pose, Color accent)
         {
-            joint = root * Matrix4x4.TRS(Neck, Quaternion.Euler(-pose.nod, pose.look, pose.tilt), Vector3.one);
+            joint = root * Matrix4x4.TRS(Neck, Quaternion.Euler(-pose.nod, pose.look, pose.tilt), Vector3.one * .94f);
             Ball(new Vector3(0, .229f, .085f), new Vector3(.311f, .345f, .270f), Color.Lerp(Hair, Moss, .17f));
-            Ball(new Vector3(0, .164f, -.067f), new Vector3(.272f, .283f, .230f), Skin);
             float worry = Mathf.Clamp01(pose.expression);
+            properties.SetVector(Tint, new Vector4(Skin.r, Skin.g, Skin.b, 0));
+            properties.SetFloat(Fabric, 0);
+            properties.SetFloat(Face, 1);
+            properties.SetVector(Expression, new Vector4(pose.blink, worry, pose.look, pose.nod));
+            commands.DrawMesh(sphere, joint * Matrix4x4.TRS(new Vector3(0, .164f, -.067f), Quaternion.identity,
+                new Vector3(.272f, .283f, .230f)), material, 0, 0, properties);
             for (int side = -1; side <= 1; side += 2)
             {
                 Leaf(new Vector3(side * .219f, .10f, -.04f), new Vector3(side * .400f, .259f, .035f),
@@ -186,22 +192,6 @@ namespace Echoes
                 Leaf(new Vector3(side * .260f,.134f,-.038f), new Vector3(side*.365f,.221f,-.012f),
                     Vector3.up,.027f,.012f, new Color(.80f,.49f,.46f));
                 Ball(new Vector3(side * .315f, .145f, -.045f), Vector3.one * .029f, Gold);
-                float open = pose.blink * (1 + .11f * worry);
-                float irisX = side * .125f + pose.look * .0011f;
-                float irisY = .143f - pose.nod * .00046f;
-                Ball(new Vector3(side * .134f, .150f, -.267f), new Vector3(.072f, .042f * open, .031f), Ink);
-                Ball(new Vector3(side * .131f, .141f, -.282f), new Vector3(.062f, .034f * open, .022f), new Color(.99f,.93f,.88f));
-                Ball(new Vector3(irisX, irisY, -.300f), new Vector3(.032f, .035f * open, .015f), new Color(.45f,.29f,.36f));
-                Ball(new Vector3(irisX, irisY + .003f, -.315f), new Vector3(.017f, .027f * open, .009f), Ink);
-                if (pose.blink > .4f)
-                    Ball(new Vector3(irisX + .009f, irisY + .012f, -.323f), Vector3.one * .0083f, Color.white, .27f);
-                Ball(new Vector3(side*.183f,.078f,-.238f), new Vector3(.037f,.021f,.006f),
-                    Color.Lerp(Skin, new Color(.89f,.54f,.53f), .68f));
-                Limb(new Vector3(side*.085f,.207f + .029f*worry,-.277f),
-                    new Vector3(side*.183f,.201f + .007f*worry,-.242f), .0089f, new Color(.34f,.24f,.25f));
-                for (int dot = 0; dot < 3; dot++)
-                    Ball(new Vector3(side * (.149f + .020f*dot), .103f + .005f*(dot%2), -.269f + dot*.012f),
-                        Vector3.one * .0038f, new Color(.62f,.36f,.31f));
                 for (int strand = 0; strand < 5; strand++)
                 {
                     float breeze = Mathf.Sin(pose.time * 2.78f + strand * .81f) * (.0097f + .012f * pose.ribbon);
@@ -212,10 +202,15 @@ namespace Echoes
                         Color.Lerp(Hair, strand < 2 ? Gold : Moss, .065f + strand*.063f));
                 }
             }
-            Ball(new Vector3(0,.087f,-.291f), new Vector3(.031f,.017f,.025f), Skin);
-            Ball(new Vector3(0,.029f,-.274f), new Vector3(.034f - .005f*worry,.008f + .012f*worry,.0065f),
-                new Color(.62f,.32f,.33f));
-            Ball(new Vector3(-.13f,.472f,.031f), new Vector3(.196f,.079f,.169f), Hair, 0, Quaternion.Euler(0,0,-13));
+            Ball(new Vector3(0,.087f,-.283f), new Vector3(.026f,.020f,.022f), Color.Lerp(Skin, Silk, .10f));
+            for (int i = 0; i < 6; i++)
+            {
+                float slide = i * .021f;
+                Vector3 from = new Vector3(.048f - slide * .71f, .546f - slide * .23f, -.023f - slide);
+                Vector3 to = new Vector3(-.238f - slide * .21f, .427f - slide, -.082f - slide * .66f);
+                Leaf(from, to, Vector3.forward, .030f + slide * .14f, .055f,
+                    Color.Lerp(Hair, Silk, .08f + .11f * Mathf.Sin(i * .93f)));
+            }
             for (int i = 0; i < 9; i++)
             {
                 float angle = (i - 4) * .285f;
@@ -271,6 +266,8 @@ namespace Echoes
         private void Piece(Mesh mesh, Vector3 position, Quaternion rotation, Vector3 scale, Color color, float glow)
         {
             properties.SetVector(Tint, new Vector4(color.r, color.g, color.b, glow));
+            properties.SetFloat(Fabric, 0);
+            properties.SetFloat(Face, 0);
             commands.DrawMesh(mesh, joint * Matrix4x4.TRS(position, rotation, scale), material, 0, 0, properties);
         }
 
@@ -289,16 +286,6 @@ namespace Echoes
             width *= Mathf.Lerp(1, .19f, Mathf.SmoothStep(0, 1, Mathf.InverseLerp(.81f, 1, v)));
             width *= Mathf.Lerp(.76f, 1, Mathf.SmoothStep(0, 1, Mathf.InverseLerp(0, .13f, v)));
             return new Vector3(Mathf.Cos(angle) * width, v - .5f, Mathf.Sin(angle) * width);
-        }, true);
-
-        private static Mesh MakeGown() => Surface("Draped bell skirt", 45, 22, (u, v) =>
-        {
-            float angle = 2 * Mathf.PI * u;
-            float breadth = .34f + .63f * Mathf.Pow(v, .79f);
-            float pleat = 1 + (.025f + v * .041f) * Mathf.Cos(10 * angle + v * .82f);
-            float wave = .066f * Mathf.Sin(8 * angle) * v * v * v;
-            return new Vector3(Mathf.Sin(angle) * breadth * pleat, -v + wave,
-                Mathf.Cos(angle) * breadth * pleat);
         }, true);
 
         private static Mesh MakeTrim() => Surface("Fine brass edging", 24, 10, (u, v) =>
@@ -354,7 +341,7 @@ namespace Echoes
             UnityEngine.Object.Destroy(sphere);
             UnityEngine.Object.Destroy(petal);
             UnityEngine.Object.Destroy(bodice);
-            UnityEngine.Object.Destroy(gown);
+            skirt.Dispose();
             UnityEngine.Object.Destroy(trim);
             for (int i = 0; i < 2; i++)
             {

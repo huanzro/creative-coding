@@ -11,6 +11,8 @@ namespace Echoes
         private OpeningSound openingSound;
         private bool preview, projection, mirror, audioReady, cameraReady, paused, inputReady;
         private bool settings, characterOnly, splitProjection, noHand;
+        private int cast;
+        private static readonly string[] CastNames = { "三维精灵", "绿金长裙精灵" };
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
         private bool typingPort;
 #else
@@ -74,6 +76,7 @@ namespace Echoes
             // Awake is not rerun when Unity reloads scripts during a Play Mode iteration.
             preview = Application.platform != RuntimePlatform.WebGLPlayer;
             view = new EchoesView();
+            cast = Mathf.Clamp(PlayerPrefs.GetInt("EchoesUnity.Cast", 0), 0, CastNames.Length - 1);
             if (FindObjectOfType<AudioListener>() == null)
                 gameObject.AddComponent<AudioListener>();
             openingSound = new OpeningSound(gameObject);
@@ -173,13 +176,15 @@ namespace Echoes
                 message = journey.Phase == Stage.Replay
                     ? journey.Message + (journey.RequiredHand == Hand.Open ? " 当前要张手。" : " 当前要握拳。")
                     : journey.Message,
-                left = left, right = right, phase = journey.Phase.ToString(), spirit = SpiritFrame.Read(journey)
+                left = left, right = right, phase = journey.Phase.ToString(), spirit = LocalSpirit
             };
         }
 
+        private SpiritFrame LocalSpirit => SpiritFrame.Read(journey, cast);
+
         private void LateUpdate()
         {
-            view?.UpdateSpirit(projection ? remote.spirit : SpiritFrame.Read(journey));
+            view?.UpdateSpirit(projection ? remote.spirit : LocalSpirit);
         }
 
         private void OnGUI()
@@ -189,7 +194,7 @@ namespace Echoes
                 view.DrawProjection(remote.spirit, mirror, true);
                 return;
             }
-            SpiritFrame spirit = SpiritFrame.Read(journey);
+            SpiritFrame spirit = LocalSpirit;
             if (characterOnly) view.DrawProjection(spirit, mirror, true);
             else
             {
@@ -256,6 +261,14 @@ namespace Echoes
             if (GUI.Button(new Rect(218, 309, 138, 30), "预览片头", button)) PlayOpening();
             if (editorProjection) GUI.Label(new Rect(367, 309, 143, 29), "已分屏", label);
 #endif
+            GUI.Label(new Rect(20, 358, 100, 28), "出场角色", label);
+            int picked = GUI.SelectionGrid(new Rect(116, 356, 388, 31), cast, CastNames, 2, button);
+            if (picked != cast)
+            {
+                cast = picked;
+                PlayerPrefs.SetInt("EchoesUnity.Cast", cast);
+                PlayerPrefs.Save();
+            }
         }
 
 #if UNITY_EDITOR
@@ -263,7 +276,7 @@ namespace Echoes
 
         public void DrawCharacterWindow(Rect viewport, bool mirrored, bool sideways, float characterScale, float lightReach)
         {
-            view?.DrawProjection(SpiritFrame.Read(journey), mirrored, sideways, viewport, characterScale, lightReach);
+            view?.DrawProjection(LocalSpirit, mirrored, sideways, viewport, characterScale, lightReach);
         }
 
         public void PlayOpening()

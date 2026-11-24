@@ -12,11 +12,13 @@ namespace Echoes
             new Color(.95f,.66f,.29f), new Color(.39f,.79f,.93f), new Color(.75f,.59f,1f)
         };
         private static readonly int SceneLight = Shader.PropertyToID("_SceneLight");
+        private static readonly int ContactLight = Shader.PropertyToID("_ContactLight");
         private readonly Texture2D fallback;
         private readonly Material material;
         private readonly RenderTexture target;
         private readonly CommandBuffer commands;
         private readonly SpiritModel model;
+        private readonly IllustratedSpirit painted;
         private readonly Camera portraitCamera;
         private readonly float[] dance = new float[SpiritDance.TrackCount];
         private readonly Vector3[] anchors = new Vector3[4];
@@ -53,6 +55,9 @@ namespace Echoes
             commands = new CommandBuffer { name = "Echoes 3D character" };
             material = new Material(shader);
             model = new SpiritModel(material, commands);
+            var paintedShader = Resources.Load<Shader>("IllustratedSpirit");
+            if (fallback != null && paintedShader != null && paintedShader.isSupported)
+                painted = new IllustratedSpirit(fallback, paintedShader);
             var cameraObject = new GameObject("Echoes portrait camera") { hideFlags = HideFlags.HideAndDontSave };
             cameraObject.transform.position = new Vector3(0, 1.16f, -5.6f);
             portraitCamera = cameraObject.AddComponent<Camera>();
@@ -88,7 +93,8 @@ namespace Echoes
             if (rendered && target.IsCreated() && time == lastSample && frame.hand == previous.hand &&
                 frame.touchAge == previous.touchAge && frame.touch == previous.touch &&
                 frame.turnAge == previous.turnAge && frame.releaseAge == previous.releaseAge &&
-                frame.chapter == previous.chapter && frame.openingTime == previous.openingTime) return;
+                frame.chapter == previous.chapter && frame.openingTime == previous.openingTime &&
+                frame.cast == previous.cast && frame.fireflyPulse == previous.fireflyPulse) return;
             if (!target.IsCreated() && !target.Create()) return;
 
             float elapsed = time - lastSample;
@@ -97,21 +103,36 @@ namespace Echoes
             closed = Mathf.Lerp(closed, frame.hand == Hand.Fist ? 1 : 0, blend);
             voice = Mathf.Lerp(voice, frame.voice, blend);
             lastSample = time;
+            bool changedCast = previous.cast != frame.cast;
             previous = frame;
             SpiritPose pose = SpiritMotion.Sample(frame, tracked, closed, voice, dance);
             commands.Clear();
             Color tint = Accent[Mathf.Clamp(frame.chapter, 0, Accent.Length - 1)];
+            float contact = frame.fireflyPulse * .80f;
+            if (frame.fireflyResponse == FireflyKind.Scarlet && contact > 0)
+                tint = Color.Lerp(tint, new Color(1,.30f,.19f), contact);
             if (opening)
             {
                 var shot = OpeningStoryboard.Sample(time);
                 tint = Color.Lerp(tint, new Color(.52f,.80f,1), Mathf.Max(shot.Ruin, shot.Sky) * .75f);
-                tint = Color.Lerp(tint, new Color(1,.33f,.26f),
-                    OpeningStoryboard.Window(time, 24.3f, 27.3f, 29.6f, 31.6f) * .89f);
+                float scarlet = OpeningStoryboard.Contact(time, true);
+                float warm = OpeningStoryboard.Contact(time, false);
+                tint = Color.Lerp(tint, new Color(1,.73f,.34f), warm * .60f);
+                tint = Color.Lerp(tint, new Color(1,.33f,.26f), scarlet * .90f);
+                contact = Mathf.Max(scarlet, warm) * .86f;
             }
             material.SetVector(SceneLight, new Vector4(tint.r, tint.g, tint.b, opening ? .31f : .17f));
-            model.Draw(pose, tint, anchors);
+            if (frame.cast == 1 && painted != null) painted.Draw(pose, tint, contact, anchors, commands);
+            else model.Draw(pose, tint, anchors);
+            Vector3 light = anchors[1] + new Vector3(.08f, .045f, -.135f);
+            material.SetVector(ContactLight, new Vector4(light.x, light.y, light.z, contact));
             portraitCamera.Render();
             rendered = true;
+            if (changedCast)
+            {
+                foreach (var trail in traces) trail.Clear();
+                lastTrail = float.NegativeInfinity;
+            }
             if (!opening)
                 UpdateTrails(time, frame.glide > .10f || frame.turnAge >= 0 || frame.touchAge >= 0 || frame.releaseAge >= 0);
         }
@@ -142,6 +163,7 @@ namespace Echoes
                 UnityEngine.Object.Destroy(portraitCamera.gameObject);
             }
             model?.Dispose();
+            painted?.Dispose();
             commands?.Dispose();
             if (target != null) { target.Release(); UnityEngine.Object.Destroy(target); }
             if (material != null) UnityEngine.Object.Destroy(material);

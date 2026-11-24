@@ -42,6 +42,7 @@ namespace Echoes
             ring = MakeMask(true);
             openingVignette = MakeVignette();
             grassBlade = MakeBlade();
+            PreparePlates();
         }
 
         private static Texture2D Load(string name) => Resources.Load<Texture2D>("OriginalArt/" + name);
@@ -71,7 +72,7 @@ namespace Echoes
             return color;
         }
 
-        private static void Paint(Rect rect, Color color, Texture2D texture = null)
+        private static void Paint(Rect rect, Color color, Texture texture = null)
         {
             if (Event.current.type != EventType.Repaint) return;
             GUI.color = color;
@@ -173,6 +174,7 @@ namespace Echoes
             var center = new Vector2(CenterX, CharacterY(frame.altitude));
             var origin = new Vector2(CenterX, CharacterY(frame.releaseAltitude));
             DrawCharacter(frame, center, origin, 162, false, 0, 1, !splitProjection, strength);
+            DrawLiveHandoff(frame, center, 162, false, 0, 1, splitProjection ? .24f : 1);
             EndFrame(matrix);
         }
 
@@ -278,6 +280,7 @@ namespace Echoes
         public void UpdateSpirit(SpiritFrame frame)
         {
             spirit.Render(frame);
+            if (frame.openingTime >= 0) UpdatePlates(frame.openingTime);
             int scene = frame.openingTime >= 0 ? 3 : frame.chapter;
             if (scene != trailScene || frame.motionTime < flightAt)
             {
@@ -386,7 +389,7 @@ namespace Echoes
                 if (GUI.Button(new Rect(935 + i * 78, 658, 72, 34), names[i], button)) select((i - 1).ToString());
             if (settings != null)
             {
-                var panel = new Rect(724, 72, 527, 357);
+                var panel = new Rect(724, 72, 527, 410);
                 Paint(panel, new Color(.02f, .05f, .09f, .96f));
                 GUI.BeginGroup(panel);
                 settings(body, button);
@@ -415,6 +418,7 @@ namespace Echoes
         public void Dispose()
         {
             spirit.Dispose();
+            ReleasePlates();
             UnityEngine.Object.Destroy(glow);
             UnityEngine.Object.Destroy(ring);
             UnityEngine.Object.Destroy(openingVignette);
