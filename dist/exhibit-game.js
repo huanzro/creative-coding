@@ -3,7 +3,7 @@ import {ExhibitSerial, OFF} from './exhibit-serial.js';
 // A touch makes the motion and its physical echo happen together.
 // Use the same low current colors as the UNO-powered bench test.
 const COLORS = {touchA: [12, 4, 0], touchB: [0, 3, 12]};
-const ACTIONS = {touchA: 'A · 跃起，灯 A 暖色', touchB: 'B · 共鸣，灯 B 蓝色'};
+const ACTIONS = {touchA: 'A · 点击，灯 A 暖色', touchB: 'B · 点击，灯 B 蓝色'};
 const MIN_ON_MS = 500;
 const MAX_ON_MS = 1800;
 const FADE_MS = 420;
@@ -41,7 +41,7 @@ export function installExhibitGame(panel, {respondToTouch, isBlocked}) {
   const cue = new TouchLampCue();
   panel.innerHTML = `
     <h3>展台触摸联动</h3>
-    <p class="level-help">触摸 A：跃起 · 暖灯。触摸 B：共鸣 · 蓝灯。</p>
+    <p class="level-help">点击传感器尚未接入时，用空格代替一次点击。接入后，触摸 A 或 B 的按下沿接到同一个点击动作。握拳与张手仍由摄像头识别。</p>
     <div class="sensor-readout"><span id="game-touch-a">A · —</span><span id="game-touch-b">B · —</span></div>
     <button id="game-touch-connect" class="quiet full" type="button">连接 Arduino · 触摸联动</button>
     <p id="game-touch-status" class="level-help" role="status">未连接</p>
@@ -76,7 +76,7 @@ export function installExhibitGame(panel, {respondToTouch, isBlocked}) {
       cue.release(source, now);
       return;
     }
-    if (document.hidden || isBlocked() || !respondToTouch(source)) return;
+    if (document.hidden || isBlocked() || !respondToTouch()) return;
     ui('action').textContent = ACTIONS[source] + (serial.armed ? '' : ' · 灯光未启用');
     if (serial.armed) {
       cue.start(source, now);
@@ -114,7 +114,10 @@ export function installExhibitGame(panel, {respondToTouch, isBlocked}) {
     clear,
     update(now) {
       if (!serial.armed) return;
-      if (isBlocked()) cue.clear();
+      if (isBlocked()) {
+        serial.setArmed(false);
+        return;
+      }
       serial.setOutputs(cue.output(now));
     },
   };

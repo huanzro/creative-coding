@@ -1,87 +1,85 @@
+import {ContinuitySimulation,CHAPTERS,band} from './continuity.js';
+import {GestureGate,handOpenness,clamp,LEVELS,worldToScreen} from './core.js';
 import {projectionSpiritScale,renderSpirit} from './spirit-renderer.js';
-import {SpiritSimulation, GestureGate, handOpenness, clamp, LEVELS, worldToScreen, PLAY_MODES} from './core.js';
-
-import {boardRuns,loadRuns,saveRun} from './leaderboard.js';
+import {drawContinuity} from './continuity-render.js';
 import {loadAtmosphere,drawAtmosphere,atmosphereAt} from './atmosphere.js';
 import {installInteractionControls} from './interaction-controls.js';
 import {installExhibitGame} from './exhibit-game.js';
-
-const $=id=>document.getElementById(id);
-const canvas=$('world'), video=$('webcam'), handCanvas=$('hand-overlay'), hc=handCanvas.getContext('2d');
-let ctx=canvas.getContext('2d');
-const mainContext=ctx;
-let projectionWindow=null, projectionCanvas=null;
-let splitProjection=false;
-const sim=new SpiritSimulation(), gesture=new GestureGate();
-let mode='keyboard', scene='forest', manualPause=false, cameraActive=false, loading=false, stream=null, detector=null;
-let handPresent=false, lastHand=0, lastInference=0, lastVideoTime=-1, frameTime=performance.now(), lastUI=0, calibration=null, cameraGeneration=0, inputHeld=false;
-let W=1000,H=800,dpr=1;
-let rankingStorage;try{rankingStorage=window.localStorage;}catch{}
-let runs=loadRuns(rankingStorage),runId=crypto.randomUUID(),runName='旅人 '+String(runs.length+1).padStart(2,'0'),recorded=false,lastRank=null,rankMessageUntil=0;
-const rankRows=new Map();
-function currentRun(){return {id:runId,name:runName,level:sim.level.id,mode:sim.playMode,score:sim.score,passed:sim.passed,elapsed:Math.round(sim.elapsed*1000)/1000,complete:sim.complete};}
-function archiveRun(){if(recorded||!sim.challenge)return;const result=saveRun(rankingStorage,runs,currentRun());runs=result.runs;recorded=true;if(!result.saved)$('ranking-note').textContent='浏览器未允许保存 · 本次排名仍可用';}
-function newRun(){runId=crypto.randomUUID();runName='旅人 '+String(runs.length+1).padStart(2,'0');recorded=false;lastRank=null;rankRows.forEach(row=>row.remove());rankRows.clear();}
-function updateRanking(){
-  const board=boardRuns(runs,currentRun());
-  const rank=board.findIndex(r=>r.id===runId)+1;
-  if(lastRank!==null&&rank!==lastRank){rankMessageUntil=performance.now()+2500;$('rank-change').textContent=rank<lastRank?'↑ 上升 '+(lastRank-rank)+' 名':'↓ 下降 '+(rank-lastRank)+' 名';}
-  lastRank=rank;if(performance.now()>rankMessageUntil)$('rank-change').textContent='你 · 第 '+rank+' 名';
-  $('ranking-level').textContent=PLAY_MODES[sim.playMode].name+' · 本机榜';
-  const visible=board.slice(0,4);if(!visible.some(r=>r.id===runId))visible.push(currentRun());
-  const ids=new Set(visible.map(r=>r.id));for(const [id,row]of rankRows)if(!ids.has(id)){row.remove();rankRows.delete(id);}
-  visible.forEach((r,index)=>{let row=rankRows.get(r.id);if(!row){row=document.createElement('li');row.className='rank-row';for(const cls of ['rank-number','rank-name','rank-score']){const span=document.createElement('span');span.className=cls;row.appendChild(span);}$('rank-list').appendChild(row);rankRows.set(r.id,row);}
-    row.classList.toggle('current',r.id===runId);row.style.transform='translateY('+index*34+'px)';
-    row.children[0].textContent=String(board.findIndex(item=>item.id===r.id)+1).padStart(2,'0');row.children[1].textContent=r.id===runId?'你 · '+(sim.complete?'已完成':'进行中'):r.name;row.children[2].textContent=r.score;
-  });$('rank-list').style.height=visible.length*34+'px';
-  $('ranking-empty').hidden=board.length>1;$('ranking').hidden=scene==='black'||!sim.challenge;
-}
-const stars=Array.from({length:100},(_,i)=>({x:random(i*3+1),y:random(i*7+3),r:.5+random(i+8)*1.4,phase:i*.65}));
-function random(n){const x=Math.sin(n*127.1+311.7)*43758.5453;return x-Math.floor(x);}
-function resize(){const rect=canvas.getBoundingClientRect();W=rect.width;H=rect.height;sim.aspect=W/Math.max(H,1);dpr=Math.min(devicePixelRatio||1,2);canvas.width=Math.round(W*dpr);canvas.height=Math.round(H*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);}
+const $=id=>document.getElementById(id),canvas=$('world'),video=$('webcam'),handCanvas=$('hand-overlay'),hc=handCanvas.getContext('2d');
+let ctx=canvas.getContext('2d');const mainContext=ctx;
+const sim=new ContinuitySimulation(),gesture=new GestureGate();
+let scene='forest',blackDisplay=false,manualPause=false,cameraActive=false,loading=false,stream=null,detector=null;
+let handPresent=false,lastInference=0,lastVideoTime=-1,frameTime=performance.now(),lastUI=0,calibration=null,cameraGeneration=0;
+let W=1000,H=800,dpr=1,projectionWindow=null,projectionCanvas=null,splitProjection=false;
+let savedRevision=0;
+const CHECKPOINT_KEY='echoes-body-v2';
+const PROJECTION_LABEL='开启双屏投影 · 人物独立窗口';
+function resize(){const r=canvas.getBoundingClientRect();W=r.width;H=r.height;sim.aspect=W/Math.max(1,H);dpr=Math.min(devicePixelRatio||1,2);canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);}
 new ResizeObserver(resize).observe(canvas);
-function signal(text,type='ready'){if($('signal-text').textContent!==text)$('signal-text').textContent=text;$('signal-dot').style.background=type==='error'?'#d69583':type==='waiting'?'#c3ae7e':'#92bba6';}
-function isWaiting(){return mode==='camera'&&(!cameraActive||!handPresent||!!calibration);}
+function showText(id,value){
+ const element=$(id),text=String(value);
+ if(element.textContent!==text)element.textContent=text;
+}
+function signal(text,type='ready'){showText('signal-text',text);$('signal-dot').style.background=type==='error'?'#d69583':type==='waiting'?'#c3ae7e':'#92bba6';}
+function isWaiting(){return !cameraActive||!handPresent||!!calibration||!sim.audioReady||sim.hand==='unknown';}
 function paused(){return manualPause||isWaiting();}
-function lift(source){if(paused()||(source!=='touch'&&source!==mode))return false;const accepted=sim.lift();if(accepted){$('count').textContent=String(sim.count).padStart(2,'0');$('response-flash').classList.add('lit');$('activity').textContent='已回应 · 微光向上跃起';setTimeout(()=>$('response-flash').classList.remove('lit'),180);}return accepted;}
-function reset(){exhibitGame.clear();archiveRun();sim.reset(sim.levelIndex,$('gameplay').value);sim.configureChallenge($('obstacles').checked&&scene!=='black');newRun();gesture.reset();manualPause=false;calibration=null;$('count').textContent='00';$('activity').textContent='按空格出发 · 小人保持在中央';$('pause').innerHTML='暂停 <kbd>P</kbd>';$('calibrate').textContent='校准我的手势';$('chapter-complete').hidden=true;updateModeHints();updateUI();}
-function setMode(next){if(next===mode)return;mode=next;gesture.reset();inputHeld=false;calibration=null;manualPause=false;$('pause').innerHTML='暂停 <kbd>P</kbd>';
-  for(const id of ['keyboard','camera']){$(id+'-mode').classList.toggle('selected',id===mode);$(id+'-mode').setAttribute('aria-pressed',String(id===mode));$(id+'-help').hidden=id!==mode;}
-  $('input-badge').textContent=mode==='keyboard'?'键盘':'手势';$('action-hint').innerHTML=mode==='keyboard'?'<kbd>SPACE</kbd> 轻按一下，唤起微光':'张开手掌 → 握拳，让微光跃起';$('lift').hidden=mode!=='keyboard';
-  if(mode==='keyboard'){stopCamera();signal('键盘已就绪');}else signal('点击「开启摄像头」，然后张开手掌','waiting');updateModeHints();
+function saveCheckpoint(){
+ try{localStorage.setItem(CHECKPOINT_KEY,JSON.stringify(sim.save()));}catch{}
+ savedRevision=sim.checkpointRevision;
 }
-function setScene(next){
-  archiveRun();scene=next;const index=LEVELS.findIndex(level=>level.id===scene);if(index>=0)sim.levelIndex=index;
-  document.body.classList.toggle('black-scene',scene==='black');document.querySelectorAll('[data-scene]').forEach(b=>{b.classList.toggle('selected',b.dataset.scene===scene);b.setAttribute('aria-pressed',String(b.dataset.scene===scene));});
-  $('obstacles').disabled=scene==='black';$('obstacles').checked=scene!=='black';$('gameplay').disabled=scene==='black';if(scene!=='black')$('gameplay').value={forest:'gather',geometry:'gates',stars:'resonance'}[scene];
-  const label=scene==='black'?'00 / LIGHT STUDY':String(index+1).padStart(2,'0')+' / '+['PRESENCE','RECOGNITION','EXPRESSION'][index];
-  $('scene-index').textContent=label;$('scene-title').textContent=scene==='black'?'一束光，一个回应。':LEVELS[index].name;
-  $('scene-subtitle').textContent=scene==='black'?'固定中心 · 纯黑角色展示':LEVELS[index].subtitle;reset();
+function saveIfChanged(){if(sim.checkpointRevision!==savedRevision)saveCheckpoint();}
+function syncSceneControls(){
+ document.body.classList.toggle('black-scene',blackDisplay);
+ showText('black-display',blackDisplay?'返回场景画面':'纯黑人物展示');
+ for(const button of document.querySelectorAll('[data-scene]')){
+  const selected=button.dataset.scene===(blackDisplay?'black':scene);
+  button.classList.toggle('selected',selected);
+  button.setAttribute('aria-pressed',String(selected));
+ }
 }
-function togglePause(){manualPause=!manualPause;gesture.reset();$('pause').innerHTML=manualPause?'继续 <kbd>P</kbd>':'暂停 <kbd>P</kbd>';}
-$('keyboard-mode').onclick=()=>setMode('keyboard');$('camera-mode').onclick=()=>setMode('camera');$('pause').onclick=togglePause;$('reset').onclick=reset;$('lift').onclick=()=>lift('keyboard');
-document.querySelectorAll('[data-scene]').forEach(b=>b.onclick=()=>setScene(b.dataset.scene));
-$('next-level').onclick=()=>setScene(LEVELS[(sim.levelIndex+1)%LEVELS.length].id);
-$('obstacles').onchange=reset;$('gameplay').onchange=()=>{reset();$('gameplay').blur();};$('time-of-day').onchange=()=>$('time-of-day').blur();
-$('power').onclick=()=>{if(!paused()&&mode==='keyboard')sim.power();};
-$('ranking-toggle').onclick=()=>{const collapsed=$('ranking').classList.toggle('collapsed');$('ranking-toggle').setAttribute('aria-expanded',String(!collapsed));};
-window.addEventListener('pagehide',archiveRun);
+function setScene(next,checkpoint=false){
+ if(next==='black'){
+  blackDisplay=!blackDisplay;
+ }else{
+  saveIfChanged();
+  scene=next;blackDisplay=false;
+  sim.reset(LEVELS.findIndex(level=>level.id===next));
+  sim.configureChallenge(true);
+  gesture.reset();manualPause=false;
+  savedRevision=sim.checkpointRevision;
+  if(checkpoint)saveCheckpoint();
+ }
+ syncSceneControls();updateUI();
+}
+function clickInput(){
+ if(paused())return false;
+ const action=sim.click();
+ if(action==='next')setScene(LEVELS[sim.levelIndex+1].id,true);
+ return Boolean(action);
+}
+function togglePause(){manualPause=!manualPause;sim.cancelInput();gesture.reset();updateUI();}
+function clickKey(event){
+ if(event.code!=='Space'||event.altKey||event.ctrlKey||event.metaKey)return false;
+ event.preventDefault();
+ if(!event.repeat)clickInput();
+ return true;
+}
+window.addEventListener('keydown',clickKey);
+document.addEventListener('visibilitychange',()=>{if(document.hidden){manualPause=true;sim.cancelInput();gesture.reset();}});
+$('pause').onclick=togglePause;$('reset').onclick=()=>{sim.retry();gesture.reset();updateUI();};
 $('immersive').onclick=()=>document.body.classList.toggle('immersive');
-$('fullscreen').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}catch{signal('此浏览器未提供全屏，可按 H 隐藏面板','waiting');}};
-document.addEventListener('fullscreenchange',()=>$('fullscreen').textContent=document.fullscreenElement?'退出全屏 ↙':'全屏 ↗');
-const liftKeys=['Space','ArrowUp','KeyW'];
-window.addEventListener('keydown',e=>{if(e.target instanceof HTMLInputElement||e.target instanceof HTMLSelectElement)return;if(liftKeys.includes(e.code)){
-  // Keep Space/Enter available for focused buttons; keyboard flight works on the stage.
-  if(e.code==='Space'&&e.target instanceof HTMLButtonElement)return;
-  e.preventDefault();if(!e.repeat&&!inputHeld){inputHeld=true;lift('keyboard');}
-}else if(!e.repeat){if(e.code==='KeyE'&&!paused()&&mode==='keyboard')sim.power();if(e.code==='KeyP')togglePause();if(e.code==='KeyR')reset();if(e.code==='KeyH')document.body.classList.toggle('immersive');}});
-window.addEventListener('keyup',e=>{if(liftKeys.includes(e.code))inputHeld=false;});
-window.addEventListener('blur',()=>{inputHeld=false;gesture.reset();});
-document.addEventListener('visibilitychange',()=>{if(document.hidden){manualPause=true;gesture.reset();$('pause').innerHTML='继续 <kbd>P</kbd>';}});
-// Pointer interactions release button focus so the next Space always controls the spirit.
-document.querySelectorAll('button').forEach(b=>b.addEventListener('pointerup',()=>setTimeout(()=>b.blur(),0)));
-document.querySelectorAll('button').forEach(b=>b.addEventListener('click',e=>{if(e.detail>0)b.blur();}));
-
+$('fullscreen').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}catch{signal('浏览器暂不支持全屏。','waiting');}};
+$('time-of-day').onchange=()=>$('time-of-day').blur();
+document.querySelectorAll('[data-scene]').forEach(b=>b.onclick=()=>setScene(b.dataset.scene));
+$('resume-journey').onclick=()=>{
+ let checkpoint;
+ try{checkpoint=JSON.parse(localStorage.getItem(CHECKPOINT_KEY));}catch{}
+ if(!sim.restore(checkpoint)){signal('没有可恢复的当前版本检查点。','waiting');return;}
+ scene=LEVELS[sim.levelIndex].id;blackDisplay=false;
+ gesture.reset();manualPause=false;savedRevision=sim.checkpointRevision;
+ syncSceneControls();updateUI();
+};
+window.addEventListener('pagehide',saveIfChanged);
 async function startCamera(){
   if(loading||cameraActive)return;const generation=++cameraGeneration;loading=true;$('camera-toggle').disabled=true;signal('正在准备本机手部识别模型…','waiting');
   let acquired=null;
@@ -90,17 +88,22 @@ async function startCamera(){
     // Acquire permission directly from the visitor's click, before loading the model.
     acquired=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:640},height:{ideal:480},facingMode:'user'},audio:false});
     if(generation!==cameraGeneration){acquired.getTracks().forEach(t=>t.stop());return;}
-    stream=acquired;video.srcObject=stream;await video.play();
+    stream=acquired;
+    const track=stream.getVideoTracks()[0];
+    track.addEventListener('ended',()=>{
+      if(generation!==cameraGeneration)return;
+      stopCamera();signal('摄像头连接中断，请重新开启','error');
+    });
+    video.srcObject=stream;await video.play();
     if(!detector){const {FilesetResolver,HandLandmarker}=await import('./vendor/vision_bundle.mjs');const vision=await FilesetResolver.forVisionTasks(new URL('./vendor/wasm',import.meta.url).href);detector=await HandLandmarker.createFromOptions(vision,{baseOptions:{modelAssetPath:new URL('./vendor/hand_landmarker.task',import.meta.url).href,delegate:'CPU'},runningMode:'VIDEO',numHands:1,minHandDetectionConfidence:.65,minHandPresenceConfidence:.65,minTrackingConfidence:.6});}
     if(generation!==cameraGeneration){acquired.getTracks().forEach(t=>t.stop());return;}
-    cameraActive=true;handPresent=false;lastVideoTime=-1;lastHand=0;gesture.reset();$('camera-placeholder').hidden=true;$('camera-toggle').textContent='关闭摄像头';$('calibrate').disabled=false;signal('请把一只手放入画面，先张开手掌','waiting');
-    stream.getVideoTracks()[0].addEventListener('ended',()=>{if(cameraActive){stopCamera();signal('摄像头连接中断，请重新开启或切换键盘','error');}});
-  }catch(error){if(generation!==cameraGeneration)return;acquired?.getTracks().forEach(t=>t.stop());stopCamera();const errors={NotAllowedError:'未获得摄像头权限。请在浏览器地址栏允许摄像头后重试。',NotFoundError:'没有找到摄像头，请接入摄像头或使用键盘。',NotReadableError:'摄像头暂时无法读取，请关闭其他占用它的应用后重试。'};signal(errors[error.name]||'识别未能启动：'+error.message,'error');console.error(error);
+    cameraActive=true;handPresent=false;lastVideoTime=-1;lastInference=performance.now();gesture.reset();$('camera-placeholder').hidden=true;$('camera-toggle').textContent='关闭摄像头';$('calibrate').disabled=false;signal('请把一只手放入画面，先张开手掌','waiting');
+  }catch(error){if(generation!==cameraGeneration)return;acquired?.getTracks().forEach(t=>t.stop());stopCamera();const errors={NotAllowedError:'未获得摄像头权限。请在浏览器地址栏允许摄像头后重试。',NotFoundError:'没有找到摄像头，请接入摄像头后重试。',NotReadableError:'摄像头暂时无法读取，请关闭其他占用它的应用后重试。'};signal(errors[error.name]||'识别未能启动：'+error.message,'error');console.error(error);
   }finally{loading=false;$('camera-toggle').disabled=false;}
 }
-function stopCamera(){cameraGeneration++;cameraActive=false;handPresent=false;calibration=null;gesture.reset();stream?.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;hc.clearRect(0,0,320,240);$('camera-placeholder').hidden=false;$('camera-toggle').textContent='开启摄像头';$('calibrate').disabled=true;$('calibrate').textContent='校准我的手势';}
-$('camera-toggle').onclick=()=>{if(cameraActive){stopCamera();signal('摄像头已关闭，可重新开启或切换键盘','waiting');}else startCamera();};
-$('calibrate').onclick=()=>{calibration={phase:'open',samples:[],start:0,open:0};gesture.reset();$('calibrate').textContent='重新开始校准';signal('校准 1/2：张开手掌，保持约 1 秒','waiting');};
+function stopCamera(){sim.cancelHold();cameraGeneration++;cameraActive=false;handPresent=false;calibration=null;gesture.reset();stream?.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;hc.clearRect(0,0,320,240);$('camera-placeholder').hidden=false;$('camera-toggle').textContent='开启摄像头';$('calibrate').disabled=true;$('calibrate').textContent='校准我的手势';}
+$('camera-toggle').onclick=()=>{if(cameraActive){stopCamera();signal('摄像头已关闭，可重新开启','waiting');}else startCamera();};
+$('calibrate').onclick=()=>{sim.cancelHold();calibration={phase:'open',samples:[],start:0,open:0};gesture.reset();$('calibrate').textContent='重新开始校准';signal('校准 1/2：张开手掌，保持约 1 秒','waiting');};
 function calibrate(score,now){
   if(score===null){calibration.samples=[];calibration.start=0;signal('请把手放回画面，保持'+(calibration.phase==='open'?'张开手掌':'握拳'),'waiting');return;}
   if(!calibration.start)calibration.start=now;
@@ -120,16 +123,17 @@ function trackHand(now){
     // Correct the normalized x/y aspect ratio before evaluating finger geometry.
     const score=handOpenness(points?.map(p=>({...p,x:p.x*video.videoWidth/video.videoHeight,z:p.z*video.videoWidth/video.videoHeight})));
     drawHand(points);
-    if(points){lastHand=now;handPresent=true;}else if(now-lastHand>450){handPresent=false;}
+    handPresent=Number.isFinite(score);
+    if(!handPresent){gesture.reset();sim.cancelInput();}
     if(calibration){calibrate(score,now);return;}
-    if(manualPause){gesture.reset();return;}
-    const accepted=gesture.update(score,now);
-    if(!points){signal('未检测到手 · 将手放回画面，先张开手掌','waiting');return;}
-    if(accepted)lift('camera');
-    if(gesture.state==='open')signal('已识别：张开手掌 · 现在握拳即可升起');
-    else if(gesture.state==='closed')signal('已识别：握拳 · 请张开手掌，准备下一次');
+    if(!handPresent){signal('未检测到手 · 将手放回画面，先张开手掌','waiting');return;}
+    if(manualPause||!sim.audioReady){gesture.reset();sim.cancelInput();return;}
+    gesture.update(score,now);
+    if(['open','closed'].includes(gesture.state))sim.setHand(gesture.state);
+    if(sim.hand==='open')signal('已识别：张手 · 世界正在接收你的动作');
+    else if(sim.hand==='closed')signal('已识别：握拳 · 光收在掌心');
     else signal('手已进入画面 · 请完整张开手掌','waiting');
-  }catch(error){stopCamera();signal('手部识别中断，请重新开启或切换键盘','error');console.error(error);}
+  }catch(error){stopCamera();signal('手部识别中断，请重新开启','error');console.error(error);}
 }
 function drawHand(points){hc.clearRect(0,0,320,240);if(!points)return;const chains=[[0,1,2,3,4],[0,5,6,7,8],[5,9,10,11,12],[9,13,14,15,16],[13,17,18,19,20],[0,17]];hc.strokeStyle='#b8d7ff';hc.lineWidth=2;for(const chain of chains){hc.beginPath();chain.forEach((n,i)=>{const p=points[n];i?hc.lineTo(p.x*320,p.y*240):hc.moveTo(p.x*320,p.y*240);});hc.stroke();}hc.fillStyle='#ffdea1';for(const p of points){hc.beginPath();hc.arc(p.x*320,p.y*240,3,0,Math.PI*2);hc.fill();}}
 window.addEventListener('pagehide',()=>{stopCamera();detector?.close();});
@@ -140,34 +144,8 @@ function glow(x,y,r,color){const g=ctx.createRadialGradient(x,y,0,x,y,r);g.addCo
 let environment=atmosphereAt(0);
 loadAtmosphere().then(ready=>{if(!ready)$('asset-status').textContent='部分背景未加载，请刷新页面。';else $('asset-status').hidden=true;});
 function drawBackground(){
-  if(scene==='black'){ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);return;}
+  if(blackDisplay){ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);return;}
   environment=drawAtmosphere(ctx,W,H,scene,sim,$('time-of-day').value);
-}
-function updateModeHints(){
-  const descriptions={gates:'穿过五道光门；碰撞会回到当前门重试。',gather:'追逐 8 束萤火，靠近并聚光，让它们随你前行。',resonance:'在星光靠近时释放波纹，唤醒 6 颗星。'};
-  const rules={gates:'穿门 +100 · 连续通过加分 · 门心再 +50',gather:'收集 +80 · 连续收集加分 · 错过 −10，萤火会返回',resonance:'唤醒 +120 · 连续回应加分 · 错过 −10，星光会返回'};
-  const activeMode=sim.challenge?sim.playMode:'gates';
-  const action=activeMode==='gather'?'聚光':activeMode==='resonance'?'共鸣':'跃起';
-  $('scene-subtitle').textContent=scene==='black'?'固定中心 · 纯黑角色展示':!sim.challenge?'自由练习 · 通过背景移动感受升降':descriptions[sim.playMode];$('level-help').textContent=rules[sim.playMode];
-  $('power').hidden=activeMode==='gates'||mode!=='keyboard'||!sim.challenge;$('power').textContent=action+' E';
-  $('action-hint').innerHTML=mode==='camera'?'张开 → 握拳 · 升起'+(activeMode==='gates'?'':'并'+action):'<kbd>SPACE</kbd> 升起'+(activeMode==='gates'?'':'并'+action+' · <kbd>E</kbd> 只'+action);
-  $('keyboard-instruction').innerHTML=activeMode==='gates'?'每按一次，向上跃起一次。<br>松开后可再次触发。':'空格：升起并'+action+'。<br>E：只'+action+'，不改变高度。';
-  $('gesture-instruction').textContent='张开手掌 → 握拳：升起一次'+(activeMode==='gates'?'。':'，同时释放'+action+'。')+'再张开后可重复；保持握拳不会连发。';
-}
-function drawTargets(){
-  if(scene==='black'||!sim.challenge||sim.playMode==='gates')return;
-  for(const target of sim.targets){if(target.x>1.2)continue;const x=target.x*W,y=worldToScreen(target.x,target.y,sim.y).y*H;
-    if(!target.active){if(target.echo>0){const a=target.echo/1.4;glow(x,y,50,'rgba(165,217,255,'+a*.4+')');ellipse(x,y,3,3,'rgba(226,244,255,'+a+')');line([[W*.5,H*.5],[x,y]],'rgba(147,205,255,'+a*.24+')');}continue;}
-    const rgb=sim.playMode==='gather'?'255,213,129':'185,214,255',near=Math.hypot((target.x-.5)*sim.aspect,target.y-sim.y)<.35;
-    glow(x,y,near?36:22,`rgba(${rgb},${near?.27:.16})`);
-    if(sim.playMode==='gather'){
-      ellipse(x,y,3.5,3.5,'#ffe6a6');for(const sign of [-1,1])ellipse(x+sign*7,y-3,5,2+Math.sin(sim.time*18+target.index)**2*3,'#eed49e77');
-    }else{
-      ctx.strokeStyle=near?'#c1e3ff77':'#b7d6ff33';ctx.lineWidth=1;ctx.beginPath();ctx.arc(x,y,H*.075,0,Math.PI*2);ctx.stroke();
-      ctx.save();ctx.translate(x,y);ctx.rotate(Math.PI/4);ctx.fillStyle='#d4eaff';ctx.fillRect(-5,-5,10,10);ctx.restore();
-      if(near){ctx.textAlign='center';ctx.font='11px sans-serif';ctx.fillStyle='#d0e6f5';ctx.fillText('现在回应',x,y-25);}
-    }
-  }
 }
 function drawPowers(){
   ctx.save();ctx.globalCompositeOperation='screen';
@@ -181,16 +159,6 @@ function drawPowers(){
     for(let i=0;i<14;i++){const angle=i*Math.PI*2/14+wave.age*.07;glow(x+Math.cos(angle)*r,y+Math.sin(angle)*r,5,`rgba(174,222,255,${a*.55})`);}
   }ctx.restore();
   if(sim.magnet>0){const a=sim.magnet/1.2;ctx.strokeStyle=`rgba(246,212,137,${a*.22})`;ctx.lineWidth=1;ctx.beginPath();ctx.ellipse(W*.5,H*.5,W*.23,H*.23,0,0,Math.PI*2);ctx.stroke();for(let i=0;i<8;i++){const r=(1-(sim.time*1.1+i*.12)%1)*.2,angle=i*2.4;ellipse(W*(.5+Math.cos(angle)*r),H*(.5+Math.sin(angle)*r),1.4,1.4,`rgba(255,218,153,${a*.7})`);}}
-}
-function drawAwakened(){
-  if(scene==='black')return;
-  if(sim.playMode!=='gates'){for(let i=0;i<sim.passed;i++){const x=W*(.45-i*.025),y=H*(.5+Math.sin(sim.time*1.2+i)*.04);glow(x,y,14,scene==='forest'?'#f9d89835':'#bad9ff35');ellipse(x,y,2,2,scene==='forest'?'#ffe4b1':'#d7e9ff');if(i>0)line([[x,y],[x+W*.025,H*(.5+Math.sin(sim.time*1.2+i-1)*.04)]],'#b9d9ed44');}return;}
-  for(let i=0;i<sim.passed;i++){
-    const x=W*(.12+i*.055),y=H*.82+Math.sin(i*1.7)*8+(.5-sim.y)*H*.3;
-    glow(x,y,28,scene==='forest'?'#ebc98726':'#b9d1ff26');
-    if(scene==='forest'){line([[x,y+22],[x,y]],'#8ea18b88');for(let p=0;p<5;p++)ellipse(x+Math.cos(p*Math.PI*.4)*5,y+Math.sin(p*Math.PI*.4)*5,3,3,'#e8cf91aa');}
-    else{ellipse(x,y,3,3,'#e3edff');if(i>0)line([[x-W*.055,y-8],[x,y]],'#bacfff77');}
-  }
 }
 function drawTrail(){const rgb=scene==='stars'?'219,231,255':scene==='geometry'?'150,181,255':'235,200,134';
   const strength=sim.trailStrength,scale=Math.max(.7,Math.min(H/720,1.5));
@@ -207,42 +175,22 @@ function drawTrail(){const rgb=scene==='stars'?'219,231,255':scene==='geometry'?
     ellipse(x,y,p.size*scale,p.size*scale,`rgba(${rgb},${Math.min(1,p.life*.8*strength)})`);
   }ctx.restore();
 }
-function drawObstacles(){if(scene==='black')return;
-  for(const gate of sim.gates){if(gate.x>1.1)continue;const x=gate.x*W,cy=worldToScreen(gate.x,gate.y,sim.y).y*H,top=cy-gate.gap*H/2,bottom=cy+gate.gap*H/2;
-    ctx.save();ctx.strokeStyle=gate.passed?'#cbb77955':scene==='forest'?'#a7bcae88':'#a5bfffaa';ctx.fillStyle=scene==='forest'?'#17312ce6':'#283951aa';ctx.lineWidth=2;
-    for(const [a,b]of [[-H,top],[bottom,H*2]]){ctx.fillRect(x-14,a,28,b-a);ctx.strokeRect(x-14,a,28,b-a);line([[x-24,a],[x+24,a]],'#bfd1b899',2);line([[x-24,b],[x+24,b]],'#bfd1b899',2);}
-    if(scene==='stars'){ctx.strokeStyle='#c6d6ff66';ctx.beginPath();ctx.ellipse(x,cy,gate.gap*H*.17,gate.gap*H/2,0,0,Math.PI*2);ctx.stroke();}
-    if(!gate.passed){glow(x,cy,40,'#d5d9cb12');ctx.save();ctx.translate(x,cy);ctx.rotate(Math.PI/4);ctx.fillStyle='#e9d5aa';ctx.fillRect(-4,-4,8,8);ctx.restore();ctx.font='10px sans-serif';ctx.textAlign='center';ctx.fillStyle='#a9b8c9';ctx.fillText(String(gate.index+1).padStart(2,'0'),x,top-13);}
-    glow(x,top,25,'#bcd7da22');glow(x,bottom,25,'#bcd7da22');ctx.restore();
-  }
-}
 let spiritTime=0;
-function drawSpirit({x=W*.5,y=H*.5,scale=Math.min(H/720,1.3),rotation=0,pixelRatio=1,effectScale=1,projectionEffects=false}={}){
+function drawSpirit({x=W*.5,y=H*.5,scale=Math.min(H/720,1.3),rotation=0,pixelRatio=1,effectScale=1,projectionEffects=false,echoHand=null}={}){
   const castAge=sim.time-sim.lastPower;
   const moving=!paused()&&!sim.complete;
   const cast=moving&&castAge>=0&&castAge<.85?Math.sin(Math.PI*castAge/.85):0;
   const travel=moving&&sim.started?clamp(sim.speedMultiplier*.46+Math.abs(sim.vy)*1.5,0,1):0;
   renderSpirit(ctx,{x,y,scale,rotation,pixelRatio,projectionEffects,time:spiritTime,
-    vy:moving?sim.vy:0,travel,cast,energy:sim.glow,hit:sim.hit,protection:sim.protection,
+    vy:moving&&!echoHand?sim.vy:0,travel:echoHand?0:travel,cast:echoHand?0:cast,
+    energy:echoHand?0:sim.glow,hit:echoHand?0:sim.hit,
+    protection:echoHand?Number(echoHand==='closed'):sim.protection,
     cool:scene==='geometry'||scene==='stars'});
-  if(sim.glow>0){ctx.strokeStyle=`rgba(225,242,228,${sim.glow*.35})`;ctx.lineWidth=effectScale;ctx.beginPath();ctx.arc(x,y,((1-sim.glow)*70+22)*effectScale,0,Math.PI*2);ctx.stroke();}
+  if(!echoHand&&sim.glow>0){ctx.strokeStyle=`rgba(225,242,228,${sim.glow*.35})`;ctx.lineWidth=effectScale;ctx.beginPath();ctx.arc(x,y,((1-sim.glow)*70+22)*effectScale,0,Math.PI*2);ctx.stroke();}
 }
 
-function updateUI(){
-  const waiting=isWaiting();
-  $('count').textContent=String(sim.count).padStart(2,'0');$('phase-label').textContent=environment.name;$('journey-clock').textContent=String(Math.floor(sim.elapsed/60)).padStart(2,'0')+':'+String(Math.floor(sim.elapsed%60)).padStart(2,'0');$('period-line').hidden=scene==='black';
-  $('level-progress').hidden=scene==='black';$('level-progress').textContent=sim.challenge?('第 '+(sim.levelIndex+1)+' / 3 关 · 已点亮 '+sim.passed+' / '+sim.goal+' · '+sim.score+' 分'):'自由练习 · 角色固定在画面中央';
-  $('award').textContent=sim.time-sim.awardTime<2.5?sim.lastAward:'';
-  $('chapter-complete').hidden=!sim.complete;
-  if(sim.complete){archiveRun();$('completion-title').textContent=sim.level.name+' · 已点亮';$('completion-score').textContent=sim.score+' 分 · '+(sim.playMode==='gates'?sim.collisions+' 次轻碰':sim.missed+' 次错过')+' · '+sim.elapsed.toFixed(1)+' 秒';$('next-level').textContent=sim.levelIndex===2?'重新踏上旅程 ↻':'前往 '+LEVELS[Math.min(2,sim.levelIndex+1)].name+' →';}
-  updateRanking();
-  $('paused-overlay').hidden=!manualPause&&!waiting;
-  if(manualPause){$('pause-title').textContent='片刻停留';$('pause-description').textContent='按 P 或点击继续';}
-  else if(waiting){$('pause-title').textContent=calibration?'认识你的手势':cameraActive?'等待你的手':'等待开启摄像头';$('pause-description').textContent=calibration?'跟随右侧提示，先张开手掌，再握拳':cameraActive?'把一只手放入画面，先张开，再握拳':'点击右侧开启摄像头，或切换键盘继续';}
-  if(sim.started&&sim.glow<.2)$('activity').textContent=sim.complete?'本关完成 · 世界回应了你':sim.hit>0?'从这道门再试一次':sim.y>=.82?'轻按空格 · 继续向上':sim.vy<0?'正在上升 · 世界向下移动':'正在下落 · 世界向上移动';
-}
 function shadeSceneCenter(){
-  if(scene==='black')return;
+  if(blackDisplay)return;
   const centerShade=splitProjection?.56:.40;
   ctx.save();
   ctx.translate(W/2,H/2);
@@ -259,36 +207,55 @@ function shadeSceneCenter(){
   ctx.restore();
 }
 
-function frame(now){const dt=Math.min((now-frameTime)/1000,.04);frameTime=now;spiritTime+=dt;trackHand(now);
-  if(cameraActive && now-lastInference>900){handPresent=false;gesture.reset();signal('摄像头暂无新画面，请重新开启或切换键盘','waiting');}
-  interactions.beforeUpdate(dt,now);
-  if(!paused())sim.update(dt,$('obstacles').checked);
-  interactions.afterUpdate(dt);
-  exhibitGame.update(now);
-  if(projectionWindow?.closed){projectionWindow=null;splitProjection=false;}
-  ctx=mainContext;
-  drawBackground();shadeSceneCenter();drawAwakened();drawObstacles();drawTargets();
-  if(splitProjection){
-    renderProjection();
-  }else{drawTrail();drawPowers();drawSpirit();}
-  if(now-lastUI>100){updateUI();lastUI=now;}requestAnimationFrame(frame);
-}
-const interactions=installInteractionControls(sim,paused);
-const exhibitGame=installExhibitGame($('touch-game'),{
-  isBlocked:()=>paused()||sim.complete||sim.recovery>0,
-  respondToTouch(source){
-    if(source==='touchA')return lift('touch');
-    if(!sim.power())sim.glow=1;
-    $('activity').textContent='触摸回应 · 光晕展开';
-    return true;
-  },
-});
-setScene('forest');
-requestAnimationFrame(frame);
 
+function updateUI(){
+ $('scene-index').textContent=sim.tutorial!==null?'00 / LEARNING':String(sim.levelIndex+1).padStart(2,'0')+' / '+['CARE','COOPERATION','DIALOGUE'][sim.levelIndex];
+ $('scene-title').textContent=sim.tutorial!==null?'回声庭院':CHAPTERS[sim.levelIndex].title;
+ $('scene-subtitle').textContent=sim.tutorial!==null?'你认识世界，世界也在认识你的手与声音。':CHAPTERS[sim.levelIndex].subtitle;
+ const ending=sim.complete&&sim.levelIndex===LEVELS.length-1;
+ showText('level-progress',sim.complete?(ending?'旅程完成':'本章完成 · 点击继续旅程'):sim.objective);
+ showText('journey-feedback',sim.feedback);
+ showText('encounter-status',sim.complete?'':sim.cue);
+ $('hand-state').textContent=!handPresent?'手未进入画面':sim.hand==='unknown'?'先张开手掌':sim.holding?'握拳':'张手';
+ $('voice-state').textContent=sim.audioReady?band(sim.controlVoice)+' '+Math.round(sim.controlVoice*100)+'%':'等待校准';
+ $('activity').textContent=sim.complete?'世界记住了你':paused()?'等待真实输入':'真实手势与声音已连接';
+ $('phase-label').textContent=environment.name;$('journey-clock').textContent=Math.floor(sim.elapsed/60).toString().padStart(2,'0')+':'+Math.floor(sim.elapsed%60).toString().padStart(2,'0');
+ $('count').textContent=sim.count;$('pause').textContent=manualPause?'继续旅程':'暂停旅程';
+ $('chapter-complete').hidden=!sim.complete;
+ showText('completion-title',ending?'世界学会了回应你':CHAPTERS[sim.levelIndex].title+' · 已唤醒');
+ showText('completion-score',sim.finishText);
+ showText('completion-next',ending?'可在展台设置里重访任一章节。':'点击进入下一章 · 空格也可以');
+ $('paused-overlay').hidden=!paused()||ending;
+ showText('pause-title',manualPause?'旅程已暂停':!cameraActive?'先开启摄像头':!sim.audioReady?'先开启并校准麦克风':calibration?'正在校准手势':!handPresent?'请把手放回画面':'请先张开手掌');
+ $('pause-description').textContent=manualPause?'点击右侧「继续旅程」，再张开手掌。':'使用真实握拳／张手和声音。空格只代替点击传感器。设备未就绪时不会丢失进度。';
+ saveIfChanged();
+}
+
+const interactions=installInteractionControls(sim,paused);
+const exhibitGame=installExhibitGame($('touch-game'),{isBlocked:paused,respondToTouch:clickInput});
+setScene('forest');
+function frame(now){const dt=Math.min((now-frameTime)/1000,.04);frameTime=now;spiritTime+=dt;
+ interactions.beforeUpdate(dt,now);trackHand(now);
+ if(cameraActive&&now-lastInference>300){
+   handPresent=false;sim.cancelInput();gesture.reset();
+   signal('未收到新摄像头画面 · 旅程已暂停','waiting');
+ }
+ if(!paused())sim.update(dt,true);
+ interactions.afterUpdate(dt);exhibitGame.update(now);
+ if(projectionWindow?.closed){
+  projectionWindow=null;projectionCanvas=null;splitProjection=false;
+  projectionButton.textContent=PROJECTION_LABEL;
+ }
+ ctx=mainContext;drawBackground();shadeSceneCenter();
+ if(!blackDisplay)drawContinuity(ctx,W,H,sim,(x,y,echoHand)=>drawSpirit({x,y,echoHand,scale:Math.min(H/720,1.3)*.8}));
+ if(splitProjection)renderProjection();
+ if(!splitProjection||blackDisplay){drawTrail();drawPowers();drawSpirit();}
+ if(now-lastUI>100){updateUI();lastUI=now;}requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
 // Both outputs render the same simulation in the same frame; no second physics clock.
 const projectionButton=document.createElement('button');
-projectionButton.className='quiet full';projectionButton.textContent='开启双屏投影 · 人物独立窗口';
+projectionButton.className='quiet full';projectionButton.textContent=PROJECTION_LABEL;
 $('immersive').before(projectionButton);
 projectionButton.onclick=()=>{
   if(projectionWindow&&!projectionWindow.closed){projectionWindow.focus();return;}
@@ -301,7 +268,11 @@ projectionButton.onclick=()=>{
   d.querySelector('#full').onclick=full;projectionCanvas.ondblclick=full;
   d.querySelector('#mirror').onclick=()=>projectionCanvas.mirrored=!projectionCanvas.mirrored;
   d.querySelector('#hide').onclick=()=>d.body.classList.add('hide');
-  projectionWindow.onkeydown=e=>{if(e.code==='KeyH')d.body.classList.toggle('hide');else if(e.code==='KeyM')projectionCanvas.mirrored=!projectionCanvas.mirrored;else if(liftKeys.includes(e.code)&&!e.repeat){e.preventDefault();lift('keyboard');}else if(e.code==='KeyE'&&!paused())sim.power();else if(e.code==='KeyP')togglePause();};
+  projectionWindow.onkeydown=event=>{
+   if(clickKey(event)||event.repeat)return;
+   if(event.code==='KeyH')d.body.classList.toggle('hide');
+   if(event.code==='KeyM')projectionCanvas.mirrored=!projectionCanvas.mirrored;
+  };
   splitProjection=true;projectionButton.textContent='人物窗口已开启 · 点击定位窗口';
 };
 function renderProjection(){
