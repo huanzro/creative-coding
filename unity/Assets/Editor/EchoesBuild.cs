@@ -4,6 +4,7 @@ using UnityEditor;
 using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace Echoes
 {
@@ -62,19 +63,28 @@ namespace Echoes
 
             if (!File.Exists(Path.Combine(Project, ScenePath)))
             {
+                // Unity starts a fresh project with an untitled scene. It cannot
+                // add another scene until that scene is saved or replaced.
+                bool hasUntitledScene = false;
+                for (int index = 0; index < SceneManager.sceneCount; index++)
+                    hasUntitledScene |= string.IsNullOrEmpty(SceneManager.GetSceneAt(index).path);
+                bool replace = Application.isBatchMode || openScene || hasUntitledScene;
+                if (replace && !Application.isBatchMode && !EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+                    return;
                 if (!AssetDatabase.IsValidFolder("Assets/Scenes")) AssetDatabase.CreateFolder("Assets", "Scenes");
                 var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,
-                    Application.isBatchMode ? NewSceneMode.Single : NewSceneMode.Additive);
+                    replace ? NewSceneMode.Single : NewSceneMode.Additive);
                 var player = new GameObject("EchoesPlayer");
-                EditorSceneManager.MoveGameObjectToScene(player, scene);
+                if (player.scene != scene) SceneManager.MoveGameObjectToScene(player, scene);
                 player.AddComponent<EchoesPlayer>();
                 if (!EditorSceneManager.SaveScene(scene, ScenePath))
                     throw new IOException("Could not save the Echoes scene.");
-                if (!Application.isBatchMode) EditorSceneManager.CloseScene(scene, true);
+                if (!replace) EditorSceneManager.CloseScene(scene, true);
             }
             if (EditorBuildSettings.scenes.Length != 1 || EditorBuildSettings.scenes[0].path != ScenePath)
                 EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
-            if (openScene && EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+            if (openScene && SceneManager.GetActiveScene().path != ScenePath &&
+                EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
                 EditorSceneManager.OpenScene(ScenePath);
         }
 
