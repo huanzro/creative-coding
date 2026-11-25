@@ -784,13 +784,14 @@ Assert ($atlas.RuinLootSource -eq $chest -and $atlas.RuinChests -eq 1) 'B opens 
 
 $atlasSave.ruinFinds = -1
 $atlasSave.ruinRoom = 15
-Assert ($atlas.Restore($atlasSave) -and $atlas.RuinInventory -eq 15 -and $atlas.RuinChests -eq [Echoes.Journey]::RuinChestCount) 'Restoring a crowded inventory still caps artifacts at 15, independently of the chests.'
+Assert ($atlas.Restore($atlasSave) -and $atlas.RuinInventory -eq [Echoes.Journey]::RuinCapacity -and
+    $atlas.RuinChests -eq [Echoes.Journey]::RuinChestCount) 'Restoring a crowded inventory caps artifacts independently of the chests.'
 $overflow = $atlas.RuinObjects | Where-Object { !$_.Collected -and $_.Kind -ne 'Chest' } | Select-Object -First 1
 FlyRuin $atlas $overflow.Depth $overflow.Altitude $overflow.Lane
 Step $atlas .28 0
 Assert ($atlas.RuinCanTake) 'A full bag does not prevent inspecting the alcove.'
 [void]$atlas.Touch(1)
-Assert (!$overflow.Collected -and $atlas.RuinInventory -eq 15) 'A confirmed pickup cannot add a sixteenth artifact.'
+Assert (!$overflow.Collected -and $atlas.RuinInventory -eq [Echoes.Journey]::RuinCapacity) 'A confirmed pickup cannot exceed the capacity.'
 $flight=[Echoes.SpiritFlight]::new()
 $flight.Reset(.11)
 $flight.Release(.3)
