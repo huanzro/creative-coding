@@ -166,13 +166,14 @@ namespace Echoes
         }
 
         public void DrawInWorld(Camera camera, Vector2 screen, float bodyPixels, float depth, Vector3 key,
-            CommandBuffer buffer, bool upright = false)
+            CommandBuffer buffer, bool upright = false, float? facing = null)
         {
             if (!rendered) return;
             Vector3 point = camera.ViewportToWorldPoint(new Vector3(screen.x,1-screen.y,depth));
             float scale = bodyPixels * HeightScale / 720 *
                 (depth*Mathf.Tan(camera.fieldOfView*.5f*Mathf.Deg2Rad))/(5.6f*Mathf.Tan(15.25f*Mathf.Deg2Rad));
-            Quaternion orientation = upright ? Quaternion.Euler(0, camera.transform.eulerAngles.y, 0) : camera.transform.rotation;
+            Quaternion orientation = facing.HasValue ? Quaternion.Euler(0, facing.Value, 0) :
+                upright ? Quaternion.Euler(0, camera.transform.eulerAngles.y, 0) : camera.transform.rotation;
             Matrix4x4 transform = Matrix4x4.TRS(point,orientation,Vector3.one*scale)
                 * Matrix4x4.Translate(new Vector3(0,-1.16f,0));
             RenderModel(transform,key,sceneAnchors,buffer,.20f);

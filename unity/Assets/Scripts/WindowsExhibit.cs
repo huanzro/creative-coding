@@ -28,7 +28,7 @@ namespace Echoes
         public bool FanEnabled { get; set; }
         public bool HoldingAuthorization { get; set; }
         public string Status { get; private set; } = "串口未连接";
-        public event Action<int> Pressed;
+        public event Action<int, bool> TouchChanged;
 
         public void Connect(string name, float now)
         {
@@ -123,8 +123,10 @@ namespace Echoes
             {
                 int bit = 1 << option;
                 if ((changed & bit) == 0) continue;
-                if ((mask & bit) != 0) Pressed?.Invoke(option);
-                else if (!forestPalette) lampEnd[option] = Math.Min(lampEnd[option], Math.Max(lampBegin[option] + .5f, now));
+                bool pressed = (mask & bit) != 0;
+                TouchChanged?.Invoke(option, pressed);
+                if (!pressed && !forestPalette)
+                    lampEnd[option] = Math.Min(lampEnd[option], Math.Max(lampBegin[option] + .5f, now));
             }
         }
 

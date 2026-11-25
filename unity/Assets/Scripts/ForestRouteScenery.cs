@@ -23,10 +23,12 @@ namespace Echoes
         private readonly Vector3[] wispPositions = new Vector3[FlightWisps];
         private readonly float[] wispTimes = new float[FlightWisps];
         private readonly Transform[] spiderLegs = new Transform[8];
+        private readonly Transform[] watchingLegs = new Transform[8];
+        private readonly Transform[] rescueFibers = new Transform[8];
         private readonly MeshRenderer[] rescueSparks = new MeshRenderer[7];
         private readonly Mesh[] clearingBeds = new Mesh[3];
-        private Transform forestEffects, spider, forestMouth;
-        private ForestProp closingWeb, closingMaw;
+        private Transform forestEffects, spider, watchingSpider, forestMouth;
+        private ForestProp closingWeb, closingMaw, rescueFly;
         private Mesh silkMesh, webAnchorMesh, seedMesh, seedRootsMesh, mawStemMesh, mawBudMesh, mawLipMesh;
         private Mesh mawTeethMesh, mawThroatMesh;
         private float lastWispAt = -1;
@@ -48,10 +50,41 @@ namespace Echoes
             return point;
         }
 
+        public static Vector3 MazeActor(Journey journey, float altitude) =>
+            new Vector3(journey.ForestMazeX,journey.ForestMazeY + .54f + 5.2f*altitude,journey.ForestMazeZ);
+
+        public static Quaternion ForestOrientation(Journey journey) =>
+            Quaternion.Euler(0,journey.ForestMazeActive ? journey.ForestMazeHeading : 0,0);
+
+        private static Vector3 ForestFeaturePoint(Journey journey, ForestFeature feature, bool animate)
+        {
+            if (!feature.InMaze)
+                return ForestPoint(journey,animate?feature.LaneAt(journey.Time):feature.Lane,
+                    animate?feature.DepthAt(journey.Time):feature.Depth,animate?feature.AltitudeAt(journey.Time):feature.Altitude);
+            Vector3 point=new Vector3(feature.WorldX,feature.WorldY,feature.WorldZ);
+            if (animate) point+=new Vector3(2.1f*(feature.LaneAt(journey.Time)-feature.Lane),
+                5.2f*(feature.AltitudeAt(journey.Time)-feature.Altitude),feature.DepthAt(journey.Time)-feature.Depth);
+            return point;
+        }
+
+        public static Vector3 ForestTrapSite(Journey journey)
+        {
+            if (!journey.ForestMazeActive)
+                return ForestPoint(journey,journey.ForestTrapLane,journey.ForestTrapDepth,journey.ForestTrapAltitude);
+            return journey.ForestContact != null && journey.ForestContact.InMaze
+                ? ForestFeaturePoint(journey,journey.ForestContact,false) : MazeActor(journey,journey.ForestTrapAltitude);
+        }
+
+        public static Vector3 ForestDescentMouth(Journey journey)
+        {
+            if (!journey.ForestMazeActive) return ForestPoint(journey,journey.ForestTrapLane,journey.ForestTrapDepth+2.35f,0);
+            return MazeActor(journey,0) + ForestOrientation(journey)*Vector3.forward*2.35f;
+        }
+
         public static Vector4 ForestSink(Journey journey)
         {
             if (journey.Phase != Stage.ForestTransition || journey.ForestTrap == ForestTrapKind.Cable) return Vector4.zero;
-            Vector3 point = ForestPoint(journey,journey.ForestTrapLane,journey.ForestTrapDepth+2.35f,0);
+            Vector3 point = ForestDescentMouth(journey);
             float start = journey.ForestTrap == ForestTrapKind.Web ? .53f : .28f;
             float radius = 1.38f * Ease(start,start+.19f,journey.Progress);
             return new Vector4(point.x,point.z,radius*radius,1);
@@ -70,13 +103,17 @@ namespace Echoes
             unusedForestProps.Clear();
             foreach (int id in forestProps.Keys) unusedForestProps.Add(id);
             int clearing=0;
+            ForestFeature visibleSpider=null;
+            float closestSpider=9.3f*9.3f;
             foreach (ForestFeature feature in journey.ForestFeatures)
             {
                 bool isPlant = feature.Kind == ForestFeatureKind.Plant;
                 int seed = isPlant ? clearing++ : -1;
                 if (journey.Branch==ForestBranch.Right && journey.Distance<DoorDepth && feature.Depth>DoorDepth) continue;
-                if ((feature.Collected && !isPlant) || feature.Depth < journey.Distance-8 ||
-                    feature.Depth > journey.Distance+33) continue;
+                if ((feature.Collected && !isPlant) || feature.InMaze != journey.ForestMazeActive) continue;
+                Vector3 featurePoint=ForestFeaturePoint(journey,feature,false);
+                if (feature.InMaze ? (featurePoint-actor).sqrMagnitude > 29*29 :
+                    feature.Depth < journey.Distance-8 || feature.Depth > journey.Distance+33) continue;
                 unusedForestProps.Remove(feature.Id);
                 if (!forestProps.TryGetValue(feature.Id,out ForestProp prop) || forestPropKinds[feature.Id]!=feature.Kind)
                 {
@@ -86,10 +123,16 @@ namespace Echoes
                     forestPropKinds.Add(feature.Id,feature.Kind);
                 }
                 PoseFeature(journey,feature,prop,time,seed,split);
+                if(feature.Kind==ForestFeatureKind.Web && feature.Reveal>.08f && (featurePoint-actor).sqrMagnitude<closestSpider)
+                {
+                    visibleSpider=feature;
+                    closestSpider=(featurePoint-actor).sqrMagnitude;
+                }
             }
             foreach (int id in unusedForestProps) ReturnProp(id);
 
-            PoseForestThreat(journey,time,actor);
+            PoseWatchingSpider(visibleSpider,journey,time);
+            PoseForestThreat(journey,time,actor,split);
             PoseFlightWake(journey,time,actor,glide);
         }
 
@@ -178,8 +221,18 @@ namespace Echoes
 
             closingWeb=MakeProp(ForestFeatureKind.Web);
             closingMaw=MakeProp(ForestFeatureKind.Maw);
-            spider=BuildCanopySpider();
+            spider=BuildCanopySpider(spiderLegs);
+            watchingSpider=BuildCanopySpider(watchingLegs);
             forestMouth=BuildForestHollow();
+            rescueFly=MakeProp(ForestFeatureKind.Amber);
+            var fiberMesh=Geometry();
+            fiberMesh.Tube(new[]{Vector3.down*.5f,Vector3.up*.5f},new[]{1f,1f},5,Color.white);
+            Mesh fiber=fiberMesh.Finish("Silk strand");
+            for(int i=0;i<rescueFibers.Length;i++)
+            {
+                rescueFibers[i]=Piece("Taut rescue silk",fiber,glow,forestEffects,Vector3.zero);
+                Light(rescueFibers[i].GetComponent<MeshRenderer>(),new Color(.53f,.64f,.66f),.18f);
+            }
             for(int i=0;i<forestWisps.Length;i++)
             {
                 forestWisps[i]=Lamp("A trace of airborne light",Vector3.zero,.01f,Warm,.1f);
@@ -308,7 +361,7 @@ namespace Echoes
 
         private void PoseFeature(Journey journey,ForestFeature feature,ForestProp prop,float time,int seed,bool split)
         {
-            Vector3 at=ForestPoint(journey,feature.Lane,feature.Depth,feature.Altitude);
+            Vector3 at=ForestFeaturePoint(journey,feature,false);
             float beat=time*2.9f+feature.Id*1.13f;
             prop.Root.localPosition=at;
             prop.Root.localRotation=Quaternion.identity;
@@ -318,20 +371,20 @@ namespace Echoes
                 case ForestFeatureKind.Web:
                     float stretch = Ease(.04f,.97f,feature.Reveal);
                     prop.Root.localPosition = at + new Vector3((1-stretch)*.51f,(1-stretch)*.64f,-.19f*(1-stretch));
-                    prop.Root.localScale = new Vector3(Mathf.Lerp(.07f,1,stretch),Mathf.Lerp(.17f,1,stretch),1);
+                    prop.Root.localScale = new Vector3(Mathf.Lerp(.10f,1.22f,stretch),Mathf.Lerp(.19f,1.16f,stretch),1);
                     prop.Root.localRotation=Quaternion.Euler(55*(1-stretch),-81*(1-stretch)+Mathf.Sin(beat*.31f)*5,Mathf.Cos(beat*.47f)*5);
                     Light(prop.Lamp,Color.white,(.10f+.17f*stretch)+.08f*Mathf.Sin(beat*.42f));
                     break;
                 case ForestFeatureKind.Maw:
                     float sprout = Ease(0,1,feature.Reveal);
-                    prop.Root.localScale = Vector3.one * Mathf.Lerp(.24f,1.19f,sprout);
+                    prop.Root.localScale = Vector3.one * Mathf.Lerp(.29f,1.51f,sprout);
                     prop.Root.localPosition=at+Vector3.up*(.038f*Mathf.Sin(beat)-Mathf.Lerp(.56f,.20f,sprout));
                     prop.Root.localRotation=Quaternion.Euler(20*(1-sprout),Mathf.Sin(beat*.40f)*12,Mathf.Sin(beat*.53f)*4);
                     OpenMaw(prop,3 + sprout*44 + Mathf.Sin(beat)*4*sprout);
                     break;
                 case ForestFeatureKind.Plant:
                     for(int i=0;i<prop.Clearings.Length;i++)
-                        prop.Clearings[i].gameObject.SetActive(journey.Branch!=ForestBranch.Right && i==seed%prop.Clearings.Length);
+                        prop.Clearings[i].gameObject.SetActive(!feature.InMaze && journey.Branch!=ForestBranch.Right && i==seed%prop.Clearings.Length);
                     float charge=feature.Collected ? 1 : journey.ForestPlantTargetId==feature.Id ? journey.ForestPlantCharge : 0;
                     prop.Lamp.transform.localPosition=Vector3.up*(.09f+.05f*Mathf.Sin(beat));
                     prop.Lamp.transform.localScale=Vector3.one*(.114f+.060f*charge);
@@ -341,14 +394,14 @@ namespace Echoes
                 default:
                     ForestFlyView fly = ForestFlyView.Read(feature,journey.Time);
                     bool red=fly.red;
-                    prop.Root.localPosition=ForestPoint(journey,fly.lane,fly.depth,fly.height);
+                    prop.Root.localPosition=ForestFeaturePoint(journey,feature,true);
                     prop.Root.localRotation=Quaternion.Euler(0,22*Mathf.Sin(beat*.73f),14*Mathf.Cos(beat));
                     float flare=.72f+.22f*Mathf.Sin(beat);
                     if(red) flare=.34f+.66f*fly.ScarletPulse(journey.Time);
                     prop.Lamp.transform.localScale=new Vector3(.075f,.083f,.105f)*(1+flare*.30f);
-                    float handoff = split ? ForestFlyView.Approach(fly.depth-journey.Distance,fly.lane-journey.ForestLane,
-                        fly.height-journey.Flight.Height,journey.ForestFlightSpeed) : 0;
-                    Light(prop.Lamp,red?Red:Warm,(1.4f+.90f*flare)*(1-.52f*handoff));
+                    float handoff = split ? ForestFlyView.RelativeTo(feature,journey).visibility : 0;
+                    float backdrop=journey.Phase==Stage.ForestTrapped ? 1-.65f*Ease(.38f,1.9f,journey.Age) : 1;
+                    Light(prop.Lamp,red?Red:Warm,(1.4f+.90f*flare)*(1-.52f*handoff)*backdrop);
                     float flutter=Mathf.Sin(time*35+feature.Id*2.1f);
                     PoseWing(prop.Upper,-1,flutter);
                     PoseWing(prop.Lower,1,flutter);
@@ -369,7 +422,7 @@ namespace Echoes
             prop.Lower.localRotation=Quaternion.Euler(-degrees*.76f,0,0);
         }
 
-        private Transform BuildCanopySpider()
+        private Transform BuildCanopySpider(Transform[] limbs)
         {
             Transform creature=Group("Canopy spider",forestEffects);
             var body=Geometry();
@@ -397,7 +450,7 @@ namespace Echoes
                 leg.Tube(new[]{Vector3.zero,new Vector3(side*.41f,.32f,spread*.39f),new Vector3(side*.81f,.42f,spread*.86f),
                     new Vector3(side*.99f,-.15f,spread*1.40f),new Vector3(side*1.13f,-.29f,spread*1.61f)},
                     new[]{.078f,.062f,.039f,.027f,.009f},8,WorldMesh.Shade(shell,1.12f));
-                spiderLegs[row*2+(side+1)/2]=Piece("Jointed spider leg",leg.Finish("Spider leg "+row+" "+side),wood,
+                limbs[row*2+(side+1)/2]=Piece("Jointed spider leg",leg.Finish("Spider leg "+row+" "+side),wood,
                     creature,new Vector3(side*.19f,-.034f,.21f-row*.17f));
             }
             return creature;
@@ -436,7 +489,23 @@ namespace Echoes
             return hollow;
         }
 
-        private void PoseForestThreat(Journey j,float time,Vector3 actor)
+        private void PoseWatchingSpider(ForestFeature feature,Journey journey,float time)
+        {
+            watchingSpider.gameObject.SetActive(feature!=null && journey.Phase!=Stage.ForestTrapped);
+            if (!watchingSpider.gameObject.activeSelf) return;
+            float reveal=feature.Reveal;
+            Vector3 anchor=ForestFeaturePoint(journey,feature,false);
+            Quaternion heading=ForestOrientation(journey);
+            float perch=Ease(.08f,.83f,reveal);
+            watchingSpider.localPosition=anchor+heading*Vector3.Lerp(new Vector3(1.2f,1.64f,.66f),
+                new Vector3(.33f,.92f,.23f),perch)+Vector3.up*(.038f*Mathf.Sin(time*6));
+            watchingSpider.localRotation=heading*Quaternion.Euler(39-33*perch,33*perch,-12*perch);
+            watchingSpider.localScale=Vector3.one*Mathf.Lerp(.53f,1.11f,perch);
+            for(int i=0;i<watchingLegs.Length;i++)
+                watchingLegs[i].localRotation=Quaternion.Euler(11*Mathf.Sin(time*9+i*.93f),0,(i%2==0?-1:1)*17*perch);
+        }
+
+        private void PoseForestThreat(Journey j,float time,Vector3 actor,bool split)
         {
             bool trapped=j.Phase==Stage.ForestTrapped;
             bool falling=j.Phase==Stage.ForestFalling;
@@ -449,18 +518,19 @@ namespace Echoes
             spider.gameObject.SetActive((exit || catchNow) && web);
             forestMouth.gameObject.SetActive(exit);
             float t = trapped ? j.Age : falling ? Mathf.Clamp01((j.Progress-.26f)/.74f) : j.Progress;
-            Vector3 catchAt=ForestPoint(j,j.ForestTrapLane,j.ForestTrapDepth,j.ForestTrapAltitude);
-            Vector3 mouthAt=ForestPoint(j,j.ForestTrapLane,j.ForestTrapDepth+2.35f,0)-Vector3.up*.54f;
+            Vector3 catchAt=ForestTrapSite(j);
+            Vector3 mouthAt=ForestDescentMouth(j)-Vector3.up*.54f;
             if(falling) catchAt=actor+(web ? Vector3.up*.85f : Vector3.down*.69f);
-            float rescue=trapped && j.ForestHasRescue ? Ease(.94f,2.22f,t) : 0;
+            bool rescue=trapped && j.ForestHasRescue;
+            PoseRescuingLight(j,actor,time,rescue,split);
+            if (rescue) return;
             if(web)
             {
                 float draw=trapped?Ease(0,.33f,t):Ease(.13f,.34f,t);
                 closingWeb.Root.localPosition=Vector3.Lerp(catchAt,actor,draw)+new Vector3(0,0,-.24f);
                 closingWeb.Root.localRotation=Quaternion.Euler(12*draw,Mathf.Sin(time*5)*9,Mathf.Sin(time*9)*5);
-                closingWeb.Root.localScale=new Vector3(1.03f-.54f*draw+.34f*rescue,
-                    1.04f-.21f*draw+.28f*rescue,1+.83f*draw)*Mathf.Lerp(1,.04f,rescue*rescue*rescue);
-                Light(closingWeb.Lamp,Color.Lerp(Color.white,Warm,rescue),(.21f+.10f*Mathf.Sin(time*16))*(1-.83f*rescue));
+                closingWeb.Root.localScale=new Vector3(1.03f-.54f*draw,1.04f-.21f*draw,1+.83f*draw);
+                Light(closingWeb.Lamp,Color.white,.21f+.10f*Mathf.Sin(time*16));
                 closingWeb.Accent.gameObject.SetActive(draw<.24f);
             }
             if(maw)
@@ -471,8 +541,8 @@ namespace Echoes
                 closingMaw.Root.localPosition=Vector3.Lerp(catchAt+Vector3.down*.58f,actor+Vector3.forward*.34f,sprout)+
                     Vector3.down*(.18f+.37f*burrow);
                 closingMaw.Root.localRotation=Quaternion.Euler(11+burrow*79,Mathf.Sin(time*2.5f)*8,Mathf.Sin(time*7)*3);
-                closingMaw.Root.localScale=Vector3.one*Mathf.Lerp(.18f,1.76f,sprout)*Mathf.Lerp(1,.58f,rescue);
-                OpenMaw(closingMaw,57*sprout*(1-swallow)+Mathf.Lerp(13,75,rescue));
+                closingMaw.Root.localScale=Vector3.one*Mathf.Lerp(.18f,1.76f,sprout);
+                OpenMaw(closingMaw,57*sprout*(1-swallow)+13);
             }
             if(exit)
             {
@@ -496,17 +566,75 @@ namespace Echoes
                     spiderLegs[i].localRotation=Quaternion.Euler(gait*12,side*(gait*17-14*Mathf.Sin(leap*Mathf.PI)),side*gait*13);
                 }
             }
+        }
+
+        private void PoseRescuingLight(Journey journey,Vector3 actor,float time,bool active,bool split)
+        {
+            bool web=journey.ForestTrap==ForestTrapKind.Web;
+            float t=journey.Age;
+            var shot=ForestRescueStoryboard.Sample(active?t:0,web);
+            Quaternion orientation=ForestOrientation(journey);
+            Vector3 fly=actor+orientation*shot.fly;
+            rescueFly.Root.gameObject.SetActive(active && shot.bright>.005f);
+            if(rescueFly.Root.gameObject.activeSelf)
+            {
+                rescueFly.Root.localPosition=fly;
+                rescueFly.Root.localRotation=orientation*Quaternion.Euler(0,21*Mathf.Sin(t*8),14*Mathf.Sin(t*14));
+                rescueFly.Root.localScale=Vector3.one*Mathf.Lerp(.43f,1,shot.bright);
+                Light(rescueFly.Lamp, Warm,shot.bright*(split?1.4f:2.8f));
+                float wingBeat=Mathf.Sin(t*41)*(1-Ease(6.89f,7.60f,t));
+                PoseWing(rescueFly.Upper,-1,wingBeat);
+                PoseWing(rescueFly.Lower,1,wingBeat);
+            }
             for(int i=0;i<rescueSparks.Length;i++)
             {
-                bool show=rescue>.006f && rescue<.997f;
-                rescueSparks[i].gameObject.SetActive(show);
+                bool show=active && shot.splinters>.015f;
+                var spark=rescueSparks[i];
+                spark.gameObject.SetActive(show);
                 if(!show) continue;
-                float a=(i+time*.65f)*2.399f;
-                float radius=.18f+Mathf.Sin(rescue*Mathf.PI)*(.55f+i*.059f);
-                rescueSparks[i].transform.localPosition=actor+new Vector3(Mathf.Cos(a)*radius,
-                    .18f+i*.12f+rescue*.51f,Mathf.Sin(a)*radius-.30f);
-                rescueSparks[i].transform.localScale=Vector3.one*(.035f+Mathf.Sin(rescue*Mathf.PI)*.046f);
-                Light(rescueSparks[i],Warm,.50f+1.35f*Mathf.Sin(rescue*Mathf.PI));
+                float from=Mathf.Max(0,t-6.70f-i*.047f), angle=i*2.39996f;
+                spark.transform.localPosition=fly+orientation*new Vector3(Mathf.Cos(angle)*from*.31f,
+                    -.08f-from*(.18f+i*.041f),Mathf.Sin(angle)*from*.26f);
+                spark.transform.localScale=Vector3.one*(.009f+.014f*shot.splinters);
+                Light(spark,Warm,shot.splinters*.7f);
+            }
+            for(int i=0;i<rescueFibers.Length;i++)
+            {
+                float breakAt=6.56f+i*.17f;
+                Transform line=rescueFibers[i];
+                bool show=active && web && t>.24f+i*.085f && t<breakAt+.67f;
+                line.gameObject.SetActive(show);
+                if(!show) continue;
+                float angle=i*2.39996f;
+                Vector3 held=actor+orientation*new Vector3(Mathf.Sin(angle)*.29f,.38f-i*.095f,.03f);
+                Vector3 heldOut=actor+orientation*new Vector3(Mathf.Sin(angle)*1.30f,.76f-i*.15f,.73f);
+                float recoil=Ease(breakAt,breakAt+.52f,t);
+                Vector3 inner=Vector3.Lerp(held,heldOut,recoil*.87f);
+                inner+=orientation*Vector3.up*(Mathf.Sin(t*18+i)*shot.effort*.031f - recoil*.19f);
+                Vector3 delta=heldOut-inner;
+                line.localPosition=(inner+heldOut)*.5f;
+                line.localRotation=Quaternion.FromToRotation(Vector3.up,delta);
+                float thread=.0038f*(1-recoil)+.0014f;
+                line.localScale=new Vector3(thread,delta.magnitude,thread);
+            }
+            if(!active) return;
+            if(web)
+            {
+                closingWeb.Root.localPosition=actor+orientation*new Vector3(.05f,.08f,-.32f);
+                closingWeb.Root.localRotation=orientation*Quaternion.Euler(18*shot.bind,26*shot.effort,4*Mathf.Sin(t*5));
+                closingWeb.Root.localScale=new Vector3(1-.58f*shot.bind+.39f*shot.free,.92f,1+shot.effort*.42f)*
+                    (1-.96f*Ease(6.53f,8.43f,t));
+                closingWeb.Accent.gameObject.SetActive(t<.8f);
+                Light(closingWeb.Lamp,Color.Lerp(Pale,Warm,shot.bright),.24f+shot.bright*.15f);
+            }
+            else
+            {
+                float release=Ease(6.26f,7.54f,t);
+                closingMaw.Root.localPosition=actor+orientation*new Vector3(.17f,-.72f-.66f*shot.free,.45f);
+                closingMaw.Root.localRotation=orientation*Quaternion.Euler(10+18*release,29+7*shot.effort,11*shot.effort);
+                closingMaw.Root.localScale=Vector3.one*Mathf.Lerp(1.08f,1.64f,shot.bind)*(1-.65f*Ease(7.88f,9.27f,t));
+                closingMaw.Upper.localRotation=Quaternion.Euler(Mathf.Lerp(28,6,shot.bind)+67*release,0,0);
+                closingMaw.Lower.localRotation=Quaternion.Euler(-20*(1-shot.bind)-49*Ease(6.51f,7.91f,t),0,0);
             }
         }
 

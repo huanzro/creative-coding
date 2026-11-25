@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-$sources = 'Journey.cs', 'JourneyChapters.cs', 'JourneyForest.cs', 'AtmosphereMotion.cs', 'ExhibitProtocol.cs', 'SpiritFrame.cs', 'OpeningTiming.cs', 'SpiritFlight.cs', 'FireflyCourse.cs' |
+$sources = 'Journey.cs', 'JourneyChapters.cs', 'JourneyForest.cs', 'ForestMaze.cs', 'JourneyMaze.cs', 'AtmosphereMotion.cs', 'ExhibitProtocol.cs', 'SpiritFrame.cs', 'OpeningTiming.cs', 'SpiritFlight.cs', 'FireflyCourse.cs' |
     ForEach-Object { Join-Path $PSScriptRoot "../Assets/Scripts/$_" }
 Add-Type -Path $sources
 
@@ -33,9 +33,10 @@ function Grant($game) {
 }
 
 function Steer($game, $lane) {
-    while ($game.ForestTargetLane -ne $lane) {
+    for ($i=0; $i -lt 2 -and $game.ForestTargetLane -ne $lane; $i++) {
         $button = [int]($game.ForestTargetLane -lt $lane)
         Assert ($game.Touch($button)) 'An available forest route should accept the requested lane.'
+        if ($game.ForestTargetLane -ne $lane) { Step $game 1.10 0 }
     }
 }
 
@@ -50,22 +51,24 @@ function FlyFlat($game, $depth, $height, $lane) {
 
 function EnterLeft($game) {
     FlyFlat $game 112 .76 -1
-    Assert ($game.Branch -eq 'Left' -and $game.Section -eq 'DoubleRoots' -and $game.ForestCenter -eq 0) 'The shared route can commit to the maze without a camera jump.'
-    FlyFlat $game 130 .39 -1
-    Assert ($game.Section -eq 'EchoWell') 'The low left root arch leads into the well.'
-    FlyFlat $game 144 .49 1
-    Assert ($game.Section -eq 'BrokenBridges') 'The well route requires the right upper opening.'
-    FlyFlat $game 159 .51 -1
-    Assert ($game.Section -eq 'Canopy') 'The left raised bridge reaches the canopy.'
-    FlyFlat $game 174 .39 1
-    Assert ($game.Section -eq 'Clearing') 'Gliding below the right branches reaches the clearing.'
-    FlyFlat $game 188 .38 0
+    Assert ($game.Branch -eq 'Left' -and $game.ForestCenter -eq 0) 'The shared route can commit to the maze without a camera jump.'
+    FlyFlat $game 124 .50 -1
+    Assert ($game.ForestMazeActive -and $game.ForestMazeNode -eq $game.ForestMaze.Entry) 'The left entry reaches the actual maze floor.'
+    $start = $game.Time
+    for ($i=0; $i -lt 6200 -and $game.Phase -ne 'ForestPlanting'; $i++) {
+        if ($game.MazeMotion -eq 'Choosing') {
+            $direction = [int]($game.ForestMazeRight -eq $game.ForestMazeNode + 1)
+            Assert ($game.Touch($direction)) 'The fork should accept the route along the spine.'
+        }
+        if ($game.Phase -eq 'ForestExplore') { $game.Flight.Reset(.35,$game.ForestHeightLimit) }
+        $game.Step(.02,1)
+    }
     Assert ($game.Phase -eq 'ForestPlanting' -and $game.ForestPlantsRequired -eq 2) 'The maze ends at both roots.'
+    Assert ($game.Time - $start -ge 60 -and $game.ForestMazeTravel -ge 204) 'The fastest available maze route remains at least a minute of actual travel.'
 }
-
 function PlantRoot($game, $lane, $height, $voice = .30) {
     Steer $game $lane
-    for ($i = 0; $i -lt 65 -and $game.Phase -eq 'ForestPlanting'; $i++) {
+    for ($i = 0; $i -lt 150 -and $game.Phase -eq 'ForestPlanting'; $i++) {
         $game.Flight.Reset($height, $game.ForestHeightLimit)
         $game.Step(.02, $voice)
     }
@@ -96,12 +99,13 @@ Pose $game Open .36 .7
 Assert ($game.ForestLights -eq 3) 'The forest begins with three companion lights.'
 Steer $game -1
 Step $game .10 .7
-Assert ($game.ForestLane -lt -.15 -and $game.ForestLane -gt -.85) 'Ground motion eases through intermediate positions.'
-Steer $game 1
+Assert ($game.ForestLane -lt -.11 -and $game.ForestLane -gt -.26) 'Ground motion eases through intermediate positions.'
+[void]$game.Touch(1)
 Step $game .02 .7
 Assert ($game.ForestLane -lt 0) 'A steering reversal keeps position and momentum.'
-Step $game .8 .7
-Assert ($game.Distance -eq 0 -and $game.ForestLane -eq 1 -and $game.ForestTargetLane -eq 1) 'The ground accepts lateral movement without advancing.'
+Steer $game 1
+Step $game 1.5 .7
+Assert ($game.Distance -eq 0 -and $game.ForestLane -gt .98 -and $game.ForestTargetLane -eq 1) 'The ground accepts lateral movement without advancing.'
 Steer $game 0
 Pose $game Fist .48 .3
 Pose $game Open .65 .3
@@ -165,14 +169,72 @@ Assert ($saved.Restore($game.Checkpoint)) 'An earned checkpoint should load.'
 Assert ($saved.Phase -eq 'Complete' -and $saved.Plants -eq 2 -and $saved.RuinResult -eq 'Repaired' -and
     $saved.StarCount -eq 3 -and $saved.Withdrawals -eq 1 -and $saved.Mistakes -eq 2) 'Restore the completed route and consequences.'
 
+function ReachesWall($maze,$node,$next) {
+    while ($maze.Nodes[$next].Kind -eq 'Corridor') {
+        $edge=$maze.Connections($next) | Where-Object { $_.Other($next) -ne $node } | Select-Object -First 1
+        if (!$edge) { return $false }
+        $exit=$edge.Other($next)
+        $node=$next
+        $next=$exit
+    }
+    return $maze.Nodes[$next].Kind -eq 'DeadEnd'
+}
+
 $canopy=[Echoes.Journey]::new(100)
 $canopy.SelectChapter(0)
 FlyFlat $canopy 112 .76 -1
-FlyFlat $canopy 130 .38 0
-Assert ($canopy.Phase -eq 'ForestLoop') 'A wrong path begins a local maze loop.'
-Step $canopy 2.3 0
-Assert ($canopy.Distance -eq 118 -and $canopy.Branch -eq 'Left') 'A wrong turn circles back to the same maze.'
-
+FlyFlat $canopy 124 .50 -1
+$maze=$canopy.ForestMaze
+$leftRooms=@($maze.Nodes | Where-Object Kind -eq Junction)
+Assert ($leftRooms.Length -ge 8 -and $maze.Edges.Count -ge $maze.Nodes.Count + 1) 'The generated layout must contain physical junctions and loops.'
+$seedSignatures=@{}
+for ($seed=1; $seed -le 16; $seed++) {
+    $candidate=[Echoes.ForestMaze]::new($seed)
+    Assert ($candidate.ShortestDistance() / [Echoes.ForestMaze]::MaximumSpeed -ge 60) 'Seeded layouts keep the full playable minimum at maximum speed.'
+    $signature=($candidate.Edges | ForEach-Object { "$($_.A)-$($_.B)" }) -join ','
+    $seedSignatures[$signature]=$true
+}
+Assert ($seedSignatures.Count -gt 1) 'Different seeds change connections as well as the room dimensions.'
+$checkpointX=0
+$checkpointZ=0
+$marked = $false
+for ($i=0; $i -lt 4200 -and $canopy.MazeMotion -ne 'WaitingAtWall'; $i++) {
+    if ($canopy.MazeMotion -eq 'Choosing') {
+        $at=$canopy.ForestMazeNode
+        $wallLeft=ReachesWall $maze $at $canopy.ForestMazeLeft
+        $wallRight=ReachesWall $maze $at $canopy.ForestMazeRight
+        if ($wallLeft -or $wallRight) {
+            $checkpointX=$canopy.ForestMazeX
+            $checkpointZ=$canopy.ForestMazeZ
+            $marked=$true
+            [void]$canopy.Touch([int]$wallRight)
+        } else {
+            [void]$canopy.Touch([int]($canopy.ForestMazeRight -eq $canopy.ForestMazeNode + 1))
+        }
+    }
+    if ($canopy.Phase -eq 'ForestExplore') { $canopy.Flight.Reset(.31,$canopy.ForestHeightLimit) }
+    $canopy.Step(.02,1)
+}
+Assert ($marked -and $canopy.MazeMotion -eq 'WaitingAtWall') 'A dead end is physically reachable.'
+$wallX=$canopy.ForestMazeX
+$wallZ=$canopy.ForestMazeZ
+$heading=$canopy.ForestMazeHeading
+Step $canopy .86 0
+Assert ($canopy.MazeMotion -eq 'WaitingAtWall' -and $canopy.ForestMazeX -eq $wallX -and
+    $canopy.ForestMazeZ -eq $wallZ -and $canopy.ForestMazeHeading -eq $heading) 'The dead end holds for a full second before the turn.'
+Step $canopy .60 0
+Assert ($canopy.MazeMotion -eq 'TurningBack' -and $canopy.ForestMazeHeading -ne $heading -and $canopy.ForestMazeX -eq $wallX) 'The character progressively rotates on the spot.'
+Step $canopy 1.2 0
+Assert ($canopy.MazeMotion -eq 'Retracing' -and ($canopy.ForestMazeX -ne $wallX -or $canopy.ForestMazeZ -ne $wallZ)) 'The character traverses the path back, preserving position continuity.'
+for ($i=0; $i -lt 1000 -and $canopy.Phase -eq 'ForestLoop'; $i++) { $canopy.Step(.02,0) }
+Assert ($canopy.MazeMotion -eq 'Choosing' -and [Math]::Abs($canopy.ForestMazeX - $checkpointX) -lt .05 -and
+    [Math]::Abs($canopy.ForestMazeZ - $checkpointZ) -lt .05) 'The character returns to the last choice, not the start of the maze.'
+Assert ($canopy.TurnAroundForest()) 'The same turn is available by long press from a choice.'
+Step $canopy 1.05 1
+$x=$canopy.ForestMazeX
+$z=$canopy.ForestMazeZ
+Step $canopy .5 1
+Assert (($canopy.ForestMazeX -ne $x -or $canopy.ForestMazeZ -ne $z) -and $canopy.Phase -eq 'ForestExplore') 'After manually facing back the player can walk backwards in the graph.'
 $quiet=[Echoes.Journey]::new(100)
 $loud=[Echoes.Journey]::new(100)
 foreach ($flightTrial in @($quiet, $loud)) {
@@ -199,9 +261,11 @@ $maw=$caught.ForestFeatures | Where-Object Kind -eq Maw | Select-Object -First 1
 FlyFlat $caught ($maw.Depth + .4) .08 $maw.Lane
 $reserve=$caught.ForestLights
 Assert ($caught.ForestTrap -eq 'Maw' -and $caught.Phase -eq 'ForestTrapped' -and $caught.ForestHasRescue) 'A low contact must use the flower snare with a reserved rescue.'
-Step $caught .74 0
-Assert ($caught.ForestLights -eq $reserve - 1 -and $caught.Cue -eq 'ForestRescueLight') 'The rescue takes a companion as it departs.'
-Step $caught 1.8 0
+Step $caught 3 0
+Assert ($caught.ForestLights -eq $reserve -and $caught.Phase -eq 'ForestTrapped') 'The same fly struggles before it is spent.'
+Step $caught 3.85 0
+Assert ($caught.ForestLights -eq $reserve - 1 -and $caught.Cue -eq 'ForestRescueLight') 'Only the final rescue beat spends the companion.'
+Step $caught 2.6 0
 Assert ($caught.Phase -eq 'ForestExplore' -and $caught.ForestLights -eq ($reserve - 1) -and $caught.Cue -eq 'ForestRescued') 'The rescue should consume exactly one collected fly and resume the route.'
 
 $empty=[Echoes.Journey]::new(100)
@@ -213,11 +277,11 @@ $seed=$empty.Checkpoint.forestSeed
 $web=$empty.ForestFeatures | Where-Object Kind -eq Web | Select-Object -First 1
 FlyFlat $empty ($web.Depth - 6.5) .03 1
 FlyFlat $empty ($web.Depth - 4.2) .79 $web.Lane
-Assert ($web.Reveal -lt .1 -and $empty.Phase -eq 'ForestExplore') 'Low passage leaves a top web hidden.'
+Assert ($web.Reveal -gt .15 -and $empty.Phase -eq 'ForestExplore') 'A center-height player sees the top web reveal without being caught.'
 FlyFlat $empty ($web.Depth + .4) .91 $web.Lane
 Assert ($empty.ForestTrap -eq 'Web' -and $empty.ForestWindFactor -gt 0 -and $empty.ForestHasRescue) 'A top approach reveals and triggers the canopy web.'
 $empty.Retry()
-Step $empty 2.48 0
+Step $empty 9.48 0
 Assert ($empty.Phase -eq 'ForestFalling' -and $empty.ForestLights -eq 0) 'A final rescue frees the actor and then begins the uncontrolled fall.'
 Step $empty 3.3 0
 Assert ($empty.Phase -eq 'ForestExplore' -and $empty.Distance -eq 0 -and $empty.ForestLights -eq 3 -and
@@ -272,13 +336,15 @@ for ($lane=-1; $lane -le 1; $lane++) {
     $atEntry = $machine.ForestLights
     FlyFlat $machine 179 .36 $lane
     Assert ($machine.Phase -eq 'ForestDoor' -and $machine.ForestDoor -eq $lane + 1) 'Each lower entrance plays its own machine event.'
-    Step $machine 3.1 0
+    Step $machine 13.5 0
     Assert ($machine.Distance -eq 168 -and $machine.ForestLights -eq $atEntry -and $machine.Phase -eq 'ForestExplore') 'The arcade restores the door threshold and the same reserve after a false choice.'
 }
 Pose $machine Fist .35 .3
 Pose $machine Open .44 .3
 Pose $machine Fist .19 .3
 Pose $machine Open .39 .3
+Pose $machine Fist .18 .3
+Pose $machine Open .38 .3
 Pose $machine Fist .18 .3
 Pose $machine Open .90 .3
 Assert ($machine.Section -eq 'Brain' -and $machine.Flight.Height -gt 1 -and $machine.ForestDoor -eq -1) 'Real hand releases and sound reach the hidden path above the usual ceiling.'
@@ -289,7 +355,7 @@ Assert ($machine.Section -eq 'Heart' -and $machine.Flight.Height -lt .1 -and $ma
 PlantRoot $machine 0 .05
 Assert ($machine.Phase -eq 'ForestTransition' -and $machine.ForestTrap -eq 'Cable' -and $machine.Plants -eq 1 -and
     $machine.ForestCableAnchor -in 0,1,2) 'The machine heart accepts one light and activates an authored cable port.'
-Step $machine 5.3 0
+Step $machine 8.9 0
 Assert ($machine.Chapter -eq 1) 'The right branch also enters the existing ruins.'
 
 $arcade=[Echoes.Journey]::new()
@@ -344,4 +410,4 @@ Assert ($touch -eq 3 -and $enabled -eq 7) 'Both physical inputs remain distinct.
 Assert ([Echoes.ExhibitProtocol]::Output(1, 1, .5, 200, $true) -eq "EOL3 IO 1 12 4 0 0 2 6 -1 166`n") 'Both lamps and bounded fan share the output packet.'
 Assert ([Echoes.ExhibitProtocol]::Output(1, 0, 0, 200, $false) -eq "EOL3 SET 1 0 0 0 0 0 0 -1`n") 'Lighting-only firmware still has a supported output.'
 Assert ([Echoes.ExhibitProtocol]::Output(1, .5, .5, 0, $true, $true) -eq "EOL3 IO 1 6 4 0 6 0 0 -1 0`n") 'Forest EOL3 palette routes the fireflies to dim warm yellow and red lamps.'
-Write-Output 'Passed forest ground and flight controls, fly reserve and rescue, both maze endings, all three false doors, real-input upper entry, circuit descent, ruins, stars, checkpoints, projection and EOL3.'
+Write-Output 'Passed forest ground and flight controls, visible hazards and nine-second rescue, seeded physical maze and retracing, both roots, three machine doors, upper gallery, ruins, stars, checkpoints, projection and EOL3.'

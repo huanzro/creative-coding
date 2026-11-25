@@ -50,14 +50,14 @@ namespace Echoes
             Speed = Math.Max(Speed, boost + .27f * Clamp(voice, 0, 1));
         }
 
-        public void StepForest(float dt, Hand hand, float ceiling)
+        public void StepForest(float dt, Hand hand, float ceiling, float floor = 0)
         {
             bool glide = hand == Hand.Open;
-            float support = Clamp(Height * 12, 0, 1);
+            float support = Clamp((Height-floor) * 12, 0, 1);
             float fallSpeed = (.08f + .17f * support) * (glide ? 1 : 1.38f);
             Speed = Math.Max(-fallSpeed, Speed - dt * (Speed > 0 ? 1.43f : .68f));
-            Height = Clamp(Height + Speed * dt, 0, ceiling);
-            if (Height == 0 || Height == ceiling && Speed > 0) Speed = 0;
+            Height = Clamp(Height + Speed * dt, floor, ceiling);
+            if (Height == floor && Speed < 0 || Height == ceiling && Speed > 0) Speed = 0;
             float wanted = glide && Speed < -.035f ? Clamp(-Speed / .18f, 0, 1) * support : 0;
             Glide += (wanted - Glide) * (1 - (float)Math.Exp(-dt / .17f));
         }

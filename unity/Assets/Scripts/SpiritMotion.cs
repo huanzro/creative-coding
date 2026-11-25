@@ -205,7 +205,8 @@ namespace Echoes
             var ready = SpiritArm.Blend(Rest, Hold, closed);
             pose.left = SpiritArm.Blend(pose.left, ready, resting * (1 - sweep));
             pose.right = SpiritArm.Blend(pose.right, ready, resting * (1 - sweep));
-            float stride = Mathf.Sin(frame.motionTime*15.5f) * Mathf.Abs(steer) * resting;
+            float travelStep = frame.forestMaze ? Mathf.Clamp01(frame.forestMazeSpeed / 2.5f) : 0;
+            float stride = Mathf.Sin(frame.motionTime*Mathf.Lerp(8,13,travelStep)) * Mathf.Max(Mathf.Abs(steer),travelStep) * resting;
             pose.step += stride*.43f;
             pose.lift += .029f*Mathf.Abs(stride);
             pose.shift -= steer*.034f*resting;
@@ -234,9 +235,37 @@ namespace Echoes
             pose.pitch += 19 * sow;
             pose.glow = Mathf.Max(pose.glow, .78f * sow);
 
-            if (frame.forestSnareAge >= 0 || frame.forestDescent >= 0 || frame.forestFall >= 0)
+            if (frame.forestRescue && frame.forestSnareAge >= 0)
+                ActForestRescue(ref pose, frame);
+            else if (frame.forestSnareAge >= 0 || frame.forestDescent >= 0 || frame.forestFall >= 0)
                 ActForestCapture(ref pose, frame);
             if (frame.forestDoorAge >= 0) ActMachineDoor(ref pose, frame);
+        }
+
+        private static void ActForestRescue(ref SpiritPose pose, SpiritFrame frame)
+        {
+            float t = frame.forestSnareAge;
+            bool web = frame.forestTrap == ForestTrapKind.Web;
+            var shot=ForestRescueStoryboard.Sample(t,web);
+            float brace=shot.tight;
+            float looking=OpeningStoryboard.Window(t,2.15f,2.81f,6.92f,8.23f);
+            float wrench=shot.pull*(.92f+.08f*Mathf.Sin(t*13));
+            pose.yaw += (web ? -29 : 35)*brace + 17*wrench - 24*shot.returnLook;
+            pose.lean += (web ? -19 : 21)*brace + shot.effort*Mathf.Sin(t*8.0f)*9 + 13*shot.balance;
+            pose.pitch += (web ? -13 : 31)*brace - 9*wrench + 17*shot.balance;
+            pose.nod += 19*looking + (web ? -6 : 18)*shot.effort;
+            pose.look = Mathf.Lerp(pose.look,web ? 31 : 42,looking*.91f) - 30*shot.returnLook;
+            pose.left = SpiritArm.Blend(pose.left,web ? HoldAbove : Brace,brace);
+            pose.right = SpiritArm.Blend(pose.right,web ? Hold : Brace,brace);
+            pose.left = SpiritArm.Blend(pose.left,web ? Hold : Push,wrench);
+            pose.right = SpiritArm.Blend(pose.right,web ? Sweep : Reach,wrench);
+            pose.left = SpiritArm.Blend(pose.left,Wing,shot.balance*.78f);
+            pose.right = SpiritArm.Blend(pose.right,Wing,shot.balance*.65f);
+            pose.step += .46f*shot.effort*Mathf.Sin(t*9)+.60f*shot.balance;
+            pose.tuck = Mathf.Max(pose.tuck,brace*(web ? .45f : .76f));
+            pose.settle += shot.balance*.79f;
+            pose.ribbon += .43f*brace + .38f*shot.effort;
+            pose.expression += .78f*brace;
         }
 
         private static void ActForestCapture(ref SpiritPose pose, SpiritFrame frame)
@@ -245,11 +274,10 @@ namespace Echoes
             bool cable = frame.forestTrap == ForestTrapKind.Cable;
             bool descent = frame.forestDescent >= 0;
             bool falling = frame.forestFall >= 0;
-            float t = descent ? frame.forestDescent * Journey.ForestTransitionDuration : falling ? 3.2f * frame.forestFall : frame.forestSnareAge;
+            float t = descent ? frame.forestDescent * (cable ? 8.8f : Journey.ForestTransitionDuration) :
+                falling ? Journey.ForestFallDuration * frame.forestFall : frame.forestSnareAge;
             float grasp = falling ? OpeningStoryboard.Ease(.92f,1.4f,t) :
-                descent ? OpeningStoryboard.Ease(cable?1.40f:.75f,cable?2.68f:1.76f,t) : OpeningStoryboard.Ease(0,.32f,t);
-            if (frame.forestRescue)
-                grasp *= 1 - Mathf.SmoothStep(0, 1, Mathf.InverseLerp(1.68f, 2.4f, t));
+                descent ? OpeningStoryboard.Ease(cable?4.97f:.75f,cable?6.3f:1.76f,t) : OpeningStoryboard.Ease(0,.32f,t);
             if (falling)
             {
                 float flail = OpeningStoryboard.Window(t,0,.32f,1.0f,1.60f);
@@ -275,18 +303,45 @@ namespace Echoes
 
         private static void ActMachineDoor(ref SpiritPose pose, SpiritFrame frame)
         {
-            float t = frame.forestDoorAge;
-            float fall = OpeningStoryboard.Ease(.23f,.81f,t);
-            float alarm = OpeningStoryboard.Ease(.66f,1.45f,t);
-            bool pool = frame.forestDoor == 2;
-            pose.left = SpiritArm.Blend(pose.left,fall < .8f ? Wing : Brace,fall);
-            pose.right = SpiritArm.Blend(pose.right,pool ? Reach : CoverHead,alarm);
-            pose.look += (frame.forestDoor == 1 ? 40 : -21)*alarm;
-            pose.pitch += (pool ? -15 : 25)*fall;
-            pose.yaw += Mathf.Sin(t*5)*alarm*(pool ? 11 : 28);
-            pose.tuck += (pool ? .40f : .80f)*alarm;
-            pose.extension += .49f*fall;
-            pose.glow *= 1-.75f*OpeningStoryboard.Ease(1.75f,2.9f,t);
+            float t = frame.forestDoorAge / Journey.ForestDoorDuration;
+            float fall = OpeningStoryboard.Window(t,.06f,.13f,.19f,.34f);
+            float regard = OpeningStoryboard.Window(t,.19f,.34f,.46f,.58f);
+            float panic = OpeningStoryboard.Ease(.46f,.67f,t);
+            float contact = OpeningStoryboard.Ease(.65f,.83f,t);
+            pose.left=SpiritArm.Blend(Rest,Wing,fall);
+            pose.right=SpiritArm.Blend(Rest,Reach,fall);
+            pose.settle+=.42f*fall;
+            pose.look+=21*regard;
+            pose.pitch+=25*fall;
+            switch(frame.forestDoor)
+            {
+                case 0:
+                    pose.left=SpiritArm.Blend(pose.left,Brace,panic);
+                    pose.right=SpiritArm.Blend(pose.right,Push,panic);
+                    pose.yaw-=38*regard-27*contact;
+                    pose.lean-=24*panic;
+                    pose.nod+=27*contact;
+                    pose.tuck+=.81f*contact;
+                    break;
+                case 1:
+                    float recoil=OpeningStoryboard.Window(t,.29f,.46f,.56f,.74f);
+                    pose.yaw+=57*recoil-30*contact;
+                    pose.look-=37*recoil;
+                    pose.left=SpiritArm.Blend(pose.left,Sweep,recoil);
+                    pose.right=SpiritArm.Blend(pose.right,High,contact);
+                    pose.lean+=22*panic*Mathf.Sin(frame.forestDoorAge*4.2f);
+                    pose.tuck+=.53f*panic;
+                    break;
+                default:
+                    pose.left=SpiritArm.Blend(pose.left,Push,regard + .31f*panic);
+                    pose.right=SpiritArm.Blend(pose.right,Reach,panic);
+                    pose.nod+=30*regard-25*contact;
+                    pose.pitch-=17*contact;
+                    pose.extension+=.54f*contact;
+                    pose.glow*=1-.88f*OpeningStoryboard.Ease(.64f,.92f,t);
+                    break;
+            }
+            pose.expression+=panic*.72f;
         }
 
         private static SpiritPose ActOpening(float t)

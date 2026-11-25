@@ -43,16 +43,20 @@ namespace Echoes
         public float AltitudeAt(float time) => Altitude + (IsFly ? .043f * (float)Math.Cos(Phase(time) * 1.23f) : 0);
         public float DepthAt(float time) => Depth + (IsFly ? .31f * (float)Math.Sin(Phase(time) * .79f) : 0);
 
-        internal bool UpdateWarning(float dt, bool close)
+        public bool InMaze { get; internal set; }
+        public float WorldX { get; internal set; }
+        public float WorldY { get; internal set; }
+        public float WorldZ { get; internal set; }
+
+        internal bool UpdateWarning(float dt, bool visible, bool approaching)
         {
-            warningTime = close ? warningTime + dt : 0;
-            if (close)
+            warningTime = approaching ? warningTime + dt : 0;
+            if (visible)
             {
-                float t = Math.Min(1, warningTime / .22f);
-                Reveal = Math.Max(Reveal, t * t * (3 - 2 * t));
+                Reveal = Math.Min(1,Reveal + dt * 1.8f);
             }
             else Reveal *= (float)Math.Exp(-dt * 3.8f);
-            return warningTime >= .71f;
+            return warningTime >= .70f;
         }
     }
 
@@ -60,7 +64,8 @@ namespace Echoes
     {
         private const int StartingLights = 3;
         private const float PlantTime = .80f;
-        private const float RescueDuration = 2.4f;
+        public const float ForestRescueDuration = 9.4f;
+        public const float ForestRescueSpendAt = 6.8f;
         private const float BranchDepth = 112;
         private const float ClearingDepth = 188;
         private const float VestibuleDepth = 168;
@@ -68,7 +73,9 @@ namespace Echoes
         private const float ShaftDepth = 194;
         private const float HeartDepth = 208;
         public const float ForestTransitionDuration = 5.2f;
-        public const float ForestDoorDuration = 3;
+        public const float ForestDoorDuration = 13.4f;
+        public const float ForestMachineUpperFloor = 1.46f;
+        public float ForestTransitionTime => ForestTrap == ForestTrapKind.Cable ? 8.8f : ForestTransitionDuration;
         public const float ForestFallDuration = 3.15f;
 
         private readonly Random forestRandom;
@@ -79,11 +86,11 @@ namespace Echoes
         private int forestPlantMask, savedForestPlants, savedForestDepth;
         private ForestBranch savedForestBranch;
         private float forestPlantTime, forestContactAt = float.NegativeInfinity;
-        private float forestLaneSpeed, forestProtectedUntil, forestLoopFrom, forestLoopTo, forestShaftHeight;
+        private float forestLaneSpeed, forestProtectedUntil, forestShaftHeight;
+        private int? forestQueuedLane;
         private bool forestRescueDeparted;
         private int forestDoorLights;
         private Stage forestResumePhase;
-        private ForestSection forestLoopSection;
         private readonly float[] forestEchoTimes = new float[64], forestEchoLanes = new float[64];
         private readonly Hand[] forestEchoHands = new Hand[64];
         private int forestEchoCursor, forestEchoCount;
@@ -91,7 +98,7 @@ namespace Echoes
         public bool InForest => Chapter == 0 && Lesson < 0 && !IsOpening;
         private bool IsForestSequence => Phase == Stage.ForestTrapped || Phase == Stage.ForestTransition ||
             Phase == Stage.ForestFalling || Phase == Stage.ForestDoor || Phase == Stage.ForestLoop;
-        public bool ForestAirborne => InForest && (Flight.Height > .002f || Flight.Speed > .02f);
+        public bool ForestAirborne => InForest && (Flight.Height > ForestFlightFloor + .002f || Flight.Speed > .02f);
         public float ForestLane { get; private set; }
         public int ForestTargetLane { get; private set; }
         public float ForestSteering { get; private set; }
@@ -99,9 +106,12 @@ namespace Echoes
         public ForestBranch Branch { get; private set; }
         public int ForestDoor { get; private set; } = -1;
         public float ForestCenter => ForestCenterAt(Distance);
-        public float ForestFlightSpeed => InForest && !IsForestSequence && Phase != Stage.ForestPlanting &&
-            (ForestAirborne || Section == ForestSection.Shaft) ? 4.35f + 4.15f * Voice : 0;
-        public float ForestHeightLimit => Branch == ForestBranch.Right && Distance >= VestibuleDepth && Distance < ShaftDepth ? 1.34f : 1;
+        public float ForestFlightSpeed => !InForest || IsForestSequence || Phase == Stage.ForestPlanting ? 0 :
+            ForestMazeActive ? ForestMazeSpeed : ForestAirborne || Section == ForestSection.Shaft ? 4.35f + 4.15f * Voice :
+            Section == ForestSection.Brain && Voice >= .08f ? .9f + 2.5f * Voice : 0;
+        public float ForestHeightLimit => ForestMazeActive ? .69f :
+            Branch == ForestBranch.Right && Distance >= VestibuleDepth && Distance < ShaftDepth ? 1.72f : 1;
+        public float ForestFlightFloor => InForest && Section == ForestSection.Brain ? ForestMachineUpperFloor : 0;
         public int ForestPlantsRequired => Branch == ForestBranch.Right ? 1 : 2;
         public IReadOnlyList<ForestFeature> ForestFeatures => forestFeatures;
         public ForestFeature ForestContact { get; private set; }
@@ -120,7 +130,7 @@ namespace Echoes
         public float ForestWindFactor => !ForestAirborne ? 0 :
             Clamp((Flight.Height - .24f) / .66f) * (IsForestSequence ? .35f : 1f);
         public float GustWarning => ForestWindFactor;
-        public ForestSection Section => Phase == Stage.ForestLoop ? forestLoopSection : SectionAt(Distance);
+        public ForestSection Section => SectionAt(Distance);
 
         public ForestSection SectionAt(float depth)
         {
@@ -146,8 +156,7 @@ namespace Echoes
             return branch * 11 * Smooth((depth - BranchDepth) / 12);
         }
 
-        public float ForestLoopOffset => Phase == Stage.ForestLoop ?
-            (float)Math.Sin(Progress * Math.PI) * (ForestTargetLane <= 0 ? -2.6f : 2.6f) : 0;
+        public float ForestLoopOffset => 0;
 
         private static float Smooth(float value)
         {
@@ -236,6 +245,7 @@ namespace Echoes
         {
             forestFeatures.Clear();
             forestRenewal = null;
+            ForestMaze = null;
             forestSites[0] = forestSites[1] = null;
             nextForestFeatureId = (int)Branch * 1000;
             var random = new Random(forestSeed);
@@ -243,15 +253,14 @@ namespace Echoes
             {
                 AddForestFeature(ForestFeatureKind.Amber, 0, 3.55f, .42f);
                 AddForestFeature(ForestFeatureKind.Amber, -1, 9, .15f);
-                AddForestRun(random, 14, 98);
+                AddForestFeature(ForestFeatureKind.Web, 0, 20f, .89f);
+                AddForestFeature(ForestFeatureKind.Maw, 0, 36f, .06f);
+                AddForestFeature(ForestFeatureKind.Scarlet, 1, 25f, .43f);
+                AddForestRun(random, 43, 98);
             }
             else if (Branch == ForestBranch.Left)
             {
-                AddForestRun(random, 117, 174);
-                AddForestFeature(ForestFeatureKind.Amber, 1, 122.1f, .32f);
-                AddForestFeature(ForestFeatureKind.Amber, 0, 181, .38f);
-                forestSites[0] = AddForestFeature(ForestFeatureKind.Plant, -1, ClearingDepth, .064f);
-                forestSites[1] = AddForestFeature(ForestFeatureKind.Plant, 1, ClearingDepth, .63f);
+                PopulateMaze(random);
             }
             else
             {
@@ -280,7 +289,9 @@ namespace Echoes
             ForestContact = null;
             forestContactAt = float.NegativeInfinity;
             forestEchoCount = forestEchoCursor = 0;
+            forestQueuedLane = null;
             Flight.Reset(0);
+            InitializeMaze();
             if (Plants > 0 && Plants == ForestPlantsRequired && ForestRoute != 0)
             {
                 ForestFeature site = ForestRoute == 2 ? forestSites[1] : forestSites[0];
@@ -311,13 +322,22 @@ namespace Echoes
 
         private void ForestTouch(int option)
         {
-            ForestTargetLane = Math.Max(-1, Math.Min(1, ForestTargetLane + (option == 0 ? -1 : 1)));
+            if (TouchMaze(option) || Branch==ForestBranch.Left && !ForestMazeActive) return;
+            int direction=option==0 ? -1 : 1;
+            int target=Math.Max(-1,Math.Min(1,ForestTargetLane+direction));
+            if (Math.Abs(ForestLane-ForestTargetLane)>.12f && Math.Sign(ForestTargetLane-ForestLane)==direction)
+            {
+                forestQueuedLane=target;
+                return;
+            }
+            ForestTargetLane=target;
+            forestQueuedLane=null;
         }
 
         private void StepForestLateral(float dt)
         {
             // Critically damped motion retains momentum across mid-lane reversals.
-            const float speed = 13;
+            const float speed = 6.9f;
             float offset = ForestLane - ForestTargetLane;
             float decay = (float)Math.Exp(-speed * dt);
             float motion = (forestLaneSpeed + speed * offset) * dt;
@@ -328,8 +348,13 @@ namespace Echoes
             {
                 ForestLane = ForestTargetLane;
                 forestLaneSpeed = 0;
+                if (forestQueuedLane.HasValue)
+                {
+                    ForestTargetLane=forestQueuedLane.Value;
+                    forestQueuedLane=null;
+                }
             }
-            ForestSteering = Math.Max(-1, Math.Min(1, forestLaneSpeed / 5));
+            ForestSteering = Math.Max(-1, Math.Min(1, forestLaneSpeed / 2.55f));
         }
 
         private void UpdateForest(float dt)
@@ -337,7 +362,7 @@ namespace Echoes
             switch (Phase)
             {
                 case Stage.ForestTransition:
-                    Progress = Clamp(Age / ForestTransitionDuration);
+                    Progress = Clamp(Age / ForestTransitionTime);
                     if (Progress >= 1) Enter(1, false, false);
                     return;
                 case Stage.ForestTrapped:
@@ -356,12 +381,13 @@ namespace Echoes
                     UpdateForestDoor();
                     return;
                 case Stage.ForestLoop:
-                    UpdateForestLoop();
+                    AdvanceMazeTurn(dt);
                     return;
             }
-            StepForestLateral(dt);
+            if (!ForestMazeActive || AtMazeRoots) StepForestLateral(dt);
             RecordForestEcho();
-            AdvanceForestFlight(dt);
+            if (ForestMazeActive) AdvancePhysicalMaze(dt);
+            else AdvanceForestFlight(dt);
             if (IsForestSequence) return;
             CollectForestContacts(dt);
             if (Phase == Stage.ForestPlanting) PlantForestLight(dt);
@@ -377,6 +403,11 @@ namespace Echoes
                 if (next < BranchDepth) { Distance = next; return; }
                 if (Math.Abs(ForestLane) < .42f) { Distance = BranchDepth - .01f; return; }
                 Branch = ForestLane < 0 ? ForestBranch.Left : ForestBranch.Right;
+                if(Branch==ForestBranch.Left)
+                {
+                    ForestTargetLane=-1;
+                    forestQueuedLane=null;
+                }
                 Distance = BranchDepth;
                 BuildForest();
                 SaveForestSpot((int)BranchDepth);
@@ -385,7 +416,8 @@ namespace Echoes
             }
             if (Branch == ForestBranch.Left)
             {
-                AdvanceMaze(next);
+                if(next>=MazeEntranceDepth) BeginMazeEntrance();
+                else Distance=next;
                 return;
             }
             if (Distance < VestibuleDepth && next >= VestibuleDepth)
@@ -398,7 +430,7 @@ namespace Echoes
             if (Distance < DoorDepth && next >= DoorDepth)
             {
                 Distance = DoorDepth - .01f;
-                if (Flight.Height >= 1.03f)
+                if (Flight.Height >= 1.52f)
                 {
                     Distance = DoorDepth;
                     Message = "光脉在前方逐段亮起。";
@@ -429,65 +461,6 @@ namespace Echoes
             Distance = next;
         }
 
-        private void AdvanceMaze(float next)
-        {
-            ForestSection section = Section;
-            float gate = section == ForestSection.DoubleRoots ? 130 :
-                section == ForestSection.EchoWell ? 144 :
-                section == ForestSection.BrokenBridges ? 159 :
-                section == ForestSection.Canopy ? 174 : ClearingDepth;
-
-            if (next < gate) { Distance = next; return; }
-            if (section != ForestSection.Clearing && Math.Abs(ForestLane - ForestTargetLane) > .38f)
-            {
-                Distance = gate - .01f;
-                return;
-            }
-
-            switch (section)
-            {
-                case ForestSection.DoubleRoots:
-                    if (ForestTargetLane == 1) BeginForestLoop(gate, 133, section);
-                    else if (ForestTargetLane == 0) BeginForestLoop(gate, 118, section);
-                    else Distance = Flight.Height < .57f ? gate : gate - .01f;
-                    break;
-                case ForestSection.EchoWell:
-                    if (ForestTargetLane != 1) BeginForestLoop(gate, 127, section);
-                    else Distance = Flight.Height >= .42f ? gate : gate - .01f;
-                    break;
-                case ForestSection.BrokenBridges:
-                    if (ForestTargetLane != -1) BeginForestLoop(gate, 134, section);
-                    else Distance = Flight.Height >= .47f ? gate : gate - .01f;
-                    break;
-                case ForestSection.Canopy:
-                    if (ForestTargetLane != 1) BeginForestLoop(gate, ForestTargetLane == -1 ? 152 : 147, section);
-                    else Distance = Flight.Height <= .48f ? gate : gate - .01f;
-                    break;
-                case ForestSection.Clearing:
-                    Distance = ClearingDepth;
-                    EnterForestPlanting();
-                    break;
-            }
-        }
-
-        private void BeginForestLoop(float from, float to, ForestSection section)
-        {
-            forestLoopFrom = Distance = from;
-            forestLoopTo = to;
-            forestLoopSection = section;
-            ForestSteering = forestLaneSpeed = 0;
-            Change(Stage.ForestLoop, "");
-        }
-
-        private void UpdateForestLoop()
-        {
-            Progress = Clamp(Age / 2.2f);
-            Distance = forestLoopFrom + (forestLoopTo - forestLoopFrom) * Smooth(Progress);
-            if (Progress < 1) return;
-            Flight.Reset(0);
-            Change(Stage.ForestExplore, "");
-        }
-
         private void UpdateForestDoor()
         {
             Progress = Clamp(Age / ForestDoorDuration);
@@ -497,6 +470,7 @@ namespace Echoes
             ForestDoor = -1;
             ForestLane = forestLaneSpeed = ForestSteering = 0;
             ForestTargetLane = 0;
+            forestQueuedLane=null;
             Flight.Reset(0);
             Change(Stage.ForestExplore, "");
         }
@@ -514,9 +488,10 @@ namespace Echoes
         {
             foreach (ForestFeature feature in forestFeatures)
             {
-                if (feature.Collected || feature.Kind == ForestFeatureKind.Plant) continue;
-                float ahead = feature.DepthAt(Time) - Distance;
-                float lateral = Math.Abs(feature.LaneAt(Time) - ForestLane);
+                if (feature.Collected || feature.Kind == ForestFeatureKind.Plant || feature.InMaze != ForestMazeActive) continue;
+                if(feature.InMaze && Math.Abs(feature.WorldY-.54f-feature.Altitude*5.2f-ForestMazeY)>1.7f) continue;
+                float ahead = feature.InMaze ? MazeFeatureDepth(feature) : feature.DepthAt(Time) - Distance;
+                float lateral = feature.InMaze ? MazeFeatureLane(feature) : Math.Abs(feature.LaneAt(Time) - ForestLane);
                 float altitude = Math.Abs(feature.AltitudeAt(Time) - Flight.Height);
                 switch (feature.Kind)
                 {
@@ -541,10 +516,12 @@ namespace Echoes
                         break;
                     default:
                         bool web = feature.Kind == ForestFeatureKind.Web;
-                        bool height = web ? Flight.Height >= .82f : Flight.Height <= .19f;
-                        bool close = height && lateral < .63f && ahead >= -1.02f &&
-                            ahead <= Math.Max(1.75f, ForestFlightSpeed * .76f + .95f);
-                        bool ready = feature.UpdateWarning(dt, close);
+                        bool height = web ? Flight.Height >= (feature.InMaze ? .52f : .82f) : Flight.Height <= .19f;
+                        bool visible = lateral <= 3.5f && ahead >= -1.8f && ahead <= Math.Max(10.5f,ForestFlightSpeed*1.5f+3);
+                        bool approaching = lateral < .67f && ahead >= -1.02f &&
+                            ahead <= Math.Max(1.8f, ForestFlightSpeed * 1.03f + 1.12f);
+                        bool ready = feature.UpdateWarning(dt, visible, approaching);
+                        if(!height) break;
                         if (!ready || Time < forestProtectedUntil || Math.Abs(ahead) > .94f || lateral > .32f) break;
                         feature.Collected = true;
                         BeginForestCapture(feature);
@@ -572,8 +549,8 @@ namespace Echoes
 
         private void UpdateForestCapture()
         {
-            Progress = Clamp(Age / RescueDuration);
-            if (!forestRescueDeparted && Age >= .72f)
+            Progress = Clamp(Age / ForestRescueDuration);
+            if (!forestRescueDeparted && Age >= ForestRescueSpendAt)
             {
                 forestRescueDeparted = true;
                 ForestLights--;
@@ -584,6 +561,7 @@ namespace Echoes
             if (ForestLights == 0) { BeginForestFall(); return; }
             ForestTrap = ForestTrapKind.None;
             ForestHasRescue = false;
+            Flight.Reset(ForestFlightFloor,ForestHeightLimit);
             forestProtectedUntil = Time + .8f;
             Signal(FireflyKind.Amber);
             Notify(JourneyCue.ForestRescued);
@@ -614,7 +592,7 @@ namespace Echoes
         {
             if (Branch == ForestBranch.Left && forestPlantMask == 0 && ForestLights == 1 &&
                 (forestRenewal == null || forestRenewal.Collected))
-                forestRenewal = AddForestFeature(ForestFeatureKind.Amber, 0, ClearingDepth, .115f);
+                forestRenewal = AddMazeFeature(ForestFeatureKind.Amber,0,.115f,ForestMazeX-ForestLane*2.1f,ForestMazeY,ForestMazeZ);
 
             ForestFeature aligned = null;
             foreach (ForestFeature site in forestSites)

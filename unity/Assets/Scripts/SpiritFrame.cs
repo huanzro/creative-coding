@@ -18,6 +18,29 @@ namespace Echoes
             };
         }
 
+        public static ForestFlyView RelativeTo(ForestFeature feature, Journey journey)
+        {
+            ForestFlyView fly = Read(feature, journey.Time);
+            if (feature.InMaze)
+            {
+                double yaw = journey.ForestMazeHeading * Math.PI / 180;
+                float x = feature.WorldX + (fly.lane - feature.Lane) * 2.1f - journey.ForestMazeX;
+                float z = feature.WorldZ + fly.depth - feature.Depth - journey.ForestMazeZ;
+                fly.lane = (float)(x*Math.Cos(yaw)-z*Math.Sin(yaw))/2.1f;
+                fly.depth = (float)(x*Math.Sin(yaw)+z*Math.Cos(yaw));
+                fly.height += (feature.WorldY - journey.ForestMazeY - .54f)/5.2f - feature.Altitude - journey.Flight.Height;
+            }
+            else
+            {
+                fly.depth -= journey.Distance;
+                fly.lane -= journey.ForestLane;
+                fly.height -= journey.Flight.Height;
+            }
+            float speed = journey.ForestMazeActive ? journey.ForestMazeSpeed : journey.ForestFlightSpeed;
+            fly.visibility = Approach(fly.depth, fly.lane, fly.height, speed);
+            return fly;
+        }
+
         public static float Approach(float depthGap, float laneGap, float heightGap, float velocity)
         {
             float far = Math.Max(2.3f, velocity * 1.23f);
@@ -50,6 +73,8 @@ namespace Echoes
         public float time, motionTime, phase, voice, light, charge, releaseAge, turnAge, touchAge;
         public float altitude, verticalSpeed, glide, openingTime, releaseAltitude;
         public bool forest, forestAirborne, forestRescue;
+        public bool forestMaze;
+        public float forestMazeSpeed, forestMazeHeading, forestHeightCeiling;
         public ForestTrapKind forestTrap;
         public float forestLane, forestSteering, forestSnareAge, forestDescent, forestPlant;
         public int forestReserve, forestEvent, forestDoor;
@@ -68,6 +93,8 @@ namespace Echoes
             openingTime = journey.IsOpening ? journey.OpeningTime : -1,
             closed = journey.Gesture == Hand.Fist,
             forest = journey.InForest, forestAirborne = journey.ForestAirborne,
+            forestMaze = journey.ForestMazeActive, forestMazeSpeed = journey.ForestMazeSpeed,
+            forestMazeHeading = journey.ForestMazeHeading, forestHeightCeiling = journey.ForestHeightLimit,
             forestRescue = journey.ForestHasRescue,
             forestLane = journey.ForestLane, forestSteering = journey.ForestSteering, forestTrap = journey.ForestTrap,
             forestSnareAge = journey.Phase == Stage.ForestTrapped ? journey.Age : -1,
@@ -94,13 +121,10 @@ namespace Echoes
             List<ForestFlyView> nearby = null;
             foreach (ForestFeature feature in journey.ForestFeatures)
             {
-                if (feature.Collected || (feature.Kind != ForestFeatureKind.Amber && feature.Kind != ForestFeatureKind.Scarlet)) continue;
+                if (feature.Collected || feature.InMaze != journey.ForestMazeActive ||
+                    (feature.Kind != ForestFeatureKind.Amber && feature.Kind != ForestFeatureKind.Scarlet)) continue;
                 if (journey.Section == ForestSection.Vestibule && journey.SectionAt(feature.Depth)==ForestSection.Brain) continue;
-                ForestFlyView fly = ForestFlyView.Read(feature, journey.Time);
-                fly.depth -= journey.Distance;
-                fly.lane -= journey.ForestLane;
-                fly.height -= journey.Flight.Height;
-                fly.visibility = ForestFlyView.Approach(fly.depth, fly.lane, fly.height, journey.ForestFlightSpeed);
+                ForestFlyView fly = ForestFlyView.RelativeTo(feature, journey);
                 if (fly.visibility <= 0) continue;
                 if (nearby == null) nearby = new List<ForestFlyView>(3);
                 nearby.Add(fly);

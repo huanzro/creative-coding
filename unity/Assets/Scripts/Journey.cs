@@ -339,7 +339,7 @@ namespace Echoes
             DancePhase = (DancePhase + dt * (.164f + .122f * PoseVoice)) % 1;
             if (!InForest) Flight.Step(dt, Gesture);
             else if (!IsForestSequence && Section != ForestSection.Shaft && advanceJourney && Gesture != Hand.Missing)
-                Flight.StepForest(dt, Gesture, ForestHeightLimit);
+                Flight.StepForest(dt, Gesture, ForestHeightLimit, ForestFlightFloor);
             storyPulse = Math.Max(0, storyPulse - dt);
             Light = Math.Max(0, Light - dt * .85f);
             if (!advanceJourney || Phase == Stage.Complete) return;

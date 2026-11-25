@@ -9,6 +9,7 @@ namespace Echoes
         private readonly AudioSource source, wind, machinery;
         private readonly AudioClip[] cues = new AudioClip[Enum.GetValues(typeof(JourneyCue)).Length];
         private readonly AudioClip[] machineScenes = new AudioClip[4];
+        private readonly AudioClip[] rescues = new AudioClip[2];
         private int heard;
         private int sceneStamp;
 
@@ -39,6 +40,15 @@ namespace Echoes
             }
             if (journey.CueId==heard || journey.Cue==JourneyCue.None) return;
             heard=journey.CueId;
+            if (journey.Cue==JourneyCue.ForestCaptured && journey.ForestHasRescue)
+            {
+                int kind=journey.ForestTrap==ForestTrapKind.Web?0:1;
+                if (rescues[kind]==null) rescues[kind]=ComposeRescue(kind==0);
+                source.panStereo=journey.ForestLane*.22f;
+                source.PlayOneShot(rescues[kind],.90f);
+                return;
+            }
+            if (journey.Cue==JourneyCue.ForestRescueLight || journey.Cue==JourneyCue.ForestDoor) return;
             int index=(int)journey.Cue;
             if(cues[index]==null) cues[index]=Compose(journey.Cue);
             source.panStereo=journey.InForest ? journey.ForestLane * .42f :
@@ -81,34 +91,71 @@ namespace Echoes
 
         private static AudioClip ComposeMachineScene(int scene)
         {
-            var samples=new float[(int)(Rate*(scene==3?5.0:3.0))];
+            float duration=scene==3 ? 8.8f : Journey.ForestDoorDuration;
+            var samples=new float[(int)(Rate*duration)];
+            var grain=new System.Random(220+scene);
+            double noise=0;
             for(int i=0;i<samples.Length;i++)
             {
                 double time=i/(double)Rate;
+                double beatTime=time/duration;
+                noise+=((2*grain.NextDouble()-1)-noise)*.11;
                 double value;
                 switch(scene)
                 {
                     case 0:
-                        double press=Math.Max(0,1-Math.Abs(time-1.86)*1.1);
-                        value=.27*press*Tone(time,69+41*time)+.095*press*Tone(time,134+37*time);
+                        double press=Math.Max(0,1-Math.Abs(beatTime-.68)*3.2);
+                        double slam=Decay(time,duration*.83,5.2);
+                        double teeth=Math.Exp(-11*((time+.17)%(beatTime<.53?.46:.28)));
+                        value=press*(.17*Tone(time,47+8*beatTime)+teeth*(noise*.20+.06*Tone(time,91)))
+                            + slam*(.36*Tone(time,47)+.32*noise);
                         break;
                     case 1:
-                        double foot=Math.Exp(-12*((time+.12)%.29));
-                        value=.23*foot*Tone(time,85)+.13*foot*Tone(time,249)*Math.Sin(time*8);
+                        double foot=Math.Exp(-12*((time+.12)%(beatTime<.39?.65:.34)));
+                        double call=Decay(time,duration*.30,3.1)+Decay(time,duration*.43,3.8)+Decay(time,duration*.63,7.1);
+                        double lid=Decay(time,duration*.86,6.5);
+                        value=foot*(.12*Tone(time,83)+.12*noise)+call*.12*Tone(time,370+26*Tone(time,1.7))
+                            + lid*(.22*noise+.27*Tone(time,52));
                         break;
                     case 2:
-                        double surface=Math.Max(0,1-Math.Abs(time-1.8)*.56);
-                        value=.13*surface*(Tone(time,156+17*time)+Tone(time,231-19*time));
+                        double surface=Math.Max(0,1-Math.Abs(beatTime-.75)*1.71);
+                        double first=Decay(time,duration*.32,1.3)+.75*Decay(time,duration*.47,1.1);
+                        value=surface*(.083*Tone(time,114-38*beatTime)+.09*noise)+first*(.10*Tone(time,230)+.06*Tone(time,277))
+                            + .11*Decay(time,duration*.78,1.15)*Tone(time,359);
                         break;
                     default:
-                        double beat=Decay(time, .96, 6.7)+.44*Decay(time,1.19,10)+.72*Decay(time,2.04,6.2);
-                        double whip=Decay(time,2.63,9.4);
-                        value=.56*beat*Tone(time,55)+.21*whip*Tone(time,257-21*time);
+                        double beat=Decay(time,duration*.20,6.7)+.44*Decay(time,duration*.23,10)+.72*Decay(time,duration*.49,6.2);
+                        double wire=Decay(time,duration*.60,4.6)+.53*Decay(time,duration*.73,6.5);
+                        double close=Decay(time,duration*.94,7.2);
+                        value=.52*beat*Tone(time,55)+wire*(.15*Tone(time,241-70*beatTime)+.18*noise)+close*.33*Tone(time,42);
                         break;
                 }
                 samples[i]=(float)(value*Math.Min(1,time*18)*Math.Min(1,(samples.Length-i)/(Rate*.36)));
             }
             return MachineClip("Buried machine scene "+scene,samples);
+        }
+
+        private static AudioClip ComposeRescue(bool web)
+        {
+            var data=new float[(int)(Rate*Journey.ForestRescueDuration)];
+            var random=new System.Random(web?4271:7785);
+            double grain=0, fiber=0;
+            for(int i=0;i<data.Length;i++)
+            {
+                double t=i/(double)Rate;
+                grain+=(random.NextDouble()*2-1-grain)*.24;
+                fiber+=(grain-fiber)*.13;
+                double snag=Decay(t,.31,5.7)+.57*Decay(t,.82,6.9)+.31*Decay(t,1.51,5);
+                double work=Decay(t,3.25,5.6)+.61*Decay(t,5.46,7)+.66*Decay(t,6.03,6.1);
+                double strand=Decay(t,6.72,11)+Decay(t,7.06,13)+.58*Decay(t,7.43,10.5);
+                double glow=.35*Decay(t,2.15,4.2)+.62*Decay(t,3.14,6.1)+.92*Decay(t,5.48,3.9)+1.18*Decay(t,6.29,2);
+                double cloth=Decay(t,7.67,4.1)+.53*Decay(t,8.32,4.3);
+                double tension=(snag*.39+work*.19+strand*.27)*(web ? grain : fiber*1.7);
+                double tonal=glow*(Tone(t,784)*.14+Tone(t,1174)*.05);
+                double body=cloth*(.13*fiber+.12*Tone(t,72))+.13*snag*Tone(t,web?173:81);
+                data[i]=(float)((tension+tonal+body)*Math.Min(1,t*12)*Math.Min(1,(data.Length-i)/(Rate*.37)));
+            }
+            return MachineClip(web?"One firefly, web rescue":"One firefly, flower rescue",data);
         }
 
         private static double Decay(double time,double start,double rate) => time<start ? 0 : Math.Exp(-(time-start)*rate);
@@ -202,6 +249,8 @@ namespace Echoes
                 UnityEngine.Object.Destroy(machinery);
             }
             foreach(var clip in machineScenes)
+                if(clip!=null) UnityEngine.Object.Destroy(clip);
+            foreach(var clip in rescues)
                 if(clip!=null) UnityEngine.Object.Destroy(clip);
             foreach(var clip in cues)
                 if(clip!=null) UnityEngine.Object.Destroy(clip);

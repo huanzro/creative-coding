@@ -34,6 +34,9 @@ namespace Echoes
         private int exhibitCue;
 #endif
         private int savedRevision;
+        private const float TurnHoldSeconds = .72f;
+        private readonly float[] touchBegan = new float[4];
+        private readonly bool[] pendingTouch = new bool[4];
         private Frame remote = new Frame();
         private const string SaveKey = "EchoesUnity.Checkpoint.3D.2";
         private static readonly string[] Titles = { "沉睡森林", "回声遗迹", "星海回响" };
@@ -90,7 +93,7 @@ namespace Echoes
             Active = this;
 #endif
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
-            exhibit.Pressed += PhysicalTouch;
+            exhibit.TouchChanged += PhysicalTouch;
             comPort = PlayerPrefs.GetString("EchoesUnity.Port", comPort);
 #endif
 #if UNITY_WEBGL && !UNITY_EDITOR
@@ -99,7 +102,7 @@ namespace Echoes
         }
 
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
-        private void PhysicalTouch(int option) { Touch(option, true); }
+        private void PhysicalTouch(int option, bool down) => TrackTouch(option, down, true);
 #endif
 
         private void Update()
@@ -108,12 +111,15 @@ namespace Echoes
             float now = Time.unscaledTime;
             float dt = Mathf.Min(.04f, Time.unscaledDeltaTime);
             bool keyboard = preview && Application.isFocused && (!settings || !typingPort);
+            inputReady = preview || audioReady && cameraReady && now - lastAudioAt < .5f && now - lastHandAt < .5f;
             if (preview && Input.GetKeyDown(KeyCode.F1)) settings = !settings;
-            if (keyboard && Input.GetKeyDown(KeyCode.A)) Choose("0");
-            if (keyboard && Input.GetKeyDown(KeyCode.B)) Choose("1");
+            if (keyboard && Input.GetKeyDown(KeyCode.A)) TrackTouch(0, true, false);
+            if (keyboard && Input.GetKeyDown(KeyCode.B)) TrackTouch(1, true, false);
+            if (keyboard && Input.GetKeyUp(KeyCode.A)) TrackTouch(0, false, false);
+            if (keyboard && Input.GetKeyUp(KeyCode.B)) TrackTouch(1, false, false);
             if (keyboard && Input.GetKeyDown(KeyCode.R)) Retry("");
             if (keyboard && Input.GetKeyDown(KeyCode.Escape)) journey.FinishOpening();
-            inputReady = preview || audioReady && cameraReady && now - lastAudioAt < .5f && now - lastHandAt < .5f;
+            ResolveHeldTouches(now, keyboard);
             float voice = preview ? (keyboard && Input.GetKey(KeyCode.X) ? .7f :
                 keyboard && Input.GetKey(KeyCode.Z) ? .3f : 0) : liveVoice;
 #if !UNITY_WEBGL || UNITY_EDITOR
@@ -339,6 +345,41 @@ namespace Echoes
             if (int.TryParse(value, out int option)) Touch(option, false);
         }
 
+        private void TrackTouch(int option, bool down, bool physical)
+        {
+            int index = option + (physical ? 2 : 0);
+            if (down)
+            {
+                if (paused || !inputReady || !Application.isFocused) return;
+                if (!journey.ForestCanTurnAround) { Touch(option, physical); return; }
+                pendingTouch[index] = true;
+                touchBegan[index] = Time.unscaledTime;
+                return;
+            }
+            if (!pendingTouch[index]) return;
+            pendingTouch[index] = false;
+            if (!journey.ForestCanTurnAround || paused || !inputReady || !Application.isFocused) return;
+            if (Time.unscaledTime - touchBegan[index] >= TurnHoldSeconds) journey.TurnAroundForest();
+            else Touch(option, physical);
+        }
+
+        private void ResolveHeldTouches(float now, bool keyboard)
+        {
+            bool allowTurn = journey.ForestCanTurnAround && Application.isFocused && !paused && inputReady;
+            bool physicalReady = false;
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+            physicalReady = exhibit.Ready;
+#endif
+            for (int i = 0; i < pendingTouch.Length; i++)
+            {
+                if (!allowTurn || !(i < 2 ? keyboard : physicalReady)) pendingTouch[i] = false;
+                if (!pendingTouch[i] || now - touchBegan[i] < TurnHoldSeconds) continue;
+                Array.Clear(pendingTouch, 0, pendingTouch.Length);
+                journey.TurnAroundForest();
+                break;
+            }
+        }
+
         private void Touch(int option, bool physical)
         {
             int cueBefore = journey.CueId;
@@ -397,7 +438,7 @@ namespace Echoes
             if (Active == this) Active = null;
 #endif
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
-            exhibit.Pressed -= PhysicalTouch;
+            exhibit.TouchChanged -= PhysicalTouch;
             exhibit.Dispose();
 #endif
 #if !UNITY_WEBGL || UNITY_EDITOR
