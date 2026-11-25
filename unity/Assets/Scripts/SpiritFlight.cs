@@ -18,10 +18,10 @@ namespace Echoes
             Speed = Glide = 0;
         }
 
-        public void Release(float voice)
+        public void Release(float voice, float heightScale = 1)
         {
             // Push from the current altitude so a second opening joins the same arc.
-            Speed = Math.Max(Speed, 1.10f + .37f * Clamp(voice, 0, 1));
+            Speed = Math.Max(Speed, (1.10f + .37f * Clamp(voice, 0, 1)) * (float)Math.Sqrt(heightScale));
         }
 
         public void Deflect()
@@ -44,10 +44,10 @@ namespace Echoes
             Glide += (wanted - Glide) * (1 - (float)Math.Exp(-dt / .17f));
         }
 
-        public void ReleaseForest(float voice)
+        public void ReleaseForest(float voice, float heightScale = 1)
         {
             float boost = Height < .022f ? 1.13f : 1.18f;
-            Speed = Math.Max(Speed, boost + .27f * Clamp(voice, 0, 1));
+            Speed = Math.Max(Speed, (boost + .27f * Clamp(voice, 0, 1)) * (float)Math.Sqrt(heightScale));
         }
 
         public void StepForest(float dt, Hand hand, float ceiling, float floor = 0)

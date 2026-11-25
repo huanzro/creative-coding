@@ -14,12 +14,18 @@ namespace Echoes
         private string comPort;
 #endif
 
-        private Hand PreviewHand(bool keyboard)
+        private void UpdateHand(bool keyboard, bool enabled)
         {
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
-            if (desktopCamera.Active) return desktopCamera.Gesture;
+            if (preview && desktopCamera.Active)
+            {
+                journey.SetHand(desktopCamera.ReadGesture(enabled && !journey.IsOpening), true);
+                return;
+            }
 #endif
-            return noHand || !keyboard ? Hand.Missing : Input.GetKey(KeyCode.Space) ? Hand.Fist : Hand.Open;
+            Hand gesture = !enabled ? Hand.Missing : !preview ? liveHand :
+                noHand || !keyboard ? Hand.Missing : Input.GetKey(KeyCode.Space) ? Hand.Fist : Hand.Open;
+            journey.SetHand(gesture);
         }
 
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
@@ -118,7 +124,7 @@ namespace Echoes
             GUI.Label(new Rect(20, 99, 485, 55), desktopCamera.Status, label);
             string hint = paused ? "游戏已暂停，点「继续」后可用手势。" : journey.IsOpening
                 ? "序幕播放中，进入关卡后可控制精灵。"
-                : "保持识别页打开。先张手，握拳约半秒，再张手。";
+                : "在识别页点「打开独立预览」。握拳再张手即可起飞。";
             GUI.Label(new Rect(20, 151, 485, 33), hint, label);
 #endif
 #if !UNITY_WEBGL || UNITY_EDITOR

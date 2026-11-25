@@ -17,6 +17,12 @@ function Pose($game, $hand, $seconds, $voice) {
     Step $game $seconds $voice
 }
 
+function Launch-Gesture($game) {
+    Pose $game Open .02 0
+    Pose $game Fist .20 0
+    $game.SetHand([Echoes.Hand]::Open)
+}
+
 function RuinSteer($game, $lane) {
     while ($game.RuinTargetLane -ne $lane) {
         Assert ($game.Touch([int]($game.RuinTargetLane -lt $lane))) 'The tunnel accepts a lateral target.'
@@ -403,6 +409,18 @@ Assert ($resumed.ForestLights -eq 0 -and $resumed.Phase -eq 'ForestTransition' -
 Step $resumed 5.3 0
 Assert ($resumed.Chapter -eq 1) 'The upper warp enters the same existing ruins.'
 
+$jumpTuning = [Echoes.Journey]::new(100)
+$jumpTuning.SelectChapter(0)
+$jumpTuning.JumpHeightScale = .55
+$jumpTuning.ForestDoorJumpHeightScale = 4
+Launch-Gesture $jumpTuning
+$lowLaunch = $jumpTuning.Flight.Speed
+$jumpTuning.Flight.Reset(0)
+$jumpTuning.JumpHeightScale = 1.65
+Launch-Gesture $jumpTuning
+Assert ([Math]::Abs($lowLaunch - 1.13 * [Math]::Sqrt(.55)) -lt .001 -and
+    [Math]::Abs($jumpTuning.Flight.Speed / $lowLaunch - [Math]::Sqrt(3)) -lt .001) 'The ordinary setting multiplies peak ascent and ignores the right door setting in the forest trail.'
+
 $machine=[Echoes.Journey]::new(100)
 $machine.SelectChapter(0)
 FlyFlat $machine 112 .76 1
@@ -416,6 +434,21 @@ for ($lane=-1; $lane -le 1; $lane++) {
     Step $machine 13.5 0
     Assert ($machine.Distance -eq 168 -and $machine.ForestLights -eq $atEntry -and $machine.Phase -eq 'ForestExplore') 'The arcade restores the door threshold and the same reserve after a false choice.'
 }
+$doorTuning = [Echoes.Journey]::new(101)
+Assert ($doorTuning.Restore($machine.Checkpoint)) 'The door tuning test starts at the saved ground floor.'
+$doorTuning.JumpHeightScale = 2
+$doorTuning.ForestDoorJumpHeightScale = .75
+Launch-Gesture $doorTuning
+Assert ([Math]::Abs($doorTuning.Flight.Speed - 1.13 * [Math]::Sqrt(.75)) -lt .001) 'At the machine doors, the separate height overrides the ordinary setting.'
+Assert ($doorTuning.Restore($machine.Checkpoint)) 'An actual upper floor attempt can reuse the ground floor save.'
+$doorTuning.JumpHeightScale = .50
+$doorTuning.ForestDoorJumpHeightScale = [Echoes.Journey]::DefaultForestDoorJumpHeightScale
+Launch-Gesture $doorTuning
+Pose $doorTuning Open 1.08 0
+Pose $doorTuning Fist .20 0
+Pose $doorTuning Open 1.52 0
+Assert ($doorTuning.Section -eq 'Brain' -and $doorTuning.ForestDoor -eq -1) 'Two quiet gestures from the ground reach the upper floor at the default door setting.'
+
 Pose $machine Fist .35 .3
 Pose $machine Open .44 .3
 Pose $machine Fist .19 .3

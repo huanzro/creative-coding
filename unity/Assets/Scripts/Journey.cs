@@ -43,6 +43,7 @@ namespace Echoes
 
     public sealed partial class Journey
     {
+        public const float MinJumpHeightScale = .50f, DefaultJumpHeightScale = 1f, MaxJumpHeightScale = 2f;
         public readonly SpiritFlight Flight = new SpiritFlight();
         public readonly FireflyCourse Fireflies = new FireflyCourse();
 
@@ -84,7 +85,14 @@ namespace Echoes
         private float hintUntil, cueAt, storyPulse;
         private FireflyKind storyFly;
         private float heldProgress, gentleTime, loudTime, openTime;
+        private float jumpHeightScale = DefaultJumpHeightScale;
         private bool arrivedByOpening;
+
+        public float JumpHeightScale
+        {
+            get => jumpHeightScale;
+            set => jumpHeightScale = TuningValue(value, MinJumpHeightScale, MaxJumpHeightScale, DefaultJumpHeightScale);
+        }
 
         public Journey() : this(new Random()) { }
 
@@ -325,13 +333,15 @@ namespace Echoes
             return true;
         }
 
-        public void SetHand(Hand next)
+        public void SetHand(Hand next) => SetHand(next, false);
+
+        internal void SetHand(Hand next, bool cameraGesture)
         {
             if (IsOpening || next == Gesture || (Gesture == Hand.Missing && next == Hand.Fist)) return;
             var previous = Gesture;
             Gesture = next;
             if (next == Hand.Open) Started = true;
-            if (previous == Hand.Fist && next == Hand.Open && Held >= .13f && Phase != Stage.Complete &&
+            if (previous == Hand.Fist && next == Hand.Open && (cameraGesture || Held >= .13f) && Phase != Stage.Complete &&
                 !IsForestSequence && !IsRuinSequence)
                 Release();
             Held = Charge = 0;
@@ -343,8 +353,9 @@ namespace Echoes
             LastRelease = PoseTime;
             ReleaseAltitude = Flight.Height;
             Light = 1;
-            if (InForest || InRuins) Flight.ReleaseForest(Voice);
-            else Flight.Release(Voice);
+            if (InForest || InRuins)
+                Flight.ReleaseForest(Voice, InForest && Section == ForestSection.Vestibule ? ForestDoorJumpHeightScale : JumpHeightScale);
+            else Flight.Release(Voice, JumpHeightScale);
             if (Held >= .25f && Voice >= .58f && Charge >= .48f && PoseTime - LastSpin >= 1.3f)
                 LastSpin = PoseTime;
 
