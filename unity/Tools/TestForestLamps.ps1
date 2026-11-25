@@ -17,6 +17,15 @@ function Reach-Firefly($journey, $depth, $altitude, $cue) {
     Assert ($journey.Cue -eq $cue) "The sprite reached the firefly and emitted $cue."
 }
 
+function Sample-HeartAt($journey, $show, $progress) {
+    while ($journey.Phase -eq 'ForestTransition' -and $journey.Progress -lt $progress) {
+        $journey.Step(.02, 0)
+        [void]$show.Sample($journey, $journey.PoseTime)
+    }
+    Assert ($journey.Phase -eq 'ForestTransition') 'Heart samples are measured in the actual awakening sequence.'
+    $show.Sample($journey, $journey.PoseTime)
+}
+
 $journey = [Echoes.Journey]::new(100)
 $journey.SelectChapter(0)
 $journey.SetHand([Echoes.Hand]::Open)
@@ -67,6 +76,8 @@ $show.Reset()
 $plant.Flight.Reset(.05, $plant.ForestHeightLimit)
 $plant.Step(.02, 0)
 Assert (!$show.Sample($plant, $plant.PoseTime).Lit) 'An aligned but silent player does not start the light show.'
+$plant.Step(.02, .35)
+Assert ($plant.ForestPlantCharge -gt 0 -and $show.Sample($plant, $plant.PoseTime).Red -ge 12) 'The heart lights immediately when a valid seed charge begins.'
 $seen = [Collections.Generic.HashSet[string]]::new()
 for ($i = 0; $i -lt 65; $i++) {
     if ($plant.Phase -eq 'ForestPlanting') { $plant.Flight.Reset(.05, $plant.ForestHeightLimit) }
@@ -80,7 +91,18 @@ for ($i = 0; $i -lt 65; $i++) {
     if ($rgb.Red -gt $rgb.Blue -and $rgb.Blue -gt $rgb.Green) { [void]$seen.Add('rose') }
 }
 Assert ($plant.Plants -eq 1 -and $seen.Count -eq 5) 'Charging and completing planting displays five colors.'
-Assert (!$show.Sample($plant, $plant.PoseTime + 1).Lit) 'The planting finish fades before the later swallow.'
+$warm = Sample-HeartAt $plant $show .12
+$firstBeat = Sample-HeartAt $plant $show .21
+$show.Reset($plant.CueId)
+Assert ($show.Sample($plant, $plant.PoseTime).Red -eq $firstBeat.Red) 'The heart beat follows scene progress after reconnecting.'
+$between = Sample-HeartAt $plant $show .28
+$rebound = Sample-HeartAt $plant $show .36
+$soft = Sample-HeartAt $plant $show .47
+$stutter = Sample-HeartAt $plant $show .514
+$dark = Sample-HeartAt $plant $show .63
+Assert ($warm.Lit -and $firstBeat.Red -gt $warm.Red -and $rebound.Red -gt $between.Red -and
+    $stutter.Red -gt $soft.Red -and !$dark.Lit -and !$plant.ForestSwallowing) 'Both lamps stay lit through the on-screen heartbeat and fade before the cable swallow.'
+Assert ([Echoes.ExhibitProtocol]::Output(34, $firstBeat, $firstBeat, 0, $false) -eq "EOL3 SET 34 12 8 0 12 8 0 -1`n") 'Full heart pulse requests identical gold on both strips within the bench firmware limit.'
 
 $packet = [Echoes.LampRgb]::new(4, 18, 25)
 Assert ([Echoes.ExhibitProtocol]::Output(33, $packet, $packet, 132, $false) -eq "EOL3 SET 33 2 9 12 2 9 12 -1`n") 'Bench firmware gets a color-preserving cap and no fan field.'
@@ -88,4 +110,4 @@ Assert ([Echoes.ExhibitProtocol]::Output(33, $packet, $packet, 132, $true) -eq "
 $seq = 0
 Assert ([Echoes.ExhibitProtocol]::ReadAck('EOL3 ACK 65535', [ref]$seq) -and $seq -eq 65535) 'Outputs can be matched to their 16-bit ACK sequence.'
 Assert (![Echoes.ExhibitProtocol]::ReadAck('EOL3 ACK 65536', [ref]$seq)) 'An out-of-range response cannot confirm a test.'
-Write-Output 'Passed real forest contacts, swallow beats, planting colors, both-light packets, board limits and acknowledgements.'
+Write-Output 'Passed real forest contacts, swallow beats, planting colors, heart beat alignment, both-light packets, board limits and acknowledgements.'

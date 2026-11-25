@@ -8,6 +8,7 @@ namespace Echoes
 
         private static readonly LampRgb WarmYellow = new LampRgb(27, 17, 0);
         private static readonly LampRgb SoftRed = new LampRgb(25, 1, 0);
+        private static readonly LampRgb HeartGold = new LampRgb(12, 8, 0);
         private static readonly LampRgb[] PlantColors =
         {
             new LampRgb(25, 15, 2), new LampRgb(3, 22, 15), new LampRgb(3, 12, 27),
@@ -59,13 +60,33 @@ namespace Echoes
             if (pulse == Pulse.Red) return SoftRed.Dim(Glow(age, .52f));
             if (pulse == Pulse.Swallowed)
                 return SoftRed.Dim(Math.Max(Glow(age, .36f), .70f * Glow(age - .37f, .38f)));
-            if (!planting) return default;
+            LampRgb heart = SampleHeart(journey);
+            if (!planting) return heart;
 
             float beat = (now - plantAt) / ColorBeat;
             int color = (int)beat;
-            float shimmer = .36f + .64f * (float)Math.Sin((beat - color) * Math.PI);
+            float minimum = journey.Section == ForestSection.Heart ? .58f : .36f;
+            float shimmer = minimum + (1 - minimum) * (float)Math.Sin((beat - color) * Math.PI);
             float fade = charging ? 1 : Smooth((plantUntil - now) / .23f);
-            return PlantColors[color % PlantColors.Length].Dim(shimmer * fade);
+            LampRgb paint = PlantColors[color % PlantColors.Length];
+            return heart.Lit ? Blend(heart, paint.Dim(shimmer), fade) : paint.Dim(shimmer * fade);
+        }
+
+        private static LampRgb SampleHeart(Journey journey)
+        {
+            if (!journey.ForestHeartAwakening) return default;
+            journey.ReadForestHeartBeats(out float beat, out float rebound, out float stutter);
+            float lift = Math.Max(.60f * beat, Math.Max(1.35f * rebound, .64f * stutter));
+            float fade = Smooth((.60f - journey.Progress) / .06f);
+            return HeartGold.Dim((.40f + lift) * fade);
+        }
+
+        private static LampRgb Blend(LampRgb from, LampRgb to, float amount)
+        {
+            float remaining = 1 - amount;
+            return new LampRgb((int)Math.Round(from.Red * remaining + to.Red * amount),
+                (int)Math.Round(from.Green * remaining + to.Green * amount),
+                (int)Math.Round(from.Blue * remaining + to.Blue * amount));
         }
 
         private void BeginPulse(Pulse effect, float now)

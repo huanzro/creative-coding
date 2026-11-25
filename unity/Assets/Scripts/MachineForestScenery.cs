@@ -1151,7 +1151,7 @@ namespace Echoes
 
         private void AnimateMachineInterior(Journey journey,float time,Vector3 actor)
         {
-            bool handoff=journey.Phase==Stage.ForestTransition && journey.ForestTrap==ForestTrapKind.Cable;
+            bool handoff=journey.ForestHeartAwakening;
             float t=handoff?journey.Progress:0;
             for(int i=0;i<returnPulses.Length;i++)
             {
@@ -1170,9 +1170,7 @@ namespace Echoes
             }
             if (!machineHeart.gameObject.activeSelf) return;
 
-            float beat=handoff?Mathf.Exp(-Mathf.Pow((t-.21f)/.047f,2)):0;
-            float afterBeat=handoff?.38f*Ease(.24f,.35f,t)*(1-Ease(.37f,.48f,t)):0;
-            float stutter=handoff?.79f*Mathf.Exp(-Mathf.Pow((t-.514f)/.039f,2)):0;
+            journey.ReadForestHeartBeats(out float beat,out float afterBeat,out float stutter);
             float breath=.5f+.5f*Mathf.Sin(time*1.48f);
             float ignition=Mathf.Max(journey.ForestPlantCharge,beat+afterBeat+stutter);
             float expansion=beat+stutter;

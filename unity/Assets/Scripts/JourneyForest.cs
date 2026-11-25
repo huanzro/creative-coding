@@ -173,6 +173,20 @@ namespace Echoes
         public int ForestThreatPulse { get; private set; }
         public ForestFeatureKind ForestThreatKind { get; private set; }
         public float ForestPlantCharge => Clamp(forestPlantTime / PlantTime);
+        internal bool ForestHeartAwakening => Phase == Stage.ForestTransition && ForestTrap == ForestTrapKind.Cable;
+
+        internal void ReadForestHeartBeats(out float beat, out float rebound, out float stutter)
+        {
+            beat = rebound = stutter = 0;
+            if (!ForestHeartAwakening) return;
+
+            float first = (Progress - .21f) / .047f;
+            float last = (Progress - .514f) / .039f;
+            beat = (float)Math.Exp(-first * first);
+            rebound = .38f * Smooth((Progress - .24f) / .11f) * (1 - Smooth((Progress - .37f) / .11f));
+            stutter = .79f * (float)Math.Exp(-last * last);
+        }
+
         public bool ForestSwallowing
         {
             get
