@@ -126,7 +126,7 @@ Pose $game Open .36 .7
 Assert ($game.ForestLights -eq 3) 'The forest begins with three companion lights.'
 Steer $game -1
 Step $game .10 .7
-Assert ($game.ForestLane -lt -.11 -and $game.ForestLane -gt -.26) 'Ground motion eases through intermediate positions.'
+Assert ($game.ForestLane -lt -.04 -and $game.ForestLane -gt -.15) 'Ground motion eases gently through intermediate positions.'
 [void]$game.Touch(1)
 Step $game .02 .7
 Assert ($game.ForestLane -lt 0) 'A steering reversal keeps position and momentum.'
@@ -401,9 +401,11 @@ Pose $machine Open .38 .3
 Pose $machine Fist .18 .3
 Pose $machine Open .90 .3
 Assert ($machine.Section -eq 'Brain' -and $machine.Flight.Height -gt 1 -and $machine.ForestDoor -eq -1) 'Real hand releases and sound reach the hidden path above the usual ceiling.'
-FlyFlat $machine 194 1.10 0
+FlyFlat $machine 205 1.10 0
 Assert ($machine.Section -eq 'Shaft') 'The brain axis reaches the descent.'
-Step $machine 2.70 .3
+Step $machine 4.60 .3
+Assert ($machine.Section -eq 'Shaft' -and $machine.ForestShaftProgress -gt .30 -and $machine.ForestShaftProgress -lt .62) 'The enlarged machine spine has a continuous long middle section.'
+Step $machine 9 0
 Assert ($machine.Section -eq 'Heart' -and $machine.Flight.Height -lt .1 -and $machine.Phase -eq 'ForestPlanting') 'The shaft descends continuously into the heart, leaving voice to plant.'
 PlantRoot $machine 0 .05
 Assert ($machine.Phase -eq 'ForestTransition' -and $machine.ForestTrap -eq 'Cable' -and $machine.Plants -eq 1 -and

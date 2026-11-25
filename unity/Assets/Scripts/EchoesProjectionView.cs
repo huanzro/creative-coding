@@ -296,7 +296,7 @@ namespace Echoes
             }
             if (frame.forestTrap == ForestTrapKind.Cable && frame.forestDescent >= 0 && approach)
             {
-                float coil = OpeningStoryboard.Ease(.30f,.71f,frame.forestDescent);
+                float coil = OpeningStoryboard.Ease(.54f,.83f,frame.forestDescent);
                 for (int turn = 0; turn < 3; turn++)
                 {
                     Vector2 from = Place(new Vector2(-.35f, .49f-turn*.23f));

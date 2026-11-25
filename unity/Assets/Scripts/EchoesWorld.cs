@@ -127,7 +127,8 @@ namespace Echoes
                 else
                 {
                     float track=ruins ? .16f : !forest ? .48f :
-                        journey.Phase==Stage.ForestDoor || journey.ForestTrap==ForestTrapKind.Cable ? .095f : .24f;
+                        journey.Phase==Stage.ForestDoor || journey.ForestTrap==ForestTrapKind.Cable ? .095f :
+                        frame.forestMaze && journey.MazeMotion==ForestMazeMotion.FacingPassage ? .40f : .24f;
                     position=matchCut ? wanted : Vector3.SmoothDamp(position,wanted,ref velocity,track,90,dt);
                     sight=matchCut ? focus : Vector3.SmoothDamp(sight,focus,ref sightVelocity,track,90,dt);
                     if(matchCut) velocity=sightVelocity=Vector3.zero;
@@ -373,12 +374,7 @@ namespace Echoes
             }
             if(j.ForestTrap==ForestTrapKind.Cable)
             {
-                float reveal=OpeningStoryboard.Window(j.Progress,.21f,.30f,.43f,.60f);
-                float close=OpeningStoryboard.Ease(.51f,.66f,j.Progress);
-                at=Vector3.Lerp(at,actor+new Vector3(21.5f,13.6f,-13.2f),reveal);
-                focus=Vector3.Lerp(focus,new Vector3(corridorX,2.0f,220),reveal);
-                at=Vector3.Lerp(at,actor+new Vector3(.26f,1.23f,-2.22f),close);
-                focus=Vector3.Lerp(focus,actor+Vector3.forward*1.11f,close);
+                WorldSet.MachineHeartCamera(actor,j.Progress,out at,out focus);
                 return;
             }
             if(j.Phase==Stage.ForestFalling)
@@ -471,6 +467,20 @@ namespace Echoes
             float red=opening?OpeningStoryboard.Contact(time,true):journey.FireflyResponse==FireflyKind.Scarlet?journey.FireflyPulse:0;
             float amber=opening?OpeningStoryboard.Contact(time,false):journey.Light*.38f;
             Vector3 pool=position+camera.transform.forward*4.76f;
+            if(frame.forest && journey.Branch==ForestBranch.Right && journey.Section>=ForestSection.Brain)
+            {
+                float warm=OpeningStoryboard.Ease(.78f,1,journey.ForestShaftProgress);
+                float beat=journey.ForestTrap==ForestTrapKind.Cable ?
+                    OpeningStoryboard.Window(journey.Progress,.15f,.21f,.24f,.32f)+
+                    OpeningStoryboard.Window(journey.Progress,.40f,.46f,.49f,.54f) : 0;
+                air=Color.Lerp(new Color(.031f,.075f,.10f),new Color(.095f,.047f,.040f),warm);
+                dome=Color.Lerp(new Color(.04f,.11f,.15f),new Color(.12f,.062f,.045f),warm);
+                fill=Color.Lerp(new Color(.28f,.48f,.54f),new Color(.61f,.38f,.34f),warm);
+                lit=.45f+beat*.21f;
+                key=new Vector3(.50f,.74f,-.46f).normalized;
+                mist=.017f+.013f*(1-warm);
+                amber=Mathf.Max(amber,warm*(.24f+beat*.46f));
+            }
             Shader.SetGlobalVector(Air,new Vector4(air.r,air.g,air.b,mist));
             Shader.SetGlobalVector(Key,new Vector4(key.x,key.y,key.z,lit));
             Shader.SetGlobalColor(SkyHigh,dome);

@@ -328,6 +328,24 @@ namespace Echoes
             }
             pose.tuck += rise * .21f;
 
+            if (frame.forestMachineShaft)
+            {
+                float p=frame.forestShaftProgress;
+                float glideFrom=OpeningStoryboard.Window(p,0,.06f,.86f,.99f);
+                float dive=OpeningStoryboard.Window(p,.07f,.24f,.69f,.89f);
+                float watch=OpeningStoryboard.Window(p,.14f,.32f,.48f,.66f);
+                float braking=OpeningStoryboard.Window(p,.80f,.94f,.98f,1);
+                pose.left=SpiritArm.Blend(pose.left,Wing,glideFrom*.95f);
+                pose.right=SpiritArm.Blend(pose.right,Wing,glideFrom*.95f);
+                pose.right=SpiritArm.Blend(pose.right,High,braking*.66f);
+                pose.pitch+=28*dive-12*braking;
+                pose.lean+=Mathf.Sin(frame.motionTime*4.8f)*5.2f*dive;
+                pose.look+=33*watch;
+                pose.nod+=17*dive-13*braking;
+                pose.tuck+=.50f*braking;
+                pose.ribbon+=.76f*dive;
+            }
+
             float sow = Envelope(frame.forestPlant, .20f, .57f, 1.28f);
             pose.left = SpiritArm.Blend(pose.left, Offer, sow * .64f);
             pose.right = SpiritArm.Blend(pose.right, Sow, sow);
@@ -335,6 +353,15 @@ namespace Echoes
             pose.nod += 21 * sow;
             pose.pitch += 19 * sow;
             pose.glow = Mathf.Max(pose.glow, .78f * sow);
+
+            if(frame.forestMachineHeart && frame.forestDescent>=0)
+            {
+                float marvel=OpeningStoryboard.Window(frame.forestDescent,.13f,.24f,.47f,.56f);
+                pose.nod-=22*marvel;
+                pose.look+=27*marvel;
+                pose.left=SpiritArm.Blend(pose.left,Offer,.76f*marvel);
+                pose.right=SpiritArm.Blend(pose.right,Rest,.71f*marvel);
+            }
 
             if (frame.forestRescue && frame.forestSnareAge >= 0)
                 ActForestRescue(ref pose, frame);

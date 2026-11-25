@@ -356,7 +356,7 @@ namespace Echoes
                 if (GUI.Button(new Rect(935 + i * 78, 658, 72, 34), names[i], button)) select((i - 1).ToString());
             if (settings != null)
             {
-                var panel = new Rect(724, 72, 527, 446);
+                var panel = new Rect(724, 72, 527, 568);
                 Paint(panel, new Color(.02f, .05f, .09f, .96f));
                 GUI.BeginGroup(panel);
                 settings(body, button);

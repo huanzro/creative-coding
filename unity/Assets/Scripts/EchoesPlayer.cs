@@ -10,6 +10,7 @@ namespace Echoes
         private EchoesView view;
         private OpeningSound openingSound;
         private TravelSound travelSound;
+        private ForestAudioDetails forestAudio;
         private bool preview, projection, mirror, audioReady, cameraReady, paused, inputReady;
         private bool settings, characterOnly, splitProjection, noHand;
         private int cast;
@@ -34,6 +35,11 @@ namespace Echoes
         private int exhibitCue;
 #endif
         private int savedRevision;
+        private const string LateralKey = "EchoesUnity.Forest.LateralScale";
+        private const string MazeKey = "EchoesUnity.Forest.MazeScale";
+        private const string WebKey = "EchoesUnity.Forest.WebRange";
+        private const string MawKey = "EchoesUnity.Forest.MawRange";
+        private bool changedForestSettings;
         private const float TurnHoldSeconds = .72f;
         private readonly float[] touchBegan = new float[4];
         private readonly bool[] pendingTouch = new bool[4];
@@ -89,6 +95,11 @@ namespace Echoes
                 gameObject.AddComponent<AudioListener>();
             openingSound = new OpeningSound(gameObject);
             travelSound = new TravelSound(gameObject);
+            forestAudio = new ForestAudioDetails(gameObject);
+            journey.ForestLateralScale = PlayerPrefs.GetFloat(LateralKey, Journey.DefaultForestLateralScale);
+            journey.MazeWalkScale = PlayerPrefs.GetFloat(MazeKey, Journey.DefaultMazeWalkScale);
+            journey.ForestWebRange = PlayerPrefs.GetFloat(WebKey, Journey.DefaultForestCaptureRange);
+            journey.ForestMawRange = PlayerPrefs.GetFloat(MawKey, Journey.DefaultForestCaptureRange);
             savedRevision = journey.Revision;
             Application.targetFrameRate = 60;
 #if UNITY_EDITOR
@@ -114,7 +125,7 @@ namespace Echoes
             float dt = Mathf.Min(.04f, Time.unscaledDeltaTime);
             bool keyboard = preview && Application.isFocused && (!settings || !typingPort);
             inputReady = preview || audioReady && cameraReady && now - lastAudioAt < .5f && now - lastHandAt < .5f;
-            if (preview && Input.GetKeyDown(KeyCode.F1)) settings = !settings;
+            if (preview && Input.GetKeyDown(KeyCode.F1)) ToggleSettings();
             if (keyboard && Input.GetKeyDown(KeyCode.A)) TrackTouch(0, true, false);
             if (keyboard && Input.GetKeyDown(KeyCode.B)) TrackTouch(1, true, false);
             if (keyboard && Input.GetKeyUp(KeyCode.A)) TrackTouch(0, false, false);
@@ -140,6 +151,7 @@ namespace Echoes
             view.Advance(journey);
             openingSound.Follow(journey.IsOpening ? journey.OpeningTime : -1, paused);
             travelSound.Follow(journey, paused);
+            forestAudio.Follow(journey,paused);
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
             exhibit.SetForestPalette(journey.InForest);
             if (exhibitCue != journey.CueId)
@@ -235,7 +247,7 @@ namespace Echoes
             view.DrawControls(state.title, state.message, state.left, state.right, state.voice,
                 option => Choose(option.ToString()), Select, () => Retry(""), () => Restore(""),
                 () => Pause(paused ? "0" : "1"), paused, characterOnly,
-                () => settings = !settings, settings ? DrawSettings : (Action<GUIStyle, GUIStyle>)null);
+                ToggleSettings, settings ? DrawSettings : (Action<GUIStyle, GUIStyle>)null);
         }
 
         private void DrawSettings(GUIStyle label, GUIStyle button)
@@ -297,6 +309,39 @@ namespace Echoes
                 PlayerPrefs.SetInt("EchoesUnity.World3D", world ? 1 : 0);
                 PlayerPrefs.Save();
             }
+            GUI.Label(new Rect(20, 448, 285, 26), "森林 · 速度与捕捉范围", label);
+            journey.ForestLateralScale = ForestSlider(473, "左右移速", LateralKey, journey.ForestLateralScale,
+                Journey.MinForestLateralScale, Journey.MaxForestLateralScale, label);
+            journey.MazeWalkScale = ForestSlider(496, "迷宫行走速度", MazeKey, journey.MazeWalkScale,
+                Journey.MinimumMazeWalkScale, Journey.MaximumMazeWalkScale, label);
+            journey.ForestWebRange = ForestSlider(519, "蛛网捕捉范围", WebKey, journey.ForestWebRange,
+                Journey.MinForestCaptureRange, Journey.MaxForestCaptureRange, label);
+            journey.ForestMawRange = ForestSlider(542, "食人花捕捉范围", MawKey, journey.ForestMawRange,
+                Journey.MinForestCaptureRange, Journey.MaxForestCaptureRange, label);
+        }
+
+        private float ForestSlider(float y,string title,string key,float value,float min,float max,GUIStyle label)
+        {
+            GUI.Label(new Rect(20,y,223,24), title+"  "+value.ToString("0.00")+"×",label);
+            float next=GUI.HorizontalSlider(new Rect(249,y+7,247,19),value,min,max);
+            if (Mathf.Approximately(next,value)) return value;
+            next=Mathf.Clamp(Mathf.Round(next*100)/100,min,max);
+            PlayerPrefs.SetFloat(key,next);
+            changedForestSettings=true;
+            return next;
+        }
+
+        private void ToggleSettings()
+        {
+            settings = !settings;
+            if (!settings) SaveForestSettings();
+        }
+
+        private void SaveForestSettings()
+        {
+            if (!changedForestSettings) return;
+            PlayerPrefs.Save();
+            changedForestSettings=false;
         }
 
 #if UNITY_EDITOR
@@ -442,6 +487,7 @@ namespace Echoes
 
         private void OnDisable()
         {
+            SaveForestSettings();
 #if UNITY_EDITOR
             if (Active == this) Active = null;
 #endif
@@ -456,6 +502,8 @@ namespace Echoes
             openingSound = null;
             travelSound?.Dispose();
             travelSound = null;
+            forestAudio?.Dispose();
+            forestAudio = null;
             view?.Dispose();
             view = null;
         }

@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace Echoes
 {
     public enum ForestMazeNodeKind { Entry, Corridor, Junction, DeadEnd, RootChamber }
-    public enum ForestMazeMotion { Walking, Choosing, WaitingAtWall, TurningBack, Retracing, FacingJunction }
+    public enum ForestMazeMotion { Walking, Choosing, WaitingAtWall, TurningBack, Retracing, FacingJunction, FacingPassage }
 
     public sealed class ForestMazeNode
     {

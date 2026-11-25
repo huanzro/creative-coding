@@ -82,6 +82,8 @@ namespace Echoes
         public bool forest, forestAirborne, forestRescue;
         public bool forestMaze;
         public float forestMazeSpeed, forestMazeHeading, forestHeightCeiling;
+        public bool forestMachineShaft, forestMachineHeart;
+        public float forestShaftProgress;
         public ForestTrapKind forestTrap;
         public float forestLane, forestSteering, forestSnareAge, forestDescent, forestPlant;
         public int forestReserve, forestEvent, forestDoor;
@@ -108,6 +110,9 @@ namespace Echoes
             forest = journey.InForest, forestAirborne = journey.ForestAirborne,
             forestMaze = journey.ForestMazeActive, forestMazeSpeed = journey.ForestMazeSpeed,
             forestMazeHeading = journey.ForestMazeHeading, forestHeightCeiling = journey.ForestHeightLimit,
+            forestMachineShaft = journey.InForest && journey.Section==ForestSection.Shaft,
+            forestMachineHeart = journey.InForest && journey.Section==ForestSection.Heart,
+            forestShaftProgress = journey.ForestShaftProgress,
             forestRescue = journey.ForestHasRescue,
             forestLane = journey.ForestLane, forestSteering = journey.ForestSteering, forestTrap = journey.ForestTrap,
             forestSnareAge = journey.Phase == Stage.ForestTrapped ? journey.Age : -1,
