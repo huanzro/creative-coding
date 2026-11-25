@@ -47,7 +47,7 @@ namespace Echoes
         private const string FalloffKey = "EchoesUnity.Projection.Falloff";
         private const string GradientKey = "EchoesUnity.Projection.Gradient";
         private const string StageScaleKey = "EchoesUnity.Projection.StageScale";
-        private bool projectionSettings, flightSettings, ruinSettings, changedTuning;
+        private bool projectionSettings, flightSettings, ruinSettings, changedTuning, ruinWallDebug;
         private readonly bool[] physicalTouchDown = new bool[2];
         private readonly bool[] browserTouch = new bool[2];
         private Frame remote = new Frame();
@@ -194,7 +194,7 @@ namespace Echoes
 
         private void SaveProgress(float now, bool flush = false)
         {
-            if (forestDebugPoint.HasValue || journey.IsOpening || view == null) return;
+            if (forestDebugPoint.HasValue || ruinWallDebug || journey.IsOpening || view == null) return;
             bool artworkChanged = journey.InStars && savedStarInk != view.StarInkRevision;
             if (savedRevision == journey.Revision && (!artworkChanged || !flush && now < nextInkSave)) return;
             var checkpoint = journey.Checkpoint;
@@ -292,7 +292,8 @@ namespace Echoes
                 return;
             }
             var state = Snapshot();
-            string heading = forestDebugPoint.HasValue ? "调试 · " + ForestDebugLabels[(int)forestDebugPoint.Value] : state.title;
+            string heading = forestDebugPoint.HasValue ? "调试 · " + ForestDebugLabels[(int)forestDebugPoint.Value] :
+                ruinWallDebug ? "调试 · 遗迹撞墙" : state.title;
             bool ruinEnding = journey.Phase == Stage.RuinRetry;
             bool ruinSurvey = journey.RuinRetryState == RuinRetryPhase.Survey;
             view.DrawControls(heading, state.message, state.left, state.right, state.voice,
@@ -309,6 +310,7 @@ namespace Echoes
             if (forestDebugSettings)
             {
                 DrawForestDebugSettings(label, button);
+                if (forestDebugPoint.HasValue) ruinWallDebug = false;
                 return;
             }
             if (ruinSettings)
@@ -372,8 +374,9 @@ namespace Echoes
                 PlayerPrefs.SetInt("EchoesUnity.Cast", cast);
                 PlayerPrefs.Save();
             }
-            bool world = GUI.Toggle(new Rect(20, 305, 300, 27), view.UseWorld, "试玩使用三维背景");
-            if (GUI.Button(new Rect(336, 304, 166, 30), "森林调试断点", button)) forestDebugSettings = true;
+            bool world = GUI.Toggle(new Rect(20, 305, 191, 27), view.UseWorld, "试玩使用三维背景");
+            if (GUI.Button(new Rect(219, 304, 133, 30), "森林调试断点", button)) forestDebugSettings = true;
+            if (GUI.Button(new Rect(363, 304, 139, 30), "遗迹撞墙断点", button)) StartRuinWallDebugPoint();
             if (world != view.UseWorld)
             {
                 view.UseWorld = world;
@@ -551,8 +554,22 @@ namespace Echoes
         public void PlayOpening()
         {
             forestDebugPoint = null;
+            ruinWallDebug = false;
             settings = paused = characterOnly = false;
             journey.PlayOpening();
+        }
+
+        private void StartRuinWallDebugPoint()
+        {
+            if (journey.InStars) SaveProgress(Time.unscaledTime, true);
+            journey.JumpToRuinWallDebugPoint();
+            forestDebugPoint = null;
+            ruinWallDebug = true;
+            savedRevision = journey.Revision;
+            paused = settings = characterOnly = mazeMapOpen = mazeMapRoute = false;
+            Array.Clear(physicalTouchDown, 0, physicalTouchDown.Length);
+            Array.Clear(browserTouch, 0, browserTouch.Length);
+            SaveTuning();
         }
 
         public void BrowserHand(string value)
@@ -668,7 +685,9 @@ namespace Echoes
         {
             if (!int.TryParse(value, out int chapter) || chapter < -1 || chapter > 2) return;
             if (journey.InStars) SaveProgress(Time.unscaledTime, true);
+            if (ruinWallDebug) savedStarInk = view.StarInkRevision;
             forestDebugPoint = null;
+            ruinWallDebug = false;
             // Selecting a chapter is an explicit entry point, not a progress checkpoint.
             if (chapter == -1) journey.SelectPractice();
             else journey.SelectChapter(chapter);
@@ -678,6 +697,7 @@ namespace Echoes
         public void Retry(string unused)
         {
             if (forestDebugPoint.HasValue) StartForestDebugPoint(forestDebugPoint.Value);
+            else if (ruinWallDebug) StartRuinWallDebugPoint();
             else journey.Retry();
         }
 
@@ -698,6 +718,7 @@ namespace Echoes
             }
             catch (ArgumentException) { return; }
             forestDebugPoint = null;
+            ruinWallDebug = false;
             savedRevision = journey.Revision;
             savedStarInk = view.StarInkRevision;
         }

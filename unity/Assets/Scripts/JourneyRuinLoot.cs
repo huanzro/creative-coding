@@ -125,7 +125,7 @@ namespace Echoes
             else if (!IsRuinDevice(item.Kind) || item.Collected || RuinInventory < RuinCapacity) return false;
             else if (RuinHearts + RuinBrains == 0)
             {
-                Message = "十五格全是已锁定的设备。这件设备留在原处。";
+                Message = $"{RuinCapacity} 格全是已锁定的设备。这件设备留在原处。";
                 ruinLootClearedSource = item;
                 return false;
             }
@@ -158,7 +158,7 @@ namespace Echoes
             ruinLootChoices.Add(new RuinLootChoice(RuinLootAction.Leave, RuinObjectKind.Chest, -1, 0,
                 source.Kind == RuinObjectKind.Chest ? "合上箱盖，继续前进" : "留在原处，继续前进"));
             RuinLootIndex = 0;
-            Message = RuinInventory == RuinCapacity ? "背包 15 / 15。设备入包后锁定。" :
+            Message = RuinInventory == RuinCapacity ? $"背包 {RuinCapacity} / {RuinCapacity}。设备入包后锁定。" :
                 "挑选想带走的设备。每件占一格，入包后锁定。";
         }
 
@@ -206,7 +206,7 @@ namespace Echoes
             else if (chosen.Action == RuinLootAction.Release) TakeRuinDevice(ruinPendingDevice, chosen);
             else if (RuinInventory < RuinCapacity) TakeRuinDevice(chosen, null);
             else if (RuinHearts + RuinBrains > 0) ShowRuinLootRelease(chosen);
-            else Message = "十五格全是已锁定的设备。这件设备留在原处。";
+            else Message = $"{RuinCapacity} 格全是已锁定的设备。这件设备留在原处。";
             return true;
         }
 

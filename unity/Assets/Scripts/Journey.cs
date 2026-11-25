@@ -39,7 +39,7 @@ namespace Echoes
         public int ruinRetryRooms, ruinRetryRecord, ruinRetryLastLane, ruinRetryOutcome, ruinRetryAttempts;
         public bool ruinRetryWall;
         public float ruinRetryDepth;
-        public int ruinLoops;
+        public int ruinLoops, ruinWallPassages;
         public bool complete;
     }
 
@@ -186,7 +186,7 @@ namespace Echoes
             ruinRetryRecord = (int)ruinRetryRecord, ruinRetryLastLane = ruinRetryLastLane,
             ruinRetryOutcome = (int)RuinRetryOutcome, ruinRetryAttempts = RuinRetryAttempts,
             ruinRetryWall = ruinRetryWall, ruinRetryDepth = RuinRetryWallDepth,
-            ruinLoops = ruinLoops,
+            ruinLoops = ruinLoops, ruinWallPassages = ruinWallPassages,
             complete = Phase == Stage.Complete
         };
 

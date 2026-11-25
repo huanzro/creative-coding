@@ -180,18 +180,32 @@ Assert ($game.Chapter -eq 1 -and $game.Phase -eq 'RuinExplore') 'Both roots lead
 Assert ($game.RuinDiscipline -eq 0 -and $game.RuinDisciplinesSeen -eq 1) 'The entrance opens on physics.'
 $galleryOrder = @{}
 $galleryOrder[0] = 0
+$crossed = 0
 foreach ($nextRoom in 1,11,12,3,13,14,5,8,10) {
     $through = $game.RuinPortals | Where-Object TargetRoom -eq $nextRoom | Select-Object -First 1
     FollowRuin $game $through -AllowWall
-    if ($game.Phase -eq 'RuinRetry') { break }
+    $crossed++
     Assert ($game.RuinRoomId -eq $nextRoom) 'The branch opens its own tunnel.'
     if ($galleryOrder.Count -lt 9) {
         Assert ($game.RuinDiscipline -eq $galleryOrder.Count) 'New galleries advance the exhibit topics in order.'
         $galleryOrder[$nextRoom] = $game.RuinDiscipline
     }
+    Assert ($game.RuinWallPassages -eq $crossed) 'A finished transfer counts once.'
+    if ($game.RuinWallPassages -eq $game.RuinWallPassagesRequired) { break }
 }
-if ($game.Phase -eq 'RuinExplore') { FlyRuin $game ($game.RuinRoomLength - 2) .60 0 }
-Assert ($game.Phase -eq 'RuinRetry' -and $game.RuinDisciplinesSeen -eq 9 -and $galleryOrder.Count -eq 9) 'The branching route presents all nine themes before the ending wall.'
+Assert ($game.RuinWallPassagesRequired -in 6..9 -and $game.RuinWallPassages -eq $game.RuinWallPassagesRequired -and
+    $game.Phase -eq 'RuinExplore') 'The seed chooses a sixth through ninth passage, and arriving alone does not skip the wall.'
+$queued = [Echoes.Journey]::new(13)
+Assert ($queued.Restore($game.Checkpoint) -and $queued.RuinWallPassages -eq $queued.RuinWallPassagesRequired) 'The queued wall survives a checkpoint.'
+FlyRuin $queued 7 .05 0
+Assert ($queued.RuinRetryState -eq 'Impact') 'Continuing from the restored entrance reaches the wall.'
+FlyRuin $game 7 .6 0
+Assert ($game.RuinRetryState -eq 'Impact') 'The wall interrupts forward flight before another branch wins the trigger.'
+$debugWall = [Echoes.Journey]::new(29)
+$debugWall.JumpToRuinWallDebugPoint()
+Assert ($debugWall.RuinRetryState -eq 'Impact' -and $debugWall.Age -eq 0 -and $debugWall.RuinWallPassages -eq 0) 'The debug point starts the actual collision without a route prerequisite.'
+Step $debugWall .46 0
+Assert ($debugWall.Cue -eq 'RuinWall') 'The debug point plays the same wall impact cue.'
 Step $game 1.60 0
 Assert ($game.RuinRetryState -eq 'Gate') 'Collision splits the wall into a door.'
 Step $game 3.25 0
@@ -693,12 +707,8 @@ Assert ($circuit.RuinLoops -eq 1 -and $circuit.RuinRoomId -eq 0 -and $circuit.Ph
 $resumed = [Echoes.Journey]::new(99)
 Assert ($resumed.Restore($circuit.Checkpoint) -and $resumed.RuinLoops -eq 1) 'Returning through a save retains completed circuits.'
 $resumed.SetHand([Echoes.Hand]::Open)
-for ($sample = 0; $sample -lt 4000 -and $resumed.Phase -eq 'RuinExplore'; $sample++) { $resumed.Step(.02,.80) }
-Assert ($resumed.RuinRetryState -eq 'Impact' -and $resumed.RuinLoops -eq 1 -and $resumed.RuinRetryVisited -eq 0) 'Finishing the main gallery triggers the ending even without committing to a branch.'
-Step $resumed 24 0
-Assert ($resumed.RuinRetryState -eq 'Bargain' -and $resumed.Touch(1)) 'The main-circuit ending reaches the broker.'
-Step $resumed 5.1 0
-Assert ($resumed.InStars -and $resumed.RuinRetryOutcome -eq 'Kept') 'The main-circuit ending remains finishable.'
+for ($sample = 0; $sample -lt 4000 -and $resumed.RuinLoops -lt 2; $sample++) { $resumed.Step(.02,.80) }
+Assert ($resumed.Phase -eq 'RuinExplore' -and $resumed.RuinLoops -eq 2 -and $resumed.RuinWallPassages -eq 0) 'Circling the main gallery never substitutes for a passage transfer.'
 
 $heartbeat=[Echoes.Journey]::new(92)
 $heartbeat.SelectChapter(1)

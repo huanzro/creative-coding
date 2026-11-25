@@ -18,7 +18,7 @@ namespace Echoes
 
     public sealed partial class Journey
     {
-        public const int RuinCapacity = 15;
+        public const int RuinCapacity = 10;
         public const string RuinPhoneName = "ipone18p";
         public const int RuinDisciplineCount = 9;
         public const float RuinHeightLimit = 1.65f;
@@ -108,11 +108,11 @@ namespace Echoes
             RuinForwardSpeed <= RuinSearchSpeed && FindRuinPortal(RuinDirection.Right) == null;
         public string RuinTakeLabel => RuinSearchTarget?.Kind == RuinObjectKind.Chest ? "B · 打开宝箱" : "B · 拾取藏品";
         public RuinPortal RuinApproach { get; private set; }
-        public RuinPortal RuinUpperApproach => Phase == Stage.RuinExplore ? FindRuinUpperPreview() : null;
+        public RuinPortal RuinUpperApproach => Phase == Stage.RuinExplore && !RuinWallReady ? FindRuinUpperPreview() : null;
         public RuinPortal RuinEntrance { get; private set; }
         public bool RuinCanChoosePassage => IsRuinEntranceInRange(RuinApproach);
         public bool IsRuinEntranceInRange(RuinPortal portal) => portal != null && Phase == Stage.RuinExplore &&
-            !RuinLootOpen && InRuinPortalRange(portal);
+            !RuinLootOpen && !RuinWallReady && InRuinPortalRange(portal);
         public float RuinDoorOpening => RuinEntrance != null && RuinEntrance.OpenAge >= 0
             ? Clamp(RuinEntrance.OpenAge / .30f) * (1 - Clamp((RuinEntrance.OpenAge - .36f) / .55f)) : 0;
         public int RuinHearts { get; private set; }
@@ -150,6 +150,7 @@ namespace Echoes
                 ruinRooms = RuinAtlas.Build(ruinSeed);
                 RestoreRuinFinds();
                 RestoreRuinLootFinds();
+                RestoreRuinMemories();
             }
             ruinHeartAt = float.NegativeInfinity;
             EnterRuinRoom(ruinRoomId, true);
@@ -291,25 +292,23 @@ namespace Echoes
                 Revision++;
             }
 
-            RuinPortal route = ruinSteerHeld == 0 ? null :
-                FindRuinPortal(ruinSteerHeld < 0 ? RuinDirection.Left : RuinDirection.Right);
-            if (route == null && Gesture == Hand.Open) route = FindRuinPortal(RuinDirection.Upper);
-            if (route == null && (Flight.Speed < -.035f || wasDescending && Flight.Height <= .03f))
-                route = FindRuinPortal(RuinDirection.Lower);
-            if (route != null)
+            if (TryStartRuinRetry()) return;
+            if (!RuinWallReady)
             {
-                TravelRuins(route);
-                return;
+                RuinPortal route = ruinSteerHeld == 0 ? null :
+                    FindRuinPortal(ruinSteerHeld < 0 ? RuinDirection.Left : RuinDirection.Right);
+                if (route == null && Gesture == Hand.Open) route = FindRuinPortal(RuinDirection.Upper);
+                if (route == null && (Flight.Speed < -.035f || wasDescending && Flight.Height <= .03f))
+                    route = FindRuinPortal(RuinDirection.Lower);
+                if (route != null)
+                {
+                    TravelRuins(route);
+                    return;
+                }
             }
 
             UpdateRuinSearch(dt);
-            if (!RuinCanTake && RuinForwardSpeed > RuinSearchSpeed && TryStartRuinRetry())
-            {
-                RuinForwardSpeed = 0;
-                RuinSearchTarget = RuinNearbyClue = null;
-                return;
-            }
-            UpdateRuinApproach();
+            if (!RuinWallReady) UpdateRuinApproach();
         }
 
         private void UpdateRuinApproach()
@@ -469,7 +468,7 @@ namespace Echoes
                 if (IsRuinDevice(item.Kind)) OfferRuinLoot(item);
                 else
                 {
-                    Message = "收藏已满，15 件。藏品留在原处。";
+                    Message = $"收藏已满，{RuinCapacity} 件。藏品留在原处。";
                     ruinLootClearedSource = item;
                 }
                 RuinSearchTarget = null;
@@ -501,19 +500,9 @@ namespace Echoes
                 foreach (var item in room.Objects)
                 {
                     item.Collected = HasRuinFind(item.Id);
-                    if (item.Collected)
-                    {
-                        if (RuinMemoryReleased(item)) continue;
-                        // Older or malformed save masks cannot raise the inventory above its limit.
-                        if (item.Kind != RuinObjectKind.Chest && RuinInventory >= RuinCapacity)
-                        {
-                            item.Collected = false;
-                            SetRuinFind(item.Id, false);
-                            continue;
-                        }
-                        item.OpenAge = 10;
-                        AddRuinFind(item.Kind);
-                    }
+                    if (!item.Collected) continue;
+                    item.OpenAge = 10;
+                    if (!IsRuinMemory(item.Kind)) RestoreRuinInventoryItem(item);
                 }
                 foreach (var portal in room.Portals)
                 {
@@ -525,6 +514,27 @@ namespace Echoes
             }
             for (int id = 0; id < RuinAtlas.RoomCount; id++)
                 if ((ruinVisited & (1 << id)) != 0) RuinVisitedCount++;
+        }
+
+        private void RestoreRuinMemories()
+        {
+            // Older saves may hold more than the new cap. Keep locked devices before loose memories.
+            foreach (var room in ruinRooms)
+                foreach (var item in room.Objects)
+                    if (item.Collected && IsRuinMemory(item.Kind) && !RuinMemoryReleased(item))
+                        RestoreRuinInventoryItem(item);
+        }
+
+        private void RestoreRuinInventoryItem(RuinObject item)
+        {
+            if (item.Kind == RuinObjectKind.Chest || RuinInventory < RuinCapacity)
+            {
+                AddRuinFind(item.Kind);
+                return;
+            }
+            item.Collected = false;
+            item.OpenAge = -1;
+            SetRuinFind(item.Id, false);
         }
 
         private bool HasRuinFind(int id) => ((id < 64 ? ruinFinds : ruinFindsExtra) & (1UL << (id & 63))) != 0;

@@ -7,6 +7,37 @@ namespace Echoes
         private static readonly Color GlassBlue = new Color(.43f, .84f, 1f);
         private static readonly Color MemoryViolet = new Color(.77f, .67f, 1f);
         private static readonly Color PulseRose = new Color(1f, .45f, .49f);
+        private static readonly Color RuinGlyphShadow = new Color(.03f, .05f, .09f, .96f);
+        private static readonly Vector2[] HeartGlyph = {
+            new Vector2(0, 9), new Vector2(-9, 1), new Vector2(-11, -4), new Vector2(-8, -8),
+            new Vector2(-4, -9), new Vector2(0, -5), new Vector2(4, -9), new Vector2(8, -8),
+            new Vector2(11, -4), new Vector2(9, 1), new Vector2(0, 9)
+        };
+        private static readonly Vector2[] BrainGlyph = {
+            new Vector2(0, -7), new Vector2(-4, -10), new Vector2(-8, -8), new Vector2(-9, -5),
+            new Vector2(-11, -2), new Vector2(-11, 3), new Vector2(-9, 5), new Vector2(-7, 8),
+            new Vector2(-3, 9), new Vector2(0, 7), new Vector2(3, 9), new Vector2(7, 8),
+            new Vector2(9, 5), new Vector2(11, 3), new Vector2(11, -2), new Vector2(9, -5),
+            new Vector2(8, -8), new Vector2(4, -10), new Vector2(0, -7), new Vector2(0, 7)
+        };
+        private static readonly Vector2[] BrainFoldLeft = {
+            new Vector2(-6, -5), new Vector2(-4, -2), new Vector2(-6, 1), new Vector2(-4, 4)
+        };
+        private static readonly Vector2[] BrainFoldRight = {
+            new Vector2(6, -5), new Vector2(4, -2), new Vector2(6, 1), new Vector2(4, 4)
+        };
+        private static readonly Vector2[] PhoneGlyph = {
+            new Vector2(-4, -11), new Vector2(4, -11), new Vector2(6, -9), new Vector2(6, 9),
+            new Vector2(4, 11), new Vector2(-4, 11), new Vector2(-6, 9), new Vector2(-6, -9), new Vector2(-4, -11)
+        };
+        private static readonly Vector2[] PhoneHomeLine = { new Vector2(-2.25f, 7), new Vector2(2.25f, 7) };
+        private static readonly Vector2[] ComputerGlyph = {
+            new Vector2(-10, 5), new Vector2(-10, -8), new Vector2(10, -8), new Vector2(10, 5), new Vector2(-10, 5)
+        };
+        private static readonly Vector2[] ComputerStand = {
+            new Vector2(-8, 10), new Vector2(8, 10), new Vector2(0, 10), new Vector2(0, 5)
+        };
+        private GUIStyle ruinInventoryNumber;
 
         private void DrawRuinHud(Journey journey)
         {
@@ -16,18 +47,7 @@ namespace Echoes
                 DrawRuinEnding(journey);
                 return;
             }
-            float x = 982;
-            Paint(new Rect(x, 79, 269, 148), InkGlass);
-            Paint(new Rect(x, 79, 269, 2), Opacity(GlassBlue, .54f));
-            GUI.Label(new Rect(x + 14, 89, 119, 26), "途中所拾", body);
-            GUI.Label(new Rect(x + 181, 89, 77, 26), $"{journey.RuinInventory} / {Journey.RuinCapacity}", body);
-            Paint(new Rect(x + 16, 121, 237, 3), Opacity(GlassBlue, .18f));
-            Paint(new Rect(x + 16, 121, 237 * (journey.RuinInventory / (float)Journey.RuinCapacity), 3), GlassBlue);
-            RuinCount(x + 17, 134, "大脑", journey.RuinBrains, MemoryViolet);
-            RuinCount(x + 139, 134, "心脏", journey.RuinHearts, PulseRose);
-            RuinCount(x + 17, 162, Journey.RuinPhoneName, journey.RuinPhones, GlassBlue);
-            RuinCount(x + 139, 162, "电脑", journey.RuinComputers, Mint);
-            GUI.Label(new Rect(x + 14, 193, 239, 25), $"已发现宝箱  {journey.RuinChests} / {Journey.RuinChestCount}", body);
+            DrawRuinInventory(journey);
 
             string level = journey.RuinLayer == 0 ? "中层" : journey.RuinLayer > 0
                 ? $"上层 +{journey.RuinLayer}" : $"下层 {journey.RuinLayer}";
@@ -156,10 +176,57 @@ namespace Echoes
                     $"补足报价  {journey.RuinTradePhones} 部手机 + {journey.RuinTradeComputers} 台电脑", body);
         }
 
-        private void RuinCount(float x, float y, string label, int count, Color color)
+        private void DrawRuinInventory(Journey journey)
         {
-            Orb(x + 5, y + 13, 10, color, count > 0 ? .85f : .35f);
-            GUI.Label(new Rect(x + 17, y, 99, 27), $"{label}  {count}", body);
+            if (ruinInventoryNumber == null)
+            {
+                ruinInventoryNumber = new GUIStyle(body)
+                {
+                    fontSize = 20,
+                    fontStyle = FontStyle.Bold,
+                    alignment = TextAnchor.MiddleLeft,
+                    wordWrap = false
+                };
+                ruinInventoryNumber.normal.textColor = Color.white;
+            }
+            const float top = 84;
+            Vector2 heart = new Vector2(1025, top);
+            Vector2 brain = new Vector2(1085, top);
+            Vector2 phone = new Vector2(1145, top);
+            Vector2 computer = new Vector2(1205, top);
+            DrawRuinGlyph(heart, HeartGlyph, PulseRose);
+            DrawRuinGlyph(brain, BrainGlyph, MemoryViolet);
+            DrawRuinGlyph(brain, BrainFoldLeft, MemoryViolet);
+            DrawRuinGlyph(brain, BrainFoldRight, MemoryViolet);
+            DrawRuinGlyph(phone, PhoneGlyph, GlassBlue);
+            DrawRuinGlyph(phone, PhoneHomeLine, GlassBlue);
+            DrawRuinGlyph(computer, ComputerGlyph, Mint);
+            DrawRuinGlyph(computer, ComputerStand, Mint);
+            DrawRuinInventoryNumber(heart, journey.RuinHearts);
+            DrawRuinInventoryNumber(brain, journey.RuinBrains);
+            DrawRuinInventoryNumber(phone, journey.RuinPhones);
+            DrawRuinInventoryNumber(computer, journey.RuinComputers);
+        }
+
+        private void DrawRuinGlyph(Vector2 origin, Vector2[] points, Color color)
+        {
+            for (int i = 1; i < points.Length; i++)
+                Stroke(origin + points[i - 1], origin + points[i], 3.8f, RuinGlyphShadow, RuinGlyphShadow.a);
+            for (int i = 1; i < points.Length; i++)
+                Stroke(origin + points[i - 1], origin + points[i], 2.2f, color, 1);
+        }
+
+        private void DrawRuinInventoryNumber(Vector2 origin, int count)
+        {
+            var rect = new Rect(origin.x + 13, origin.y - 13, 32, 26);
+            string number = count.ToString();
+            Color previous = GUI.contentColor;
+            GUI.contentColor = RuinGlyphShadow;
+            GUI.Label(new Rect(rect.x - 1, rect.y + 1, rect.width, rect.height), number, ruinInventoryNumber);
+            GUI.Label(new Rect(rect.x + 1, rect.y + 1, rect.width, rect.height), number, ruinInventoryNumber);
+            GUI.contentColor = Color.white;
+            GUI.Label(rect, number, ruinInventoryNumber);
+            GUI.contentColor = previous;
         }
 
         private void DrawRuinFinds(SpiritFrame frame, Vector2 center, float bodySize, bool mirror, bool sideways)

@@ -18,6 +18,7 @@ namespace Echoes
     {
         private const float WallApproach = 1.65f;
         private const float WallStance = 1.06f;
+        private const float WallApproachDepth = 3.75f;
         private const float ImpactAt = .43f;
         private const float ImpactDuration = 1.31f;
         public const float RuinGateDuration = 3.2f;
@@ -26,9 +27,9 @@ namespace Echoes
         public const float RuinValuationDuration = 4f;
         public const float RuinExitDuration = 5f;
         public const int RuinPhoneTokenRate = 2, RuinComputerTokenRate = 3;
-        private const int ArchiveToll = RuinCapacity * RuinComputerTokenRate + 3;
+        private const int ArchiveToll = 48;
 
-        private int ruinRetryRooms, ruinRetryLastLane;
+        private int ruinRetryRooms, ruinRetryLastLane, ruinWallPassages;
         private bool ruinRetryWall, retryCollision;
         private RuinRetryRecordKind ruinRetryRecord;
         private RuinRetryPhase retryPhase;
@@ -40,6 +41,9 @@ namespace Echoes
         public RuinRetryRecordKind RuinRetryRecord => ruinRetryRecord;
         public RuinRetryResolution RuinRetryOutcome { get; private set; }
         public int RuinRetryVisited => CountRuinPassages(ruinRetryRooms);
+        public int RuinWallPassages => ruinWallPassages;
+        public int RuinWallPassagesRequired => 6 + (ruinSeed & 3);
+        private bool RuinWallReady => ruinWallPassages >= RuinWallPassagesRequired;
         public int RuinRetryAttempts { get; private set; }
         public float RuinRetryWallDepth { get; private set; }
         public float RuinLookYaw { get; private set; }
@@ -71,7 +75,7 @@ namespace Echoes
 
         private void ResetRuinRetry()
         {
-            ruinRetryRooms = ruinRetryLastLane = RuinRetryAttempts = 0;
+            ruinRetryRooms = ruinRetryLastLane = ruinWallPassages = RuinRetryAttempts = 0;
             ruinRetryWall = retryCollision = false;
             ruinRetryRecord = RuinRetryRecordKind.None;
             retryPhase = RuinRetryPhase.Inactive;
@@ -83,6 +87,7 @@ namespace Echoes
         private void RestoreRuinRetry(JourneyCheckpoint checkpoint)
         {
             ruinRetryRooms = checkpoint.ruinRetryRooms & 65534;
+            ruinWallPassages = Math.Min(RuinWallPassagesRequired, Math.Max(checkpoint.ruinWallPassages, RuinRetryVisited));
             ruinRetryRecord = (uint)checkpoint.ruinRetryRecord <= (uint)RuinRetryRecordKind.BrainPutDown
                 ? (RuinRetryRecordKind)checkpoint.ruinRetryRecord : RuinRetryRecordKind.None;
             ruinRetryLastLane = Math.Sign(checkpoint.ruinRetryLastLane);
@@ -109,8 +114,10 @@ namespace Echoes
 
         private void RememberRuinPortal(RuinPortal portal)
         {
-            if (portal.Direction == RuinDirection.Forward || portal.Direction == RuinDirection.Exit ||
-                portal.TargetRoom <= 0 || portal.TargetRoom >= RuinAtlas.RoomCount) return;
+            if ((uint)portal.TargetRoom >= RuinAtlas.RoomCount) return;
+            ruinWallPassages = Math.Min(ruinWallPassages + 1, RuinWallPassagesRequired);
+            if (portal.TargetRoom == 0 || portal.Direction == RuinDirection.Forward ||
+                portal.Direction == RuinDirection.Exit) return;
             ruinRetryRooms |= 1 << portal.TargetRoom;
             bool retainDiscard = ruinRetryRecord == RuinRetryRecordKind.HeartPutDown ||
                 ruinRetryRecord == RuinRetryRecordKind.BrainPutDown;
@@ -142,22 +149,30 @@ namespace Echoes
 
         private bool TryStartRuinRetry()
         {
-            bool traversedGallery = RuinRoomId == 0 && ruinLoops >= 1 && RuinDisciplinesSeen == 1;
-            float firstWallDepth = traversedGallery ? 5f : RuinRoomLength * .58f;
-            if (ruinRetryWall || (!traversedGallery && RuinDisciplinesSeen < RuinDisciplineCount) ||
-                Distance < firstWallDepth || Distance > RuinRoomLength - 4.5f) return false;
-            float at = Distance + WallApproach;
-            foreach (var portal in RuinPortals)
-                if (Math.Abs(portal.Depth - at) < 3.2f) return false;
+            if (ruinRetryWall || !RuinWallReady || Distance < WallApproachDepth || RuinForwardSpeed <= 0) return false;
+            StartRuinWallImpact();
+            return true;
+        }
 
-            RuinRetryWallDepth = at;
+        public void JumpToRuinWallDebugPoint()
+        {
+            SelectChapter(1);
+            SetHand(Hand.Open);
+            Distance = WallApproachDepth;
+            StartRuinWallImpact();
+        }
+
+        private void StartRuinWallImpact()
+        {
+            RuinRetryWallDepth = Distance + WallApproach;
             ruinRetryWall = true;
             retryCollision = false;
             RuinApproach = null;
+            RuinSearchTarget = RuinNearbyClue = null;
+            RuinForwardSpeed = 0;
             Flight.FollowForestCourse(Flight.Height, .02f);
             SetRuinRetryPhase(RuinRetryPhase.Impact, "");
             Revision++;
-            return true;
         }
 
         private void SetRuinRetryPhase(RuinRetryPhase phase, string message)

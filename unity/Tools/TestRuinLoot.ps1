@@ -34,15 +34,17 @@ function SelectRuinChest($game) {
     $chest
 }
 
+$capacity = [Echoes.Journey]::RuinCapacity
+AssertRuinLoot ($capacity -eq 10) 'The collection has exactly ten slots.'
 $lootGame = [Echoes.Journey]::new(4412)
 $lootGame.SelectChapter(1)
 $allFinds = @(RuinFixtureObjects $lootGame)
 $heart = $allFinds | Where-Object Kind -eq 'Heart' | Select-Object -First 1
 InvokeRuinFixture $lootGame 'RecordRuinPickup' @($heart)
-foreach ($device in ($allFinds | Where-Object Kind -in 'Phone','Computer' | Select-Object -First 13)) {
+foreach ($device in ($allFinds | Where-Object Kind -in 'Phone','Computer' | Select-Object -First ($capacity - 2))) {
     InvokeRuinFixture $lootGame 'RecordRuinPickup' @($device)
 }
-AssertRuinLoot ($lootGame.RuinInventory -eq 14) 'Fixture should have one free slot and one swappable heart.'
+AssertRuinLoot ($lootGame.RuinInventory -eq ($capacity - 1)) 'Fixture should have one free slot and one swappable heart.'
 foreach ($foundChest in ($allFinds | Where-Object Kind -eq 'Chest')) {
     $size = $lootGame.RuinChestItemCount($foundChest)
     AssertRuinLoot ($size -ge 2 -and $size -le 4) 'Every chest should stock two to four devices.'
@@ -53,7 +55,7 @@ $stock = $lootGame.RuinChestRemaining($lootChest)
 AssertRuinLoot ($lootGame.RuinLootDevices.Count -eq $stock -and $lootGame.RuinChests -eq 1) 'Opening detects the chest without collecting its devices.'
 AssertRuinLoot (@($lootGame.RuinLootDevices | Where-Object Kind -notin 'Phone','Computer').Count -eq 0) 'Chests should contain only phones and computers.'
 [void]$lootGame.Touch(1)
-AssertRuinLoot ($lootGame.RuinInventory -eq 15 -and $lootGame.RuinHearts -eq 1 -and $lootGame.RuinChestRemaining($lootChest) -eq $stock - 1) 'Take the first device into the available slot.'
+AssertRuinLoot ($lootGame.RuinInventory -eq $capacity -and $lootGame.RuinHearts -eq 1 -and $lootGame.RuinChestRemaining($lootChest) -eq $stock - 1) 'Take the first device into the available slot.'
 [void]$lootGame.Touch(1)
 AssertRuinLoot ($lootGame.RuinLootSwap -and $lootGame.RuinLootChoices.Count -eq 2 -and $lootGame.RuinHearts -eq 1) 'An overflow waits for a valid organ choice and explicit confirmation.'
 [void]$lootGame.Touch(0)
@@ -61,11 +63,11 @@ AssertRuinLoot ($lootGame.RuinLootSwap -and $lootGame.RuinLootChoices.Count -eq 
 AssertRuinLoot (!$lootGame.RuinLootSwap -and $lootGame.RuinHearts -eq 1 -and $lootGame.RuinChestRemaining($lootChest) -eq $stock - 1) 'Cancelling changes neither memory nor stock.'
 [void]$lootGame.Touch(1)
 [void]$lootGame.Touch(1)
-AssertRuinLoot ($lootGame.RuinInventory -eq 15 -and $lootGame.RuinHearts -eq 0 -and $lootGame.RuinPhones + $lootGame.RuinComputers -eq 15) 'A confirmed swap exchanges exactly one organ for one device.'
+AssertRuinLoot ($lootGame.RuinInventory -eq $capacity -and $lootGame.RuinHearts -eq 0 -and $lootGame.RuinPhones + $lootGame.RuinComputers -eq $capacity) 'A confirmed swap exchanges exactly one organ for one device.'
 AssertRuinLoot ($lootGame.RuinChestRemaining($lootChest) -eq $stock - 2) 'Only two confirmed pickups change the stock.'
 if ($lootGame.RuinLootOpen) {
     [void]$lootGame.Touch(1)
-    AssertRuinLoot (!$lootGame.RuinLootSwap -and $lootGame.RuinChestRemaining($lootChest) -eq $stock - 2) 'Fifteen locked devices cannot be discarded or exceeded.'
+    AssertRuinLoot (!$lootGame.RuinLootSwap -and $lootGame.RuinChestRemaining($lootChest) -eq $stock - 2) 'Ten locked devices cannot be discarded or exceeded.'
     for ($i=0; $i -lt $lootGame.RuinLootChoices.Count - 1; $i++) { [void]$lootGame.Touch(0) }
     [void]$lootGame.Touch(1)
 }
@@ -78,7 +80,7 @@ if ($stock -gt 2) {
 $lootReload = [Echoes.Journey]::new(995)
 AssertRuinLoot ($lootReload.Restore($lootGame.Checkpoint)) 'A stock checkpoint should load.'
 $reloadChest = $lootReload.RuinObjects | Where-Object Kind -eq 'Chest'
-AssertRuinLoot ($lootReload.RuinInventory -eq 15 -and $lootReload.RuinHearts -eq 0 -and $lootReload.RuinChestItemCount($reloadChest) -eq $stock -and
+AssertRuinLoot ($lootReload.RuinInventory -eq $capacity -and $lootReload.RuinHearts -eq 0 -and $lootReload.RuinChestItemCount($reloadChest) -eq $stock -and
     $lootReload.RuinChestRemaining($reloadChest) -eq $stock - 2) 'A different process seed must restore the same inventory, stock and released memory.'
 
 $looseGame = [Echoes.Journey]::new(88932)
@@ -88,11 +90,11 @@ $looseFinds = @(RuinFixtureObjects $looseGame)
 $looseBrain = $looseFinds | Where-Object Kind -eq 'Brain' | Select-Object -First 1
 $looseDevices = @($looseFinds | Where-Object Kind -in 'Phone','Computer')
 InvokeRuinFixture $looseGame 'RecordRuinPickup' @($looseBrain)
-for ($i=1; $i -le 14; $i++) { InvokeRuinFixture $looseGame 'RecordRuinPickup' @($looseDevices[$i]) }
+for ($i=1; $i -lt $capacity; $i++) { InvokeRuinFixture $looseGame 'RecordRuinPickup' @($looseDevices[$i]) }
 AssertRuinLoot (InvokeRuinFixture $looseGame 'OfferRuinLoot' @($looseDevices[0])) 'A loose device uses the same swap rules.'
 [void]$looseGame.Touch(1)
 [void]$looseGame.Touch(1)
-AssertRuinLoot (!$looseGame.RuinLootOpen -and $looseGame.RuinBrains -eq 0 -and $looseGame.RuinInventory -eq 15 -and $looseDevices[0].Collected) 'Confirming a loose-device swap records a locked pickup and releases only the chosen brain.'
+AssertRuinLoot (!$looseGame.RuinLootOpen -and $looseGame.RuinBrains -eq 0 -and $looseGame.RuinInventory -eq $capacity -and $looseDevices[0].Collected) 'Confirming a loose-device swap records a locked pickup and releases only the chosen brain.'
 
 $expandedGame = [Echoes.Journey]::new(22371)
 $expandedGame.SelectChapter(1)
@@ -115,9 +117,9 @@ $expandedHeart = $expandedFinds | Where-Object Id -eq 126
 $expandedTrade = $expandedFinds | Where-Object Id -eq 123
 InvokeRuinFixture $expandedGame 'RecordRuinPickup' @($expandedHeart)
 $fillDevices = $expandedFinds | Where-Object { $_.Kind -in 'Phone','Computer' -and $_ -ne $expandedTrade -and $_ -ne $topBitPhone } |
-    Select-Object -First 13
+    Select-Object -First ($capacity - 2)
 foreach ($device in $fillDevices) { InvokeRuinFixture $expandedGame 'RecordRuinPickup' @($device) }
-AssertRuinLoot ($expandedGame.RuinInventory -eq 15 -and (InvokeRuinFixture $expandedGame 'OfferRuinLoot' @($expandedTrade))) 'A high-ID cache uses the existing full-inventory swap menu.'
+AssertRuinLoot ($expandedGame.RuinInventory -eq $capacity -and (InvokeRuinFixture $expandedGame 'OfferRuinLoot' @($expandedTrade))) 'A high-ID cache uses the existing full-inventory swap menu.'
 [void]$expandedGame.Touch(1)
 AssertRuinLoot ($expandedGame.RuinLootSwap -and $expandedGame.RuinLootChoices[0].Slot -eq 126) 'The menu selects the high-ID heart explicitly.'
 [void]$expandedGame.Touch(1)
@@ -129,7 +131,7 @@ $expandedReload = [Echoes.Journey]::new(13)
 AssertRuinLoot ($expandedReload.Restore($expandedSave)) 'An expanded checkpoint should load with another process seed.'
 $expandedRestored = @(RuinFixtureObjects $expandedReload)
 $expandedRestoredTaken = @($expandedRestored | Where-Object { $_.Id -in 123,126,127 -and $_.Collected })
-AssertRuinLoot ($expandedRestoredTaken.Count -eq 3 -and $expandedReload.RuinInventory -eq 15 -and $expandedReload.RuinHearts -eq 0 -and
+AssertRuinLoot ($expandedRestoredTaken.Count -eq 3 -and $expandedReload.RuinInventory -eq $capacity -and $expandedReload.RuinHearts -eq 0 -and
     $expandedReload.Checkpoint.ruinFindsExtra -eq $expandedSave.ruinFindsExtra -and
     $expandedReload.Checkpoint.ruinReleasedMemoriesExtra -eq $expandedSave.ruinReleasedMemoriesExtra) 'Restoring preserves both expanded device locks and the consumed heart without returning it to inventory.'
 
@@ -144,6 +146,22 @@ AssertRuinLoot ($legacyReload.Restore($legacySave)) 'A version 7 collectibles ch
 $legacyRestored = $legacyReload.RuinObjects | Where-Object Id -eq 0
 AssertRuinLoot ($legacyRestored.Collected -and $legacyRestored.Kind -eq $legacyFind.Kind -and $legacyReload.RuinInventory -eq 1 -and
     $legacyReload.Checkpoint.ruinFindsExtra -eq 0 -and @($legacyReload.RuinObjects | Where-Object { $_.Id -ge 64 -and $_.Collected }).Count -eq 0) 'Old collection bits keep their original item and leave all expansion slots available.'
+
+$overstock = [Echoes.Journey]::new(312)
+$overstock.SelectChapter(1)
+$oldFinds = @(RuinFixtureObjects $overstock)
+$oldDevices = @($oldFinds | Where-Object Kind -in 'Phone','Computer' | Select-Object -First ($capacity - 1))
+$oldMemories = @($oldFinds | Where-Object Kind -in 'Heart','Brain' | Select-Object -First 5)
+$oldChest = $oldFinds | Where-Object ChestStyle -eq 0 | Select-Object -First 1
+foreach ($item in ($oldDevices + $oldMemories + @($oldChest))) { InvokeRuinFixture $overstock 'RecordRuinPickup' @($item) }
+$oldStock = $overstock.Checkpoint
+# This fixture emulates the old 15-slot inventory with nine loose devices, five memories and the first chest device.
+$oldStock.ruinChestLootTaken = 1
+$trimmed = [Echoes.Journey]::new(313)
+AssertRuinLoot ($trimmed.Restore($oldStock) -and $trimmed.RuinInventory -eq $capacity -and
+    $trimmed.RuinHearts -eq 0 -and $trimmed.RuinBrains -eq 0 -and $trimmed.Checkpoint.ruinChestLootTaken -eq 1) 'Legacy overflow keeps locked devices, including chest stock, before memories.'
+$trimmedObjects = @(RuinFixtureObjects $trimmed)
+AssertRuinLoot (@($trimmedObjects | Where-Object { $_.Id -in $oldMemories.Id -and !$_.Collected }).Count -eq 5) 'Excess memories are available at their original locations.'
 
 $maxReachGame = [Echoes.Journey]::new(52)
 $maxReachGame.SelectChapter(1)
