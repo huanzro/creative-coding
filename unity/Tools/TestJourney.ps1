@@ -330,12 +330,12 @@ $seed=$empty.Checkpoint.forestSeed
 $web=$empty.ForestFeatures | Where-Object Kind -eq Web | Select-Object -First 1
 FlyFlat $empty ($web.Depth - 6.5) .03 1
 FlyFlat $empty ($web.Depth - 4.2) .79 $web.Lane
-Assert ($web.Reveal -gt .15 -and $empty.Phase -eq 'ForestExplore') 'A center-height player sees the top web reveal without being caught.'
+Assert (!$web.Collected -and $empty.ForestThreatPulse -eq 0 -and $empty.Phase -eq 'ForestExplore') 'A player below the spider travels past its concealed route without revealing it.'
 FlyFlat $empty ($web.Depth + .4) .91 $web.Lane
 Assert ($empty.ForestTrap -eq 'Web' -and $empty.ForestWindFactor -gt 0 -and $empty.ForestHasRescue) 'A top approach reveals and triggers the canopy web.'
 $empty.Retry()
 Step $empty 9.48 0
-Assert ($empty.Phase -eq 'ForestFalling' -and $empty.ForestLights -eq 0) 'A final rescue frees the actor and then begins the uncontrolled fall.'
+Assert ($empty.Phase -eq 'ForestFalling' -and $empty.ForestLights -eq 0 -and $empty.ForestTrap -eq 'Web') 'The last rescue releases the sprite before the same spider returns in the defeat.'
 Step $empty 3.3 0
 Assert ($empty.Phase -eq 'ForestExplore' -and $empty.Distance -eq 0 -and $empty.ForestLights -eq 3 -and
     $empty.Checkpoint.forestSeed -ne $seed) 'Zero reserve restarts the forest with three lights and new hazard placements.'

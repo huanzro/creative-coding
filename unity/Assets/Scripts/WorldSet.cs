@@ -365,6 +365,7 @@ namespace Echoes
 
         public void Dispose()
         {
+            forestPredator?.Dispose();
             DisposeRuinTunnel();
             DisposeMachine();
             DisposeMaze();

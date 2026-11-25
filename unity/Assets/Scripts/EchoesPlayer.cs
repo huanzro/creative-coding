@@ -426,6 +426,7 @@ namespace Echoes
                 journey.TurnAroundForest();
                 break;
             }
+            journey.ForestChoiceInputHeld = Array.IndexOf(pendingTouch, true) >= 0;
         }
 
         private void Touch(int option, bool physical)

@@ -19,6 +19,7 @@ namespace Echoes
         private readonly RenderTexture target;
         private readonly CommandBuffer commands;
         private readonly SpiritModel model;
+        private ForestPredatorRig predator;
         private readonly GuestSpirit[] guests = new GuestSpirit[2];
         private readonly bool[] guestsLoaded = new bool[2];
         private GuestSpirit guest;
@@ -98,6 +99,9 @@ namespace Echoes
                 frame.touchAge == previous.touchAge && frame.touch == previous.touch &&
                 frame.turnAge == previous.turnAge && frame.releaseAge == previous.releaseAge &&
                 frame.chapter == previous.chapter && frame.openingTime == previous.openingTime &&
+                frame.forest == previous.forest && frame.forestTrap == previous.forestTrap &&
+                frame.forestSnareAge == previous.forestSnareAge && frame.forestFall == previous.forestFall &&
+                frame.forestDescent == previous.forestDescent &&
                 frame.cast == previous.cast && frame.fireflyPulse == previous.fireflyPulse) return;
             if (!target.IsCreated() && !target.Create()) return;
 
@@ -129,7 +133,14 @@ namespace Echoes
             }
             poseTint = tint;
             poseContact = contact;
-            RenderModel(Matrix4x4.identity, Vector3.zero, anchors, commands, opening ? .31f : .17f);
+            ForestPredatorShot encounter=ForestPredatorShot.Read(frame);
+            var center=new Vector3(0,1.16f,0);
+            RenderModel(encounter.Prey(center), Vector3.zero, anchors, commands, opening ? .31f : .17f);
+            if(encounter.Visible)
+            {
+                if(predator==null) predator=new ForestPredatorRig();
+                predator.DrawPortrait(encounter,center,commands);
+            }
             portraitCamera.Render();
             rendered = true;
             if (changedCast)
@@ -175,7 +186,8 @@ namespace Echoes
             Quaternion orientation = facing.HasValue ? Quaternion.Euler(0, facing.Value, 0) :
                 upright ? Quaternion.Euler(0, camera.transform.eulerAngles.y, 0) : camera.transform.rotation;
             Matrix4x4 transform = Matrix4x4.TRS(point,orientation,Vector3.one*scale)
-                * Matrix4x4.Translate(new Vector3(0,-1.16f,0));
+                * Matrix4x4.Translate(new Vector3(0,-1.16f,0))
+                * ForestPredatorShot.Read(previous).Prey(new Vector3(0,1.16f,0));
             RenderModel(transform,key,sceneAnchors,buffer,.20f);
         }
 
@@ -205,6 +217,7 @@ namespace Echoes
                 UnityEngine.Object.Destroy(portraitCamera.gameObject);
             }
             model?.Dispose();
+            predator?.Dispose();
             foreach (var guestModel in guests) guestModel?.Dispose();
             commands?.Dispose();
             if (target != null) { target.Release(); UnityEngine.Object.Destroy(target); }

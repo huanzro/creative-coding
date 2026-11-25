@@ -108,7 +108,7 @@ namespace Echoes
             openingTime = journey.IsOpening ? journey.OpeningTime : -1,
             closed = journey.Gesture == Hand.Fist,
             forest = journey.InForest, forestAirborne = journey.ForestAirborne,
-            forestMaze = journey.ForestMazeActive, forestMazeSpeed = journey.ForestMazeSpeed,
+            forestMaze = journey.ForestMazeActive, forestMazeSpeed = journey.LeftMazeApproach ? journey.ForestFlightSpeed : journey.ForestMazeSpeed,
             forestMazeHeading = journey.ForestMazeHeading, forestHeightCeiling = journey.ForestHeightLimit,
             forestMachineShaft = journey.InForest && journey.Section==ForestSection.Shaft,
             forestMachineHeart = journey.InForest && journey.Section==ForestSection.Heart,

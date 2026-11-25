@@ -4,9 +4,13 @@ namespace Echoes
 {
     internal sealed partial class WorldSet
     {
-        private const float MachineCenter = 11, DoorDepth = 179, ShaftDepth = 205, HeartDepth = 275;
-        private const float HeartFloorDrop = 18;
-        private const float DoorHeight = 7.42f, UpperDeck = 7.592f;
+        private const float MachineCenter = 11, HeartFloorDrop = 18;
+        private const float DoorDepth = Journey.MachineDoorDepth, ShaftDepth = Journey.MachineShaftDepth,
+            HeartDepth = Journey.MachineHeartDepth;
+        private const float UpperDeck = Journey.ForestMachineUpperFloor * 5.2f;
+        private const float StoreyHeight = 7.42f, RoofThickness = 1.04f, GalleryHalfWidth = 4.87f;
+        private const float OuterGateDepth = DoorDepth + 1.94f, InnerGateDepth = DoorDepth + 6.12f,
+            GalleryRevealDepth = DoorDepth + 3.87f;
         private static readonly Color Iron = new Color(.29f,.40f,.45f), Bronze = new Color(.62f,.40f,.24f),
             Coal = new Color(.105f,.16f,.20f), Circuit = new Color(.32f,.80f,.91f),
             HeartAmber = new Color(1f,.61f,.25f), PoolBlue = new Color(.49f,.56f,1f);
@@ -28,7 +32,7 @@ namespace Echoes
         }
 
         private Transform machineRoute, machineBrain, machineHeart, machineGearRoom, machineRobotRoom, machinePoolRoom;
-        private Transform pressDeck, hatchLeft, hatchRight, poolRipple, heartSeat, galleryShutter, heartSeed;
+        private Transform pressDeck, hatchLeft, hatchRight, poolRipple, heartSeat, heartSeed;
         private Transform leftHeartValve, rightHeartValve, heartTendon;
         private Transform leftCrusher, rightCrusher, crusherLight, poolSurface, irisLeft, irisRight, heartCore;
         private Transform[] heartCable, heartCableInner;
@@ -43,6 +47,7 @@ namespace Echoes
         private readonly MeshRenderer[] returnPulses = new MeshRenderer[42];
         private readonly MeshRenderer[] heartCurrent = new MeshRenderer[14];
         private readonly Transform[] threshold = new Transform[3], crashPanel = new Transform[3];
+        private readonly Transform[] galleryShutter = new Transform[9], galleryBulkhead = new Transform[9];
         private readonly Vector3[] doorFrameCentres = new Vector3[3];
 
         public static float MachineFloor(float depth) => -HeartFloorDrop*Ease(ShaftDepth,HeartDepth,depth);
@@ -75,14 +80,15 @@ namespace Echoes
                 return true;
             }
 
+            float gallery=Ease(InnerGateDepth,InnerGateDepth+3.2f,depth)*(1-Ease(ShaftDepth-6,ShaftDepth-2,depth));
             float slope=Ease(ShaftDepth-1.3f,ShaftDepth+5,depth);
             float opening=Ease(HeartDepth-7,HeartDepth-1,depth);
-            float distance=Mathf.Lerp(Mathf.Lerp(3.68f,4.31f,slope),3.06f,opening);
+            float distance=Mathf.Lerp(Mathf.Lerp(3.68f+.79f*gallery,4.31f,slope),3.06f,opening);
             float cameraDepth=depth-distance;
             float floorBehind=MachinePoint(cameraDepth,actor.x-MachineCenter,UpperSupport(cameraDepth)).y;
-            float ride=Mathf.Max(actor.y+1.03f,floorBehind+1.24f);
+            float ride=Mathf.Max(actor.y+1.03f+.28f*gallery,floorBehind+1.24f);
             position=new Vector3(actor.x+.12f,ride,actor.z-distance);
-            focus=actor+new Vector3(0,Mathf.Lerp(.32f,-.45f,slope)+1.0f*opening,Mathf.Lerp(4.45f,3.91f,slope));
+            focus=actor+new Vector3(0,Mathf.Lerp(.32f+1.42f*gallery,-.45f,slope)+opening,Mathf.Lerp(4.45f,3.91f,slope));
             return true;
         }
 
@@ -167,10 +173,13 @@ namespace Echoes
             float depth = journey.Distance;
             bool inDoor = journey.Phase == Stage.ForestDoor;
             bool crossed = journey.Branch == ForestBranch.Right && depth >= DoorDepth && !inDoor;
-            machineBrain.gameObject.SetActive(crossed);
+            bool privateRoom=crossed && depth>=GalleryRevealDepth;
+            machineBrain.gameObject.SetActive(privateRoom);
             machineHeart.gameObject.SetActive(crossed && depth>=HeartDepth-16);
-            float hatchLift=crossed?Ease(DoorDepth,DoorDepth+2.25f,depth):0;
-            galleryShutter.localPosition=Vector3.up*(5.76f*hatchLift);
+            float hatchLift=crossed?Ease(DoorDepth,OuterGateDepth+.06f,depth):0;
+            float bulkheadLift=privateRoom?Ease(GalleryRevealDepth+.30f,InnerGateDepth+.06f,depth):0;
+            PoseGalleryGate(galleryShutter,hatchLift);
+            PoseGalleryGate(galleryBulkhead,bulkheadLift);
 
             machineGearRoom.gameObject.SetActive(inDoor && journey.ForestDoor == 0);
             machineRobotRoom.gameObject.SetActive(inDoor && journey.ForestDoor == 1);
@@ -185,13 +194,28 @@ namespace Echoes
                     Light(doorwayNodes[i*2+light],Color.Lerp(Circuit,HeartAmber,open),.11f+.47f*open);
             }
             if (inDoor) AnimateMachineDoor(journey,time,actor);
-            if (crossed) AnimateMachineInterior(journey,time,actor);
+            if (privateRoom) AnimateMachineInterior(journey,time,actor);
         }
 
         private static Vector3 MachinePoint(float depth,float x = 0,float y = 0)
         {
             float worldX = MachineCenter + x, z = depth + 25;
             return new Vector3(worldX,Ground(worldX,z)+MachineFloor(depth)+y,z);
+        }
+
+        private static Vector3 GalleryPoint(float depth,float x,float y) =>
+            MachinePoint(depth,0,UpperDeck+y)+Vector3.right*x;
+
+        private static void PoseGalleryGate(Transform[] bands,float lift)
+        {
+            for(int i=0;i<bands.Length;i++)
+            {
+                float closed=(i+.5f)*StoreyHeight/bands.Length;
+                float pocket=StoreyHeight+.52f;
+                float height=Mathf.Min(pocket,closed+lift*(StoreyHeight+.60f));
+                float intoRoof=Ease(pocket-.27f,pocket,height);
+                bands[i].localPosition=new Vector3(0,height,intoRoof*(.16f+(bands.Length-1-i)*.17f));
+            }
         }
 
         private Transform MachinePart(string name,WorldMesh geometry,Material material,Transform parent) =>
@@ -294,13 +318,13 @@ namespace Echoes
                 for (int side=-1;side<=1;side+=2)
                 {
                     float xPost = side*.94f;
-                    slabs.Box(at+new Vector3(xPost,DoorHeight*.49f,.17f),new Vector3(.37f,DoorHeight,.94f),
+                    slabs.Box(at+new Vector3(xPost,StoreyHeight*.5f,.17f),new Vector3(.37f,StoreyHeight,.94f),
                         Quaternion.identity,Iron);
-                    slabs.Box(at+new Vector3(xPost,DoorHeight-.31f,-.16f),new Vector3(.39f,.41f,.83f),
+                    slabs.Box(at+new Vector3(xPost,StoreyHeight-.26f,-.16f),new Vector3(.39f,.41f,.83f),
                         Quaternion.Euler(0,0,side*31),Bronze);
                     slabs.Box(at+new Vector3(xPost,.21f,-.43f),new Vector3(.47f,.46f,.31f),Quaternion.identity,Coal);
-                    slabs.Box(at+new Vector3(xPost+side*.16f,DoorHeight*.42f,-.21f),
-                        new Vector3(.095f,DoorHeight*.72f,.36f),Quaternion.identity,WorldMesh.Shade(Bronze,.81f));
+                    slabs.Box(at+new Vector3(xPost+side*.16f,StoreyHeight*.42f,-.21f),
+                        new Vector3(.095f,StoreyHeight*.72f,.36f),Quaternion.identity,WorldMesh.Shade(Bronze,.81f));
                     for(int rivet=0;rivet<8;rivet++)
                     {
                         Vector3 bolt=at+new Vector3(xPost+side*.13f,.53f+rivet*.81f,-.425f);
@@ -312,22 +336,22 @@ namespace Echoes
                     node.transform.SetParent(machineRoute,false);
                     doorwayNodes[door*2+(side==1?1:0)]=node;
                 }
-                slabs.Box(at+new Vector3(0,DoorHeight-.22f,.08f),new Vector3(2.05f,.58f,.98f),Quaternion.identity,Iron);
-                slabs.Box(at+new Vector3(0,DoorHeight-.42f,-.42f),new Vector3(1.60f,.19f,.21f),Quaternion.identity,
+                slabs.Box(at+new Vector3(0,StoreyHeight+.18f,.08f),new Vector3(2.05f,.36f,.98f),Quaternion.identity,Iron);
+                slabs.Box(at+new Vector3(0,StoreyHeight+.12f,-.42f),new Vector3(1.60f,.19f,.21f),Quaternion.identity,
                     WorldMesh.Shade(Bronze,.74f));
                 var panel=Geometry();
-                panel.Box(new Vector3(0,3.56f,1.72f),new Vector3(1.78f,7.27f,.25f),
+                panel.Box(new Vector3(0,StoreyHeight*.5f,1.72f),new Vector3(1.78f,StoreyHeight+.09f,.25f),
                     Quaternion.identity,new Color(.022f,.030f,.042f));
                 for(int louvre=0;louvre<13;louvre++)
                 {
-                    Vector3 section=new Vector3(0,.48f+louvre*.49f,1.55f);
+                    Vector3 section=new Vector3(0,.38f+louvre*.55f,1.55f);
                     panel.Box(section,new Vector3(1.65f,.08f,.21f),Quaternion.Euler(12,0,0),
                         WorldMesh.Shade(Iron,.50f+.12f*Mathf.Sin(louvre*1.4f)));
                 }
                 crashPanel[door]=MachinePart("Recess behind portal",panel,stone,machineRoute);
-                Cog(slabs,at+new Vector3(0,DoorHeight-.45f,-.59f),.24f,.11f,9,Quaternion.identity,Bronze);
+                Cog(slabs,at+new Vector3(0,StoreyHeight+.26f,-.59f),.24f,.11f,9,Quaternion.identity,Bronze);
                 var sill=Geometry();
-                sill.Box(new Vector3(0,.015f,-.29f),new Vector3(1.68f,.068f,.28f),Quaternion.identity,Bronze);
+                sill.Box(new Vector3(0,-.034f,-.29f),new Vector3(1.68f,.068f,.28f),Quaternion.identity,Bronze);
                 threshold[door]=MachinePart("Tilting portal sill",sill,stone,machineRoute);
             }
 
@@ -383,33 +407,23 @@ namespace Echoes
                 }
                 jacket.Tube(rim,widths,12,WorldMesh.Shade(Bronze,.84f));
             }
-            var brow=MachinePoint(DoorDepth,.01f,UpperDeck-.26f);
-            rests.Box(brow+new Vector3(0,0,.36f),new Vector3(7.65f,.47f,1.76f),Quaternion.identity,
+            var brow=MachinePoint(DoorDepth,.01f,StoreyHeight+.097f);
+            rests.Box(brow+new Vector3(0,0,.36f),new Vector3(7.65f,.194f,1.76f),Quaternion.identity,
                 WorldMesh.Shade(Iron,.64f));
             for(int rib=0;rib<7;rib++)
             {
-                Vector3 brace=brow+new Vector3((rib-3)*.98f,-.12f,-.50f);
-                rests.Box(brace,new Vector3(.32f,.56f,.66f),Quaternion.Euler(19,0,0),
+                Vector3 brace=brow+new Vector3((rib-3)*.98f,.20f,-.50f);
+                rests.Box(brace,new Vector3(.32f,.34f,.66f),Quaternion.Euler(19,0,0),
                     WorldMesh.Shade(Bronze,.71f+.073f*rib));
             }
-            // The front of the upper floor is a blank continuation of the lower facade.
-            // The opaque counterweight clears only after the figure crosses the landing at roof height.
-            var concealment=Geometry();
-            Vector3 facade=MachinePoint(DoorDepth+1.86f,0,UpperDeck+2.46f);
-            concealment.Box(facade,new Vector3(12.15f,5.53f,1.33f),Quaternion.identity,
-                new Color(.22f,.27f,.25f));
-            for(int course=0;course<5;course++)
-            {
-                Vector3 seam=facade+new Vector3(0,-2.34f+course*1.035f,-.69f);
-                concealment.Box(seam,new Vector3(12.04f,.21f,.26f),Quaternion.identity,
-                    WorldMesh.Shade(Iron,.44f+.11f*Mathf.Sin(course*1.32f)));
-            }
-            galleryShutter=MachinePart("Opaque rock yoke above the three doors",concealment,stone,machineRoute);
+            BuildUpperEnvelope(rests);
+            BuildGalleryGate(galleryShutter,OuterGateDepth,true);
+            BuildGalleryGate(galleryBulkhead,InnerGateDepth,false);
             for(int side=-1;side<=1;side+=2)
             {
-                Vector3 buttress=MachinePoint(DoorDepth+2.76f,side*6.24f,UpperDeck+1.12f);
-                rests.Box(buttress,new Vector3(1.79f,6.30f,8.2f),Quaternion.identity,WorldMesh.Shade(Iron,.41f));
-                rests.Box(buttress+new Vector3(side*.28f,3.37f,-.11f),new Vector3(1.05f,.48f,8.34f),
+                Vector3 buttress=GalleryPoint(DoorDepth+2.76f,side*5.51f,3.29f);
+                rests.Box(buttress,new Vector3(1.17f,7.66f,8.2f),Quaternion.identity,WorldMesh.Shade(Iron,.41f));
+                rests.Box(buttress+new Vector3(side*.28f,4.16f,-.11f),new Vector3(1.05f,.48f,8.34f),
                     Quaternion.identity,WorldMesh.Shade(Bronze,.48f));
             }
             for(int side=-1;side<=1;side+=2)
@@ -442,6 +456,55 @@ namespace Echoes
             MachinePart("Root-gripped vault ribs",jacket,stone,machineRoute);
             MachinePart("Trees rooting into the vault",bark,wood,machineRoute);
             MachinePart("Canopy beyond the buried machine",canopy,leaves,machineRoute);
+        }
+
+        private void BuildGalleryGate(Transform[] bands,float depth,bool facade)
+        {
+            Transform frame=Group(facade?"Blank stone exterior":"Inner blackout bulkhead",machineRoute);
+            frame.localPosition=GalleryPoint(depth,0,0);
+            float stride=StoreyHeight/bands.Length;
+            for(int i=0;i<bands.Length;i++)
+            {
+                var geometry=Geometry();
+                Color face=facade?new Color(.22f,.27f,.25f):WorldMesh.Shade(Coal,.84f);
+                geometry.Box(Vector3.zero,new Vector3(2*GalleryHalfWidth+.49f,stride+.16f,.49f),Quaternion.identity,
+                    WorldMesh.Shade(face,.88f+.11f*Mathf.Sin(i*1.45f)));
+                if(facade)
+                {
+                    geometry.Box(new Vector3(0,-.28f,-.246f),new Vector3(2*GalleryHalfWidth+.44f,.17f,.16f),
+                        Quaternion.identity,WorldMesh.Shade(Iron,.42f+.085f*Mathf.Sin(i*1.33f)));
+                }
+                bands[i]=MachinePart(facade?"Overlapping cast stone course":"Unlit shutter slat",geometry,stone,frame);
+            }
+            PoseGalleryGate(bands,0);
+        }
+
+        private static void BuildUpperEnvelope(WorldMesh shell)
+        {
+            const float begin=DoorDepth-.84f, end=ShaftDepth+.16f;
+            const int spans=42;
+            float Depth(int z) => Mathf.Lerp(begin,end,z/(float)spans);
+            float Across(int x) => (x/8f-1)*GalleryHalfWidth;
+            Color Tarnish(Vector3 at) => WorldMesh.Shade(Coal,.78f+.23f*Mathf.PerlinNoise(at.z*.71f,at.x*.89f));
+
+            shell.Surface(16,spans,(x,z)=>GalleryPoint(Depth(z),Across(x),0),Tarnish,null);
+            shell.Surface(16,spans,(x,z)=>GalleryPoint(Depth(z),-Across(x),StoreyHeight-UpperDeck),Tarnish,null);
+            shell.Surface(16,spans,(x,z)=>GalleryPoint(Depth(z),-Across(x),StoreyHeight),Tarnish,null);
+            shell.Surface(16,spans,(x,z)=>GalleryPoint(Depth(z),Across(x),StoreyHeight+RoofThickness),Tarnish,null);
+            for(int side=-1;side<=1;side+=2)
+            {
+                int wallSide=side;
+                shell.Surface(16,spans,(y,z)=>GalleryPoint(Depth(z),wallSide*GalleryHalfWidth,
+                    Mathf.Lerp(-.51f,StoreyHeight+RoofThickness,(wallSide>0?y:16-y)/16f)),Tarnish,null);
+                shell.Surface(16,spans,(y,z)=>GalleryPoint(Depth(z),wallSide*(GalleryHalfWidth+.35f),
+                    Mathf.Lerp(-.51f,StoreyHeight+RoofThickness,(wallSide<0?y:16-y)/16f)),Tarnish,null);
+                shell.Box(GalleryPoint(ShaftDepth,side*4.20f,StoreyHeight*.50f),new Vector3(1.51f,StoreyHeight,.27f),
+                    Quaternion.identity,WorldMesh.Shade(Coal,.79f));
+                shell.Box(GalleryPoint(OuterGateDepth,side*GalleryHalfWidth,StoreyHeight*.50f),
+                    new Vector3(.49f,StoreyHeight+.34f,1.19f),Quaternion.identity,WorldMesh.Shade(Iron,.51f));
+            }
+            shell.Box(GalleryPoint(ShaftDepth,0,6.81f),new Vector3(7.22f,1.29f,.31f),
+                Quaternion.identity,WorldMesh.Shade(Coal,.78f));
         }
 
         private static void BuildMachineShoulder(WorldMesh mesh,float depth,int side)
@@ -699,13 +762,13 @@ namespace Echoes
             var glass = Geometry();
             var nerves = Geometry();
             var spine = Geometry();
-            BuildUpperDeck(housing,glass,nerves);
+            FurnishUpperGallery(housing,glass,nerves);
             BuildNeuralCanopy(glass,nerves);
             var sheath=new Vector3[returnPulses.Length];
             var widths=new float[sheath.Length];
             for(int i=0;i<sheath.Length;i++)
             {
-                float depth=Mathf.Lerp(HeartDepth+3.72f,184.9f,i/(sheath.Length-1f));
+                float depth=Mathf.Lerp(HeartDepth+3.72f,InnerGateDepth+4.4f,i/(sheath.Length-1f));
                 float back=Ease(0,1,i/(sheath.Length-1f));
                 float chamberLead=(1-Ease(.05f,.115f,back))*(1.43f+1.10f*Ease(0,.05f,back));
                 float height=2.23f+UpperSupport(depth)+.50f*back+chamberLead;
@@ -722,16 +785,16 @@ namespace Echoes
             {
                 Vector3 top=sheath[sheath.Length-1];
                 housing.Tube(new[]{top,top+new Vector3(side*1.05f,.18f,1.51f),
-                    MachinePoint(184.8f,side*3.22f,9.77f)},new[]{.13f,.16f,.20f},11,Bronze);
+                    GalleryPoint(InnerGateDepth+5.7f,side*3.22f,4.06f)},new[]{.13f,.16f,.20f},11,Bronze);
             }
             for (int side=-1;side<=1;side+=2)
             {
                 for (int lobe=0;lobe<8;lobe++)
                 {
-                    float depth=183.4f+lobe*2.17f;
-                    float crest=9.35f+.55f*Mathf.Sin(lobe*.70f);
-                    Vector3 basePosition=MachinePoint(depth,side*(3.18f+Mathf.Sin(lobe*.9f)*.31f),crest);
-                    glass.Rock(basePosition,new Vector3(1.20f,1.15f,1.62f),
+                    float depth=InnerGateDepth+.9f+lobe*2.24f;
+                    float crest=3.76f+.58f*Mathf.Sin(lobe*.70f);
+                    Vector3 basePosition=GalleryPoint(depth,side*(3.13f+Mathf.Sin(lobe*.9f)*.31f),crest);
+                    glass.Rock(basePosition,new Vector3(1.16f,1.51f,1.68f),
                         WorldMesh.Shade(lobe%2==0?PoolBlue:Circuit,.95f),lobe*.13f+side*.05f,10,14,.05f);
                     for (int groove=0;groove<3;groove++)
                     {
@@ -741,23 +804,23 @@ namespace Echoes
                         {
                             float angle = (p/(sweep.Length-1f)*1.25f+.23f*groove)*Mathf.PI;
                             sweep[p]=basePosition+new Vector3(Mathf.Cos(angle)*(1.14f+.1f*Mathf.Sin(p*.8f)),
-                                Mathf.Sin(angle)*1.12f + .067f*Mathf.Sin(p*.95f+groove),-.72f+groove*.63f+Mathf.Sin(angle*2)*.34f);
+                                Mathf.Sin(angle)*1.48f + .067f*Mathf.Sin(p*.95f+groove),-.72f+groove*.63f+Mathf.Sin(angle*2)*.34f);
                             width[p]=.013f+groove*.004f+.005f*Mathf.Sin(angle);
                         }
                         nerves.Tube(sweep,width,7,WorldMesh.Shade(Circuit,.58f+.15f*groove));
                     }
-                    Vector3 mounting=MachinePoint(depth,side*4.64f,UpperDeck+.26f);
-                    housing.Tube(new[]{mounting,mounting+new Vector3(0,1.21f,-.32f),basePosition+new Vector3(side*.72f,0,0)},
+                    Vector3 mounting=GalleryPoint(depth,side*4.63f,.26f);
+                    housing.Tube(new[]{mounting,mounting+new Vector3(0,2.11f,-.32f),basePosition+new Vector3(side*.72f,0,0)},
                         new[]{.17f,.14f,.21f},10,Iron);
                     housing.Box(mounting,new Vector3(.69f,1.03f,.73f),Quaternion.identity,Coal);
                 }
                 for (int lane=-1;lane<=1;lane++)
                 {
-                    Vector3 fil=MachinePoint(188.5f,side*3.05f,9.77f+lane*.35f);
+                    Vector3 fil=GalleryPoint(InnerGateDepth+6.87f,side*3.05f,3.68f+lane*.35f);
                     Vector3 outlet=MachinePoint(181,lane*LaneWidth,3.53f);
-                    Vector3 feeder=MachinePoint(185.8f,side*(4.06f+lane*.14f),8.28f);
-                    Vector3 throat=MachinePoint(183.5f,side*(3.87f+lane*.13f),6.72f);
-                    Vector3 below=MachinePoint(182.1f,side*(3.02f+lane*.21f),5.31f);
+                    Vector3 feeder=GalleryPoint(InnerGateDepth+4.98f,side*(4.06f+lane*.14f),1.56f);
+                    Vector3 throat=GalleryPoint(InnerGateDepth+1.70f,side*(3.87f+lane*.13f),-.72f);
+                    Vector3 below=MachinePoint(184.2f,side*(3.02f+lane*.21f),5.31f);
                     nerves.Tube(new[]{fil,feeder,throat,below,outlet},
                         new[]{.032f,.052f,.039f,.032f,.024f},7,Color.Lerp(PoolBlue,Circuit,(lane+1)*.38f));
                     Ring(housing,outlet,.21f,.041f,Bronze,Quaternion.Euler(84,0,0),13,1);
@@ -801,7 +864,7 @@ namespace Echoes
             MachinePart("Machine chambers and sloping deck",housing,stone,machineBrain);
             for(int i=0;i<brainPulses.Length;i++)
             {
-                float depth=Mathf.Lerp(181.7f,HeartDepth-1,i/(brainPulses.Length-1f));
+                float depth=Mathf.Lerp(InnerGateDepth+1.1f,HeartDepth-1,i/(brainPulses.Length-1f));
                 float side=i%2==0?-1:1;
                 float y=UpperSupport(depth)+1.43f+.24f*Mathf.Sin(i*.93f);
                 float width=depth<ShaftDepth?2.05f:2.67f;
@@ -817,13 +880,13 @@ namespace Echoes
                 int bank=side;
                 Vector3 Gyrus(float along,float around)
                 {
-                    float depth=Mathf.Lerp(183.7f,203.8f,along);
+                    float depth=Mathf.Lerp(InnerGateDepth+.33f,ShaftDepth-1.20f,along);
                     float end=Mathf.Pow(Mathf.Sin(Mathf.PI*along),.36f);
                     float turn=around*Mathf.PI*2;
                     float ridge=.12f*Mathf.Cos(turn*7+along*30)+.072f*Mathf.Sin(turn*13-along*22);
-                    float x=bank*3.08f+(1.26f+ridge)*Mathf.Cos(turn)*end;
-                    float y=UpperDeck+2.28f+(1.19f+ridge)*Mathf.Sin(turn)*end;
-                    return MachinePoint(depth,x,y);
+                    float x=bank*3.16f+(1.23f+ridge)*Mathf.Cos(turn)*end;
+                    float y=3.94f+(1.74f+ridge)*Mathf.Sin(turn)*end;
+                    return GalleryPoint(depth,x,y);
                 }
                 membrane.Surface(35,78,(u,v)=>Gyrus(.003f+.994f*v/78,1-u/35f),
                     vertex=>WorldMesh.Shade(bank<0?PoolBlue:Circuit,.59f+.13f*Mathf.Sin(vertex.z*.83f+vertex.y*1.2f)),null);
@@ -843,50 +906,48 @@ namespace Echoes
             }
         }
 
-        private static void BuildUpperDeck(WorldMesh housing,WorldMesh glass,WorldMesh nerves)
+        private static void FurnishUpperGallery(WorldMesh housing,WorldMesh glass,WorldMesh nerves)
         {
-            housing.Surface(16,62,(width,along)=>
-                    MachinePoint(Mathf.Lerp(DoorDepth-.29f,ShaftDepth+.05f,along/62f),(width/16f-.5f)*7.44f,UpperDeck-.032f),
-                at=>WorldMesh.Shade(at.z%3.4f<.91f?Iron:Coal,.74f+.18f*Mathf.PerlinNoise(at.x*1.8f,at.z*.82f)),null);
-            housing.Surface(10,35,(across,along)=>
-                    MachinePoint(Mathf.Lerp(DoorDepth+.2f,ShaftDepth+.12f,along/35f),
-                        (1-across/5f)*4.66f,UpperDeck+4.75f-.89f*Mathf.Pow((across-5)/5f,2)),
-                at=>WorldMesh.Shade(Iron,.47f+Mathf.PerlinNoise(at.z*.35f,at.x*.84f)*.24f),null);
-            const int bays=22;
+            const int bays=18;
             for(int slab=0;slab<bays;slab++)
             {
-                float depth=Mathf.Lerp(DoorDepth+.49f,ShaftDepth-.42f,slab/(bays-1f));
+                float depth=Mathf.Lerp(InnerGateDepth+.38f,ShaftDepth-.42f,slab/(bays-1f));
                 for(int side=-1;side<=1;side+=2)
                 {
-                    Vector3 rim=MachinePoint(depth,side*3.08f,UpperDeck+.10f);
-                    housing.Box(rim,new Vector3(.13f,.36f,1.19f),Quaternion.identity,WorldMesh.Shade(Bronze,.82f));
-                    housing.Box(rim+new Vector3(side*1.02f,.35f,0),new Vector3(.18f,1.04f,1.19f),Quaternion.identity,Coal);
-                    if(slab%2==0)
+                    Vector3 rim=GalleryPoint(depth,side*3.31f,.10f);
+                    housing.Box(rim,new Vector3(.16f,.28f,1.21f),Quaternion.identity,WorldMesh.Shade(Bronze,.82f));
+                    housing.Box(rim+new Vector3(side*.94f,.30f,0),new Vector3(.17f,.90f,1.21f),Quaternion.identity,Coal);
+                    if(slab%3==0)
                     {
-                        Vector3 wall=MachinePoint(depth,side*4.43f,UpperDeck+1.50f);
-                        housing.Box(wall+Vector3.right*side*.26f,new Vector3(.32f,3.16f,2.47f),Quaternion.identity,
-                            WorldMesh.Shade(Coal,.95f+.16f*Mathf.Sin(slab*1.28f)));
-                        glass.Box(wall,new Vector3(.10f,1.62f,1.26f),Quaternion.identity,WorldMesh.Shade(PoolBlue,.54f));
-                        housing.Box(wall+Vector3.up*.91f,new Vector3(.25f,.22f,1.28f),Quaternion.identity,Iron);
-                        housing.Box(wall+Vector3.down*.85f,new Vector3(.25f,.25f,1.28f),Quaternion.identity,Bronze);
+                        Vector3 wall=GalleryPoint(depth,side*4.62f,StoreyHeight*.48f);
+                        housing.Box(wall+Vector3.right*side*.16f,new Vector3(.30f,StoreyHeight*.64f,1.77f),Quaternion.identity,
+                            WorldMesh.Shade(Coal,.89f+.19f*Mathf.Sin(slab*1.24f)));
+                        glass.Box(wall,new Vector3(.13f,2.78f,1.36f),Quaternion.identity,WorldMesh.Shade(PoolBlue,.52f));
+                        housing.Box(wall+Vector3.up*1.47f,new Vector3(.25f,.22f,1.39f),Quaternion.identity,Iron);
+                        housing.Box(wall+Vector3.down*1.43f,new Vector3(.25f,.25f,1.39f),Quaternion.identity,Bronze);
                         for(int rung=0;rung<4;rung++)
-                            housing.Box(rim+new Vector3(side*(.23f+rung*.25f),-.08f,0),
-                                new Vector3(.067f,.13f,1.09f),Quaternion.identity,Iron);
+                            housing.Box(rim+new Vector3(side*(.21f+rung*.24f),-.08f,0),
+                                new Vector3(.062f,.13f,1.03f),Quaternion.identity,Iron);
                     }
-                    else
+                    if(slab%3==1)
                     {
-                        Vector3 pillar=MachinePoint(depth,side*4.40f,UpperDeck+1.54f);
-                        housing.Box(pillar,new Vector3(.31f,3.16f,.39f),Quaternion.Euler(0,0,side*-6),Iron);
-                        nerves.Box(rim+new Vector3(side*.03f,.23f,.18f),new Vector3(.12f,.040f,.42f),Quaternion.identity,
+                        Vector3 pillar=GalleryPoint(depth,side*4.58f,StoreyHeight*.50f);
+                        housing.Box(pillar,new Vector3(.53f,StoreyHeight,.46f),Quaternion.identity,Iron);
+                        housing.Box(pillar+new Vector3(-side*.22f,2.17f,0),new Vector3(.32f,1.36f,.58f),
+                            Quaternion.Euler(0,0,-side*17),WorldMesh.Shade(Bronze,.65f));
+                        housing.Box(pillar+new Vector3(0,-2.65f,0),new Vector3(.69f,.51f,.66f),
+                            Quaternion.identity,WorldMesh.Shade(Iron,.82f));
+                        nerves.Box(rim+new Vector3(side*.03f,.151f,.18f),new Vector3(.12f,.040f,.42f),Quaternion.identity,
                             WorldMesh.Shade(Circuit,.70f+slab*.021f));
                     }
                 }
                 if(slab%3==1)
                 {
-                    Vector3 crown=MachinePoint(depth,0,UpperDeck+3.8f);
-                    housing.Box(crown,new Vector3(8.64f,.29f,.32f),Quaternion.identity,WorldMesh.Shade(Iron,.71f));
-                    nerves.Box(crown+Vector3.down*.158f,new Vector3(3.5f,.023f,.22f),Quaternion.identity,
-                        Color.Lerp(PoolBlue,Circuit,slab/(float)bays));
+                    Vector3 crown=GalleryPoint(depth,0,StoreyHeight+.091f);
+                    housing.Box(crown,new Vector3(9.31f,.182f,.54f),Quaternion.identity,WorldMesh.Shade(Iron,.79f));
+                    for(int cell=-1;cell<=1;cell++)
+                        nerves.Box(crown+new Vector3(cell*1.93f,-.101f,0),new Vector3(1.76f,.023f,.26f),Quaternion.identity,
+                            Color.Lerp(PoolBlue,Circuit,slab/(float)bays));
                 }
             }
         }

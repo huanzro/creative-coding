@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace Echoes
 {
     public enum ForestMazeNodeKind { Entry, Corridor, Junction, DeadEnd, RootChamber }
-    public enum ForestMazeMotion { Walking, Choosing, WaitingAtWall, TurningBack, Retracing, FacingJunction, FacingPassage }
+    public enum ForestMazeMotion { Walking, Choosing, WaitingAtWall, TurningBack, Retracing, FacingJunction, FacingPassage, ApproachingWall }
 
     public sealed class ForestMazeNode
     {
@@ -46,6 +46,12 @@ namespace Echoes
     public sealed class ForestMaze
     {
         public const float MaximumSpeed = 3.4f;
+        public const float RoomRadius = 3.52f;
+        internal const float PassageHalf = 2.46f;
+        internal const float WallCenterRadius = RoomRadius - .17f;
+        internal const float WallThickness = .46f;
+        internal const float WallHeight = 4.64f;
+        internal const float WallContactRadius = WallCenterRadius - WallThickness / 2 - .25f;
 
         private readonly List<ForestMazeNode> nodes = new List<ForestMazeNode>();
         private readonly List<ForestMazeEdge> edges = new List<ForestMazeEdge>();
@@ -58,6 +64,62 @@ namespace Echoes
         public int RootChamber { get; private set; }
 
         public IReadOnlyList<ForestMazeEdge> Connections(int node) => connections[node];
+
+        internal float Heading(int from, int to) => (float)(Math.Atan2(
+            nodes[to].X - nodes[from].X, nodes[to].Z - nodes[from].Z) * 180 / Math.PI);
+
+        internal float ArrivalHeading(int node, int incoming) =>
+            incoming >= 0 ? Heading(incoming, node) : Heading(node, connections[node][0].Other(node));
+
+        internal void OrderedExits(int node, int incoming, out int left, out int right)
+        {
+            left = right = -1;
+            float approach = ArrivalHeading(node, incoming);
+            foreach (ForestMazeEdge edge in connections[node])
+            {
+                int next = edge.Other(node);
+                if (next == incoming) continue;
+                if (left < 0)
+                {
+                    left = next;
+                    continue;
+                }
+
+                float leftAngle = DeltaAngle(approach, Heading(node, left));
+                float nextAngle = DeltaAngle(approach, Heading(node, next));
+                if (nextAngle < leftAngle || nextAngle == leftAngle && next < left)
+                {
+                    right = left;
+                    left = next;
+                }
+                else right = next;
+            }
+        }
+
+        internal int ClosestExit(int node, float heading, int excluded)
+        {
+            int closest = -1;
+            float smallest = float.PositiveInfinity;
+            foreach (ForestMazeEdge edge in connections[node])
+            {
+                int next = edge.Other(node);
+                if (next == excluded) continue;
+                float angle = Math.Abs(DeltaAngle(heading, Heading(node, next)));
+                if (angle < smallest || angle == smallest && next < closest)
+                {
+                    smallest = angle;
+                    closest = next;
+                }
+            }
+            return closest;
+        }
+
+        internal static float DeltaAngle(float current, float target)
+        {
+            float delta = (target - current + 180) % 360;
+            if (delta < 0) delta += 360;
+            return delta - 180;
+        }
 
         public ForestMaze(int seed)
         {

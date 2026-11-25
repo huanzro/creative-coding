@@ -19,12 +19,12 @@ namespace Echoes
         private readonly List<Mesh> mazeMeshes = new List<Mesh>();
         private readonly MeshRenderer[] mazeRootSignals = new MeshRenderer[2];
         private readonly List<MeshRenderer> mazeBeacons = new List<MeshRenderer>();
-        private Transform forkGround, mazeArchitecture;
+        private Transform forkGround, mazeArchitecture, mazeEntryGate;
         private ForestMaze mazeLayout;
         private Material mazeWater;
 
-        private const float RoomRadius = 3.52f;
-        private const float PassageHalf = 2.46f;
+        private const float RoomRadius = ForestMaze.RoomRadius;
+        private const float PassageHalf = ForestMaze.PassageHalf;
 
         private sealed class MazeFabric
         {
@@ -58,6 +58,8 @@ namespace Echoes
             if (mazeArchitecture != null) mazeArchitecture.gameObject.SetActive(layout != null);
             if (layout == null) return;
 
+            if (mazeEntryGate != null)
+                mazeEntryGate.localPosition = Vector3.up * ((1 - journey.ForestMazeGateClosure) * (ForestMaze.WallHeight + .4f));
             if (mazeWater != null) mazeWater.SetFloat(CurrentTime, time);
             for (int i = 0; i < mazeBeacons.Count; i++)
                 Light(mazeBeacons[i], PaleVein, .68f + .18f * Mathf.Sin(time * 1.7f + i * 1.39f));
@@ -87,6 +89,7 @@ namespace Echoes
             mazeMeshes.Clear();
             mazeBeacons.Clear();
             mazeArchitecture = null;
+            mazeEntryGate = null;
             mazeLayout = null;
         }
 
@@ -123,8 +126,10 @@ namespace Echoes
                     float depth = 105 + z * .57f;
                     float fork = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(112, 124, depth));
                     float width = Mathf.Lerp(.50f, 2.12f, fork);
-                    float px = side * (1.65f + 9.35f * fork) + (x / 6f - 1) * width;
-                    return Landscape(px, MazeStart + depth, .013f);
+                    float center = side > 0 ? 1.65f + 9.35f * fork : MazeApronX(depth);
+                    float px = center + (x / 6f - 1) * width;
+                    return side > 0 ? Landscape(px, MazeStart + depth, .013f) :
+                        new Vector3(px, MazeApronFloor(px, MazeStart + depth) + .023f, MazeStart + depth);
                 }, p => WorldMesh.Shade(side < 0 ? new Color(.24f, .30f, .27f) : new Color(.34f, .30f, .23f),
                     .78f + .22f * Mathf.PerlinNoise(p.x * 4.4f, p.z * 2.1f)), null);
                 for (int i = 0; i < 12; i++)
@@ -142,6 +147,79 @@ namespace Echoes
             MazePiece("Diverging wet and dry tracks", trail, stone, forkGround);
             MazePiece("Weathered roots between both tracks", roots, wood, forkGround);
             MazePiece("Trees framing the fork", foliage, leaves, forkGround);
+            BuildMazeApron();
+        }
+
+        private static float MazeApronX(float depth) => Journey.MazeApronCenter(depth) - 1.65f * Journey.MazeApronLaneWeight(depth);
+
+        internal static float MazeApronFloor(float x, float z)
+        {
+            float intoChannel = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(138.4f, 149, z));
+            return Mathf.Lerp(Ground(x, z), .45f, intoChannel);
+        }
+
+        private void BuildMazeApron()
+        {
+            var bank = Geometry();
+            var roots = Geometry();
+            var greenery = Geometry();
+            var water = Geometry();
+            var hardware = Geometry();
+            Vector3 At(float z, float offset, float rise)
+            {
+                float x = MazeApronX(z - MazeStart) + offset;
+                return new Vector3(x, MazeApronFloor(x, z) + rise, z);
+            }
+
+            bank.Surface(22, 35, (column, row) =>
+            {
+                float z = 137 + row * .344f;
+                float across = (column - 11) / 11f;
+                float x = Mathf.Lerp(3.01f, 3.3f, row / 35f) * across;
+                Vector3 point = At(z, x, .011f);
+                float shoulder = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(.65f, 1, Mathf.Abs(across)));
+                point.y = Mathf.Lerp(point.y, Ground(point.x, z) - .08f, shoulder);
+                return point;
+            }, point => Color.Lerp(new Color(.27f,.30f,.227f), new Color(.262f,.343f,.32f),
+                Mathf.InverseLerp(137,149,point.z)), null);
+
+            for (int side = -1; side <= 1; side += 2)
+            {
+                for (int i = 0; i < 9; i++)
+                {
+                    float z = 138.7f + i * 1.22f;
+                    float progress = Mathf.InverseLerp(138.7f,148.5f,z);
+                    float offset = side * Mathf.Lerp(3.05f,2.35f,progress);
+                    Vector3 here = At(z, offset, 0);
+                    float height = Mathf.Lerp(.24f,1.30f,progress);
+                    bank.Rock(here + Vector3.up * height * .29f,
+                        new Vector3(.58f,height, .79f), Color.Lerp(PollutedBark,WetConcrete,progress), i+side*.64f,4,8,.18f);
+                    Fern(greenery, At(z-.21f,offset+side*.58f,-.06f),Mathf.Lerp(1.18f,.48f,progress),side*i*1.8f);
+                    if (i % 2 == 0)
+                        Roots(roots,At(z-1.18f,offset+side*.64f,.46f+progress),here+Vector3.up*.055f,
+                            .30f+.18f*progress,.36f,i+side);
+                    if (i < 2) continue;
+                    Vector3 a = At(z-.8f,offset-side*.27f,.031f), b=At(z+.43f,offset-side*.27f,.031f);
+                    MazeFloor(water,a,b,Vector3.right,.26f,Color.Lerp(new Color(.10f,.22f,.178f), new Color(.23f,.46f,.339f),progress));
+                }
+            }
+
+            for (int i=0; i<3; i++)
+            {
+                float z = 144.4f+i*1.65f;
+                float crown = 6.35f-i*.46f;
+                Vector3 a=At(z+.1f,-3.08f,.10f), b=At(z+.22f,3.08f,.16f);
+                Vector3 high = At(z+.65f,-.45f,crown);
+                roots.Tube(new[] { a,At(z-.4f,-2.75f,3.4f),high,At(z+.1f,2.52f,4.3f),b },
+                    new[] { .76f,.64f,.39f,.45f,.57f },11,PollutedBark);
+            }
+            Vector3 pipe = At(145.7f,-3.10f,1.37f);
+            SpillPipe(hardware,hardware, pipe+new Vector3(-1.4f,1.2f,2.22f),pipe,.34f);
+            MazePiece("Forest floor merging into the drainage apron",bank,soil,forkGround);
+            MazePiece("Tangled canopy over the approach",roots,wood,forkGround);
+            MazePiece("Thinning fern bank",greenery,leaves,forkGround);
+            MazePiece("Runoff gathering at the path edges",water,glow,forkGround,.14f);
+            MazePiece("Exposed runoff pipe",hardware,stone,forkGround);
         }
 
         private void BuildPollutedMaze(ForestMaze maze)
@@ -169,6 +247,7 @@ namespace Echoes
             ports[maze.Entry].Add(new MazePort(Vector3.back, 0));
             foreach (ForestMazeNode node in maze.Nodes)
                 BuildMazeRoom(fabric,node,ports[node.Id]);
+            BuildMazeEntryGate(MazeNodePosition(maze.Nodes[maze.Entry]));
 
             ForestMazeNode end = maze.Nodes[maze.RootChamber];
             BuildMazeBasins(fabric,MazeNodePosition(end));
@@ -429,13 +508,16 @@ namespace Echoes
             {
                 Vector3 facing = -ports[0].Heading, tangent=Vector3.Cross(Vector3.up,facing);
                 Quaternion turn = Quaternion.LookRotation(facing);
-                Vector3 back = center+facing*(radius-.17f);
+                Vector3 back = center + facing * ForestMaze.WallCenterRadius;
+                fabric.Concrete.Box(back + Vector3.up * (ForestMaze.WallHeight / 2),
+                    new Vector3(PassageHalf * 2, ForestMaze.WallHeight, ForestMaze.WallThickness),
+                    turn, WorldMesh.Shade(WetConcrete,.67f));
                 for (int i=0; i<5; i++)
                 {
                     float lateral = (i-2)*.76f;
-                    Vector3 column = back+tangent*lateral+Vector3.up*1.11f;
-                    fabric.Concrete.Box(column,new Vector3(.65f,2.48f,.43f),
-                        turn * Quaternion.Euler(i-2,0,(i-2)*-3),WorldMesh.Shade(WetConcrete,.71f+i*.045f));
+                    Vector3 panel = back + tangent * lateral - facing * .22f + Vector3.up * (ForestMaze.WallHeight / 2);
+                    fabric.Concrete.Box(panel, new Vector3(.67f, ForestMaze.WallHeight - .35f, .018f),
+                        turn, WorldMesh.Shade(WetConcrete,.71f+i*.045f));
                 }
                 WarningPlate(fabric.Iron,back+tangent*1.57f-facing*.6f,turn.eulerAngles.y,.66f);
             }
@@ -454,6 +536,31 @@ namespace Echoes
                         .46f,.29f,node.Id);
                 break;
             }
+        }
+
+        private void BuildMazeEntryGate(Vector3 center)
+        {
+            mazeEntryGate = Group("Weathered return floodgate", mazeArchitecture);
+            Vector3 floor = center + Vector3.back * ForestMaze.WallCenterRadius;
+            var door = new WorldMesh(mazeMeshes);
+            float height = ForestMaze.WallHeight;
+            door.Box(floor + Vector3.up * (height / 2),
+                new Vector3(2 * PassageHalf + .24f, height, ForestMaze.WallThickness),
+                Quaternion.identity, WorldMesh.Shade(WetConcrete,.65f));
+            for (int bay = -3; bay <= 3; bay++)
+            {
+                Vector3 strap = floor + new Vector3(bay * .68f, height / 2, ForestMaze.WallThickness / 2 - .03f);
+                door.Box(strap,new Vector3(.36f,height-.20f,.06f),Quaternion.identity,
+                    WorldMesh.Shade(Rust,.74f + (bay + 3) * .054f));
+            }
+            for (int joint = 1; joint <= 3; joint++)
+            {
+                Vector3 rail = floor + new Vector3(0,joint * height / 4,ForestMaze.WallThickness / 2 - .045f);
+                door.Box(rail,new Vector3(2 * PassageHalf + .20f,.16f,.09f),Quaternion.identity,
+                    WorldMesh.Shade(WetConcrete,.79f));
+            }
+            WarningPlate(door, floor + new Vector3(-1.05f,.75f,ForestMaze.WallThickness / 2 + .025f), 180, .74f);
+            MazePiece("Corroded panels sliding across the return vestibule",door,stone,mazeEntryGate);
         }
 
         private static Vector3 MazeRadial(int index,int sides)

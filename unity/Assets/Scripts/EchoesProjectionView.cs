@@ -39,6 +39,7 @@ namespace Echoes
             else
             {
                 float visibility = 1;
+                ForestPredatorShot predator=ForestPredatorShot.Read(frame);
                 if (frame.forest)
                 {
                     Vector2 axis = sideways ? Vector2.down : Vector2.right;
@@ -48,18 +49,39 @@ namespace Echoes
                     float swallowed = Mathf.Max(frame.forestFall, frame.forestDoorAge / Journey.ForestDoorDuration);
                     if (swallowed >= 0)
                     {
-                        Vector2 down = sideways ? Vector2.right * area.width : Vector2.up * area.height;
-                        center += down * (.20f * OpeningStoryboard.Ease(.08f,.81f,swallowed));
+                        if(frame.forestFall>=0)
+                        {
+                            Vector2 down = sideways ? Vector2.right * area.width : Vector2.down * area.height;
+                            float travel=frame.forestTrap==ForestTrapKind.Web
+                                ? -.15f*OpeningStoryboard.Ease(.43f,.84f,swallowed)
+                                : .12f*OpeningStoryboard.Ease(.65f,.94f,swallowed);
+                            center+=down*travel;
+                        }
+                        else
+                        {
+                            Vector2 retreat = sideways ? Vector2.right * area.width : Vector2.up * area.height;
+                            center += retreat * (.20f * OpeningStoryboard.Ease(.08f,.81f,swallowed));
+                        }
                         visibility = 1 - OpeningStoryboard.Ease(.64f,.96f,swallowed);
                         if (frame.forestDoor == 0 && frame.forestDoorAge >= 0)
                             bodySize *= Mathf.Lerp(1,.09f,OpeningStoryboard.Ease(.77f,.88f,swallowed));
                     }
                     if (frame.forestDescent >= 0)
                     {
-                        float descent = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(.44f, 1, frame.forestDescent));
-                        Vector2 down = sideways ? Vector2.right * area.width : Vector2.up * area.height;
-                        center += down * (.24f * descent);
+                        bool buried=frame.forestTrap==ForestTrapKind.Web || frame.forestTrap==ForestTrapKind.Maw;
+                        float descent=OpeningStoryboard.Ease(buried ? .64f : .44f,1,frame.forestDescent);
+                        Vector2 down=sideways ? Vector2.right * area.width :
+                            (buried ? Vector2.down : Vector2.up) * area.height;
+                        center += down * ((buried ? .16f : .24f) * descent);
                         visibility = 1 - Mathf.SmoothStep(0, 1, Mathf.InverseLerp(.68f, .98f, frame.forestDescent));
+                    }
+                    if (predator.Visible)
+                    {
+                        float safeX=Mathf.Min(bodySize*(sideways ? .56f : .43f),area.width*.46f);
+                        float safeY=Mathf.Min(bodySize*(sideways ? .43f : .56f),area.height*.46f);
+                        Vector2 inside=new Vector2(Mathf.Clamp(center.x,safeX,area.width-safeX),
+                            Mathf.Clamp(center.y,safeY,area.height-safeY));
+                        center=Vector2.Lerp(center,inside,predator.Enter);
                     }
                 }
                 if (frame.ruins)
@@ -74,7 +96,8 @@ namespace Echoes
                 }
                 if (!frame.forest || frame.forestDescent < 0)
                     DrawFlightTrail(frame, palette[Mathf.Clamp(frame.chapter, 0, 2)], 1, extent, area, bodySize, sideways);
-                DrawCharacter(frame, center, source, bodySize, mirror, sideways ? -90 : 0, extent, true, visibility, visibility);
+                DrawCharacter(frame, center, source, bodySize, mirror, sideways ? -90 : 0, extent, true, visibility,
+                    predator.Visible ? 1 : visibility);
                 if (frame.forest) DrawForestSwarm(frame, center, bodySize, mirror, sideways ? -90 : 0, visibility, true);
                 else if (!frame.ruins) DrawLiveHandoff(frame, center, bodySize, mirror, sideways ? -90 : 0, extent, visibility);
             }

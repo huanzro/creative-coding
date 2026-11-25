@@ -20,9 +20,6 @@ namespace Echoes
         public float Depth { get; }
         public float Altitude { get; }
         public bool Collected { get; internal set; }
-        public float Reveal { get; internal set; }
-        public bool Awakened { get; private set; }
-        private float warningTime;
 
         internal ForestFeature(int id, ForestFeatureKind kind, int lane, float depth, float altitude)
         {
@@ -49,22 +46,6 @@ namespace Echoes
         public float WorldY { get; internal set; }
         public float WorldZ { get; internal set; }
 
-        internal bool UpdateWarning(float dt, bool approaching)
-        {
-            if (approaching)
-            {
-                warningTime += dt;
-                Awakened = true;
-                Reveal = Math.Min(1, Reveal + dt / .23f);
-            }
-            else
-            {
-                warningTime = 0;
-                Reveal = Math.Max(0, Reveal - dt / .96f);
-                if (Reveal == 0) Awakened = false;
-            }
-            return warningTime >= .56f;
-        }
     }
 
     public sealed partial class Journey
@@ -140,10 +121,17 @@ namespace Echoes
         public float ForestCenter => ForestCenterAt(Distance);
         public float ForestFlightSpeed => !InForest || IsForestSequence || Phase == Stage.ForestPlanting ? 0 :
             ForestMazeActive ? ForestMazeSpeed : Section == ForestSection.Shaft ? 5.1f + 2.65f * Voice + ForestShaftProgress * .85f :
+            LeftMazeApproach ? Lerp(ForestAirborne ? 4.35f + 4.15f * Voice :
+                Voice >= .08f ? .9f + 2.5f * Voice : 0, LeftMazeApproachPace, ForestMazeApproachBlend) :
             ForestAirborne ? 4.35f + 4.15f * Voice :
             Section == ForestSection.Brain && Voice >= .08f ? .9f + 2.5f * Voice : 0;
+        public bool LeftMazeApproach => InForest && Branch == ForestBranch.Left && !ForestMazeActive;
+        public float ForestMazeApproachBlend => Branch == ForestBranch.Left ? Smooth((Distance - 115) / (MazeEntranceDepth - 115)) : 0;
+        private float LeftMazeApproachPace => MazeWalkScale * (Gesture == Hand.Fist ? 0 : ForestAirborne ? .92f + Voice * 2.48f :
+            Voice < .08f ? 0 : .75f + Voice * 2.65f);
         public float ForestShaftProgress => Branch==ForestBranch.Right ? Clamp((Distance-ShaftDepth)/(HeartDepth-ShaftDepth)) : 0;
         public float ForestHeightLimit => ForestMazeActive ? .69f :
+            LeftMazeApproach ? Lerp(1, .69f, ForestMazeApproachBlend) :
             Branch == ForestBranch.Right && Distance >= VestibuleDepth && Distance < ShaftDepth ? 1.72f : 1;
         public float ForestFlightFloor => InForest && Section == ForestSection.Brain ? ForestMachineUpperFloor : 0;
         public int ForestPlantsRequired => Branch == ForestBranch.Right ? 1 : 2;
@@ -187,10 +175,12 @@ namespace Echoes
 
         public float ForestCenterAt(float depth)
         {
-            float branch = Branch == ForestBranch.Left ? -1 : Branch == ForestBranch.Right ? 1 : 0;
-            if (branch == 0) return 0;
-            return branch * 11 * Smooth((depth - BranchDepth) / 12);
+            if (Branch == ForestBranch.Left) return MazeApronCenter(depth);
+            return Branch == ForestBranch.Right ? 11 * Smooth((depth - BranchDepth) / 12) : 0;
         }
+
+        internal static float MazeApronCenter(float depth) => -13.1f * Smooth((depth - BranchDepth) / (MazeEntranceDepth - BranchDepth));
+        internal static float MazeApronLaneWeight(float depth) => 1 - Smooth((depth - 114) / (MazeEntranceDepth - 114));
 
         public float ForestLoopOffset => 0;
 
@@ -302,7 +292,7 @@ namespace Echoes
             {
                 AddForestRun(random, 117, 159, 1);
                 AddForestFeature(ForestFeatureKind.Amber, 0, 164.2f, .37f);
-                AddForestFeature(ForestFeatureKind.Amber, -1, 188.8f, 1.09f);
+                AddForestFeature(ForestFeatureKind.Amber, -1, 188.8f, ForestMachineUpperFloor + .08f);
                 forestSites[0] = AddForestFeature(ForestFeatureKind.Plant, 0, HeartDepth, .05f);
             }
             for (int i = 0; i < forestSites.Length; i++)
@@ -427,7 +417,7 @@ namespace Echoes
             if (ForestMazeActive) AdvancePhysicalMaze(dt);
             else AdvanceForestFlight(dt);
             if (IsForestSequence) return;
-            CollectForestContacts(dt);
+            CollectForestContacts();
             if (Phase == Stage.ForestPlanting) PlantForestLight(dt);
         }
 
@@ -522,7 +512,7 @@ namespace Echoes
             ForestContactAltitude = feature.AltitudeAt(Time);
         }
 
-        private void CollectForestContacts(float dt)
+        private void CollectForestContacts()
         {
             foreach (ForestFeature feature in forestFeatures)
             {
@@ -556,19 +546,10 @@ namespace Echoes
                         bool web = feature.Kind == ForestFeatureKind.Web;
                         bool height = web ? Flight.Height >= (feature.InMaze ? .52f : .82f) : Flight.Height <= .19f;
                         float reach = web ? ForestWebRange : ForestMawRange;
-                        float radius = .94f * reach;
-                        bool approaching = lateral < 1.06f && ahead >= -Math.Max(1.35f,radius) &&
-                            ahead <= Math.Max(1.88f, ForestFlightSpeed * .65f + 1.10f);
-                        bool opening = approaching && !feature.Awakened;
-                        bool ready = feature.UpdateWarning(dt,approaching);
-                        if (opening)
-                        {
-                            ForestThreatPulse++;
-                            ForestThreatKind = feature.Kind;
-                        }
-                        if(!height) break;
-                        if (!ready || Time < forestProtectedUntil || Math.Abs(ahead) > radius || lateral > .32f * reach) break;
+                        if (!height || Time < forestProtectedUntil || Math.Abs(ahead) > .94f * reach || lateral > .32f * reach) break;
                         feature.Collected = true;
+                        ForestThreatPulse++;
+                        ForestThreatKind = feature.Kind;
                         BeginForestCapture(feature);
                         return;
                 }
@@ -615,7 +596,8 @@ namespace Echoes
 
         private void BeginForestFall()
         {
-            ForestTrap = forestRandom.Next(2) == 0 ? ForestTrapKind.Web : ForestTrapKind.Maw;
+            if (ForestTrap == ForestTrapKind.None)
+                ForestTrap = forestRandom.Next(2) == 0 ? ForestTrapKind.Web : ForestTrapKind.Maw;
             ForestTrapAltitude = Math.Max(Flight.Height, .01f);
             ForestTrapDepth = Distance;
             ForestTrapLane = ForestTargetLane;

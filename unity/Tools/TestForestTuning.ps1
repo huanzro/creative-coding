@@ -105,18 +105,26 @@ foreach ($kind in @('Web','Maw')) {
         $distance.SetValue($trial,[single]($trap.Depth-8))
         $trial.Flight.Reset(.42)
         $trial.Step(.02,0)
-        Assert ($trap.Reveal -eq 0 -and !$trap.Awakened) 'From a distance the full trap stays hidden.'
+        Assert (!$trap.Collected -and $trial.ForestThreatPulse -eq 0) 'From a distance the full trap stays hidden.'
 
-        for ($i=0; $i -lt 55 -and $trial.Phase -eq 'ForestExplore'; $i++) {
-            $distance.SetValue($trial,[single]($trap.Depth+.52))
-            $lane.SetValue($trial,[single]($trap.Lane+.27))
-            $trial.Flight.Reset($trap.Altitude)
-            $trial.Step(.02,0)
-            if ($i -eq 12) {
-                Assert ($trap.Reveal -gt .95 -and $trial.Phase -eq 'ForestExplore') 'The scare opens quickly and leaves a separate reaction window.'
-            }
+        $distance.SetValue($trial,[single]$trap.Depth)
+        $trial.Flight.Reset(.46)
+        $trial.Step(.02,0)
+        Assert (!$trap.Collected -and $trial.ForestThreatPulse -eq 0 -and $trial.Phase -eq 'ForestExplore') 'Passing at a safe height never wakes a predator.'
+
+        $distance.SetValue($trial,[single]($trap.Depth+.52))
+        $lane.SetValue($trial,[single]($trap.Lane+.27))
+        $trial.Flight.Reset($trap.Altitude)
+        $trial.Step(.02,0)
+        Assert ($trap.Collected -eq $wide -and ($trial.ForestThreatPulse -eq 1) -eq $wide -and
+                ($trial.Phase -eq 'ForestTrapped') -eq $wide) 'A scare and a committed capture happen on the same tick, only within the configured range of that predator.'
+        if ($wide) {
+            $trial.Touch(0) | Out-Null
+            $trial.SetHand([Echoes.Hand]::Fist)
+            $trial.Step(.02,1)
+            Assert ($trial.Phase -eq 'ForestTrapped' -and $trial.ForestThreatPulse -eq 1 -and
+                    $trial.ForestTrap -eq $kind) 'Steering away after the scare cannot leave a harmless visible predator.'
         }
-        Assert ($trap.Awakened -and ($trial.Phase -eq 'ForestTrapped') -eq $wide) 'Only the larger capture radius catches the same approach.'
     }
 }
-Write-Output 'Passed configurable maze pace, oriented turns, hidden traps and independent capture ranges.'
+Write-Output 'Passed configurable maze pace, oriented turns, committed hidden traps and independent capture ranges.'

@@ -306,7 +306,7 @@ namespace Echoes
             var ready = SpiritArm.Blend(Rest, Hold, closed);
             pose.left = SpiritArm.Blend(pose.left, ready, resting * (1 - sweep));
             pose.right = SpiritArm.Blend(pose.right, ready, resting * (1 - sweep));
-            float travelStep = frame.forestMaze ? Mathf.Clamp01(frame.forestMazeSpeed / 2.5f) : 0;
+            float travelStep = Mathf.Clamp01(frame.forestMazeSpeed / 2.5f);
             float stride = Mathf.Sin(frame.motionTime*Mathf.Lerp(8,13,travelStep)) * Mathf.Max(Mathf.Abs(steer),travelStep) * resting;
             pose.step += stride*.43f;
             pose.lift += .029f*Mathf.Abs(stride);
