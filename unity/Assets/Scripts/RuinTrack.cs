@@ -43,7 +43,9 @@ namespace Echoes
 
         public static RuinRouteFrame Frame(int room,float length,float depth) => Route(room,length).Frame(depth);
 
-        public static float DepthForMetres(int room,float length,float metres) => metres * length / Route(room,length).Metres;
+        public static float RouteMetresPerDepth(int room,float length) => Route(room,length).Metres / length;
+
+        public static float DepthForMetres(int room,float length,float metres) => metres / RouteMetresPerDepth(room,length);
 
         private static GalleryRoute Route(int room, float length)
         {
@@ -234,13 +236,16 @@ namespace Echoes
 
     internal sealed class RuinTrackConnection
     {
-        private readonly Vector3 a, b, c, d, entry, entryTangent;
-        private readonly Vector3 branch;
+        private readonly Vector3 a, b, c, d;
         private readonly int target;
         private readonly float targetLength;
         private readonly float overpassHeight;
-        private const int TravelSamples=160;
-        private float[] cumulative;
+        private const float MouthParameter=.22f, ArrivalParameter=.81f, ArrivalDepth=-3.7f;
+        private const int ApproachSamples=72, BoreSamples=48, CurveSamples=168, MergeSamples=96;
+        private const int TravelSamples=ApproachSamples+BoreSamples+CurveSamples+MergeSamples;
+        private static readonly float[] TravelParameters=BuildTravelParameters();
+        private readonly float[] cumulative = new float[TravelSamples+1];
+        private RuinRouteFrame preparedStart;
         public readonly Vector3 Entrance, OpeningForward;
 
         public RuinTrackConnection(int room,float length,RuinPortal portal,Vector2 opening,int targetRoom,float tLength)
@@ -248,19 +253,16 @@ namespace Echoes
             var mouthFrame=RuinTrack.Frame(room,length,portal.Depth);
             Entrance=mouthFrame.Point(opening.x,opening.y);
             OpeningForward=RuinTrack.PortalForward(mouthFrame,portal);
-            branch=OpeningForward;
             target=targetRoom;
             targetLength=tLength;
-            var arrival=RuinTrack.Frame(target,targetLength,-3.7f);
-            entry=arrival.Point(0,.42f);
-            entryTangent=arrival.Forward;
-            a=Entrance+branch*5.0f;
-            float gap=Vector3.Distance(a,entry);
+            var arrival=RuinTrack.Frame(target,targetLength,ArrivalDepth);
+            a=Entrance+OpeningForward*5f;
+            d=arrival.Point(0,.42f);
+            float gap=Vector3.Distance(a,d);
             float span=Mathf.Clamp(gap*.26f,9,36);
             overpassHeight=portal.Direction==RuinDirection.Left || portal.Direction==RuinDirection.Right ? 16 : 0;
-            b=a+branch*span;
-            d=entry;
-            c=d-entryTangent*Mathf.Clamp(gap*.20f,8,32);
+            b=a+OpeningForward*span;
+            c=d-arrival.Forward*Mathf.Clamp(gap*.20f,8,32);
         }
 
         private static Vector3 Cubic(Vector3 p,Vector3 q,Vector3 r,Vector3 s,float t)
@@ -272,62 +274,116 @@ namespace Echoes
         private Vector3 Along(float t)
         {
             if(t<=.07f) return Vector3.Lerp(Entrance,a,t/.07f);
-            if(t<.81f)
+            if(t<ArrivalParameter)
             {
-                float u=(t-.07f)/.74f;
+                float u=(t-.07f)/(ArrivalParameter-.07f);
                 // Ease the overpass onto the passage tangent before it climbs over the gallery.
                 float lift=overpassHeight*3*u*(1-u)*(1-u)*Mathf.SmoothStep(0,1,Mathf.Clamp01(u/.24f));
                 return Cubic(a,b,c,d,u)+Vector3.up*lift;
             }
-            float arrival=(t-.81f)/.19f;
-            return RuinTrack.Frame(target,targetLength,Mathf.Lerp(-3.7f,0,arrival)).Point(0,Mathf.Lerp(.42f,.54f+3.30f*.072f,arrival));
+            float arrival=Mathf.InverseLerp(ArrivalParameter,1,t);
+            float height=Mathf.SmoothStep(.42f,.54f+3.30f*Journey.RuinEntryAltitude,arrival);
+            return RuinTrack.Frame(target,targetLength,Mathf.Lerp(ArrivalDepth,0,arrival)).Point(0,height);
         }
 
         public RuinRouteFrame Frame(float t)
         {
             t=Mathf.Clamp01(t);
             Vector3 tangent=t==1 ? RuinTrack.Frame(target,targetLength,0).Forward :
-                t>=.81f ? RuinTrack.Frame(target,targetLength,Mathf.Lerp(-3.7f,0,(t-.81f)/.19f)).Forward :
-                Along(Mathf.Min(1,t+.001f))-Along(Mathf.Max(0,t-.001f));
+                Along(Mathf.Min(1,t+.0005f))-Along(Mathf.Max(0,t-.0005f));
             return new RuinRouteFrame(Along(t),tangent);
+        }
+
+        public float TravelMetres(RuinRouteFrame start)
+        {
+            PrepareTravel(start);
+            return cumulative[TravelSamples];
+        }
+
+        public float MouthMetres(RuinRouteFrame start)
+        {
+            PrepareTravel(start);
+            return cumulative[ApproachSamples];
+        }
+
+        public float GalleryMetres(RuinRouteFrame start)
+        {
+            PrepareTravel(start);
+            return cumulative[ApproachSamples+BoreSamples+CurveSamples];
+        }
+
+        private void PrepareTravel(RuinRouteFrame start)
+        {
+            if(cumulative[TravelSamples]>0 && preparedStart.Position==start.Position &&
+                preparedStart.Forward==start.Forward) return;
+
+            preparedStart=start;
+            Vector3 previous=start.Position;
+            for(int i=1;i<=TravelSamples;i++)
+            {
+                Vector3 p=SampleTravel(start,TravelParameters[i]).Position;
+                cumulative[i]=cumulative[i-1]+Vector3.Distance(previous,p);
+                previous=p;
+            }
+        }
+
+        private static float[] BuildTravelParameters()
+        {
+            // Sample the exact joins. Starting a new piece can change its parameter speed
+            // even though its physical heading and distance should remain continuous.
+            var result=new float[TravelSamples+1];
+            int index=0;
+            float from=0;
+            void Append(int count,float to)
+            {
+                for(int i=1;i<=count;i++)
+                    result[++index]=Mathf.Lerp(from,to,i/(float)count);
+                from=to;
+            }
+            Append(ApproachSamples,MouthParameter);
+            Append(BoreSamples,Mathf.Lerp(MouthParameter,1,.07f));
+            Append(CurveSamples,Mathf.Lerp(MouthParameter,1,ArrivalParameter));
+            Append(MergeSamples,1);
+            return result;
+        }
+
+        private float ParameterAt(float travelled)
+        {
+            int boundary=System.Array.BinarySearch(cumulative,travelled);
+            if(boundary>=0) return TravelParameters[boundary];
+            boundary=Mathf.Clamp(~boundary,1,TravelSamples);
+            float fraction=Mathf.InverseLerp(cumulative[boundary-1],cumulative[boundary],travelled);
+            return Mathf.Lerp(TravelParameters[boundary-1],TravelParameters[boundary],fraction);
         }
 
         public RuinRouteFrame Travel(RuinRouteFrame start,float progress,float distanceOffset=0)
         {
-            if(cumulative==null)
-            {
-                cumulative=new float[TravelSamples+1];
-                Vector3 previous=start.Position;
-                for(int i=1;i<=TravelSamples;i++)
-                {
-                    Vector3 p=SampleTravel(start,i/(float)TravelSamples).Position;
-                    cumulative[i]=cumulative[i-1]+Vector3.Distance(previous,p);
-                    previous=p;
-                }
-            }
-            float easing=Mathf.Lerp(progress,Mathf.SmoothStep(0,1,progress),.72f);
-            float length=cumulative[TravelSamples];
-            float travelled=easing*length+distanceOffset;
+            float length=TravelMetres(start);
+            float travelled=Mathf.Clamp01(progress)*length+distanceOffset;
             if(travelled<0) return new RuinRouteFrame(start.Position+start.Forward*travelled,start.Forward);
             if(travelled>length)
             {
                 var end=Frame(1);
                 return new RuinRouteFrame(end.Position+end.Forward*(travelled-length),end.Forward);
             }
-            int iHi=System.Array.BinarySearch(cumulative,travelled);
-            if(iHi>=0) return SampleTravel(start,iHi/(float)TravelSamples);
-            iHi=Mathf.Clamp(~iHi,1,TravelSamples);
-            float fraction=Mathf.InverseLerp(cumulative[iHi-1],cumulative[iHi],travelled);
-            return SampleTravel(start,(iHi-1+fraction)/TravelSamples);
+            return SampleTravel(start,ParameterAt(travelled));
+        }
+
+        public float ArrivalRoadDepth(RuinRouteFrame start,float travelled)
+        {
+            float arrival=ParameterAt(travelled);
+            return Mathf.Lerp(ArrivalDepth,0,Mathf.InverseLerp(Mathf.Lerp(MouthParameter,1,ArrivalParameter),1,arrival));
         }
 
         private RuinRouteFrame SampleTravel(RuinRouteFrame start,float progress)
         {
-            if(progress>=.22f) return Frame((progress-.22f)/.78f);
-            float t=Mathf.Clamp01(progress/.22f);
+            if(progress>=MouthParameter) return Frame(Mathf.InverseLerp(MouthParameter,1,progress));
+            float t=Mathf.Clamp01(progress/MouthParameter);
             Vector3 p=start.Position;
-            Vector3 q=p+start.Forward*Mathf.Clamp(Vector3.Distance(p,Entrance)*.35f,.6f,2.4f);
-            Vector3 r=Entrance-OpeningForward*1.75f;
+            float bend=Vector3.Distance(p,Entrance);
+            // Fit the handles to the starting gap so late turns do not overshoot the mouth.
+            Vector3 q=p+start.Forward*Mathf.Clamp(bend*.38f,.09f,4.25f);
+            Vector3 r=Entrance-OpeningForward*Mathf.Clamp(bend*.29f,.07f,2.05f);
             float v=1-t;
             Vector3 tangent= v*v*(q-p) + 2*v*t*(r-q) + t*t*(Entrance-r);
             return new RuinRouteFrame(Cubic(p,q,r,Entrance,t),tangent);

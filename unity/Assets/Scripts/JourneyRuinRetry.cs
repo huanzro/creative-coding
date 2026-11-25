@@ -116,7 +116,7 @@ namespace Echoes
         private bool ResumeRuinRetry()
         {
             if (!ruinRetryWall) return false;
-            RuinLane = RuinTargetLane = 0;
+            RuinLane = 0;
             Flight.Reset(.025f, RuinHeightLimit);
             Distance = RuinRetryWallDepth - WallStance;
             if (RuinRetryOutcome != RuinRetryResolution.None)
@@ -175,7 +175,7 @@ namespace Echoes
             RuinRetryWallDepth = at;
             ruinRetryWall = true;
             retryCollision = false;
-            RuinApproach = RuinGuide = null;
+            RuinApproach = null;
             Flight.FollowForestCourse(Flight.Height, .02f);
             SetRuinRetryPhase(RuinRetryPhase.Impact, "");
             Revision++;
@@ -197,7 +197,7 @@ namespace Echoes
         private void RetryRuinRetry()
         {
             retryDeparture = RuinRetryResolution.None;
-            RuinLane = RuinTargetLane = 0;
+            RuinLane = 0;
             RuinSteering = ruinSteeringSpeed = 0;
             Distance = RuinRetryWallDepth - WallStance;
             Flight.Reset(.025f, RuinHeightLimit);

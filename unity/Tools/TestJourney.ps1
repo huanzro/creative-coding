@@ -18,47 +18,47 @@ function Pose($game, $hand, $seconds, $voice) {
 }
 
 function RuinSteer($game, $lane) {
-    while ($game.RuinTargetLane -ne $lane) {
-        Assert ($game.Touch([int]($game.RuinTargetLane -lt $lane))) 'The tunnel accepts a lateral target.'
+    $game.SetHand([Echoes.Hand]::Open)
+    for ($i = 0; $i -lt 120 -and [Math]::Abs($game.RuinLane - $lane) -gt .11; $i++) {
+        $goLeft = $game.RuinLane -gt $lane
+        $game.SetRuinSteering($goLeft, !$goLeft)
+        $game.Step(.02, 0)
     }
+    $game.SetRuinSteering($false, $false)
+    Step $game .20 0
 }
 
 function FlyRuin($game, $depth, $height, $lane) {
     $game.SetHand([Echoes.Hand]::Open)
     RuinSteer $game $lane
-    for ($i = 0; $i -lt 3600 -and $game.Distance -lt $depth -and $game.Phase -eq 'RuinExplore' -and !$game.RuinGuide; $i++) {
-        if ($game.RuinLootOpen) {
-            while ($game.RuinLootChoices[$game.RuinLootIndex].Action -ne 'Leave') { [void]$game.Touch(0) }
-            [void]$game.Touch(1)
-        }
+    for ($i = 0; $i -lt 3600 -and $game.Distance -lt $depth -and $game.Phase -eq 'RuinExplore'; $i++) {
         $game.Flight.Reset($height, [Echoes.Journey]::RuinHeightLimit)
-        $game.Step(.02, .34)
+        $game.Step(.02, .46)
     }
 }
 
-function CrossRuin($game) {
-    Step $game .6 0
-    Assert ($game.Phase -eq 'RuinTransfer' -and $game.Progress -eq 0) 'A selected passage stays at its mouth in silence.'
-    for ($i = 0; $i -lt 240 -and $game.Phase -eq 'RuinTransfer'; $i++) { $game.Step(.02, .88) }
-    Assert ($game.Phase -eq 'RuinExplore') 'Voice carries the player into the next tunnel.'
+function CrossRuin($game, $voice = .52) {
+    for ($i = 0; $i -lt 1450 -and $game.Phase -eq 'RuinTransfer'; $i++) { $game.Step(.02, $voice) }
+    Assert ($game.Phase -eq 'RuinExplore') 'The selected passage reaches its target gallery.'
 }
 
 function FollowRuin($game, $portal, [switch]$AllowWall) {
-    FlyRuin $game ($portal.Depth + .10) $portal.Altitude $portal.Lane
+    FlyRuin $game ($portal.Depth - .32) 0 0
     if ($AllowWall -and $game.Phase -eq 'RuinRetry') { return }
-    Assert ($game.RuinCanChoosePassage -and $game.RuinApproach -eq $portal -and $game.Phase -eq 'RuinExplore') 'The branch is optional until its entry is chosen.'
-    [void]$game.Touch(1)
-    if ($portal.Gate -eq 'Palm' -and !$portal.Opened) {
-        Assert ($game.RuinGuide -eq $portal) 'A selected palm gate pauses at its prompt.'
-        Pose $game Fist .48 0
-        Pose $game Open .03 0
+    Assert ($game.Phase -eq 'RuinExplore') 'The branch stays optional until its directional input.'
+    switch ($portal.Direction.ToString()) {
+        'Left' { [void]$game.Touch(0) }
+        'Right' { [void]$game.Touch(1) }
+        'Upper' {
+            $game.Flight.Reset($portal.Altitude, [Echoes.Journey]::RuinHeightLimit)
+            $game.Step(.02, .34)
+        }
+        'Lower' {
+            $game.Flight.Reset(.46, [Echoes.Journey]::RuinHeightLimit)
+            Step $game .12 .34
+        }
     }
-    if ($portal.Gate -eq 'Voice' -and !$portal.Opened) {
-        Assert ($game.RuinGuide -eq $portal) 'A selected voice gate pauses at its prompt.'
-        Step $game .55 .30
-    }
-    Step $game .60 0
-    Assert ($game.Phase -eq 'RuinTransfer' -and $game.RuinEntrance -eq $portal) 'The chosen threshold starts its directional transition.'
+    Assert ($game.Phase -eq 'RuinTransfer' -and $game.RuinEntrance -eq $portal -and $portal.Opened) 'The direction opens the chosen passage directly.'
     CrossRuin $game
 }
 function Grant($game) {
@@ -435,63 +435,78 @@ Step $ruins .26 0
 $rest = $ruins.Distance
 Step $ruins 2 0
 Assert ($ruins.Distance -eq $rest -and $ruins.RuinForwardSpeed -eq 0) 'Silence brings travel to a full stop.'
-[void]$ruins.Touch(0)
-Step $ruins .8 0
-Assert ($ruins.RuinLane -lt -.8 -and $ruins.Distance -eq $rest) 'The player can inspect the sides while stopped.'
+$ruins.SetRuinSteering($true, $false)
+Step $ruins .29 0
+$ruins.SetRuinSteering($false, $false)
+Step $ruins .40 0
+$side = $ruins.RuinLane
+Assert ($side -lt -.27 -and $side -gt -.66 -and $ruins.Distance -eq $rest) 'A partial hold stops between the old lanes even without voice.'
+Step $ruins 1 0
+Assert ($ruins.RuinLane -eq $side) 'Release keeps the selected continuous lateral position.'
+$ruins.SetRuinSteering($false, $true)
+Step $ruins .68 0
+$ruins.SetRuinSteering($false, $false)
+Step $ruins .40 0
+Assert ($ruins.RuinLane -gt .35 -and $ruins.RuinLane -lt .85) 'Reversing also stops at an arbitrary intermediate position.'
+
 $ruins.Retry()
 $gate = $ruins.RuinPortals | Where-Object Gate -eq Palm
-FlyRuin $ruins $gate.Depth $gate.Altitude $gate.Lane
-Assert ($ruins.RuinApproach -eq $gate -and !$ruins.RuinGuide) 'A nearby locked gate is optional.'
-[void]$ruins.Touch(1)
-Assert ($ruins.RuinGuide -eq $gate -and !$gate.Opened) 'A closed side passage is encountered with an explicit guide.'
-Pose $ruins Fist .22 0
-Pose $ruins Open .03 0
-Assert (!$gate.Opened) 'A short shake does not consume the optional gesture.'
-Pose $ruins Fist .45 0
-Pose $ruins Open .03 0
-Assert ($gate.Opened -and $ruins.Cue -eq 'RuinDoor') 'A timed release opens the palm door.'
-Assert ($ruins.Touch(0)) 'A explicitly leaves the opened gate.'
-RuinSteer $ruins 0
-Step $ruins .8 0
-Assert ($ruins.Phase -eq 'RuinExplore' -and $ruins.RuinRoomId -eq 0) 'Turning away can skip even an unlocked branch.'
-$ruins.Retry()
-Assert (($ruins.RuinPortals | Where-Object Gate -eq Palm).Opened) 'Retry returns to the threshold and preserves opened doors.'
-FollowRuin $ruins $gate
-Assert ($ruins.RuinRoomId -eq 1 -and $ruins.RuinRoomStyle -eq 2 -and $ruins.RuinVisitedCount -eq 2) 'An optional side branch enters a distinct nested gallery.'
+FlyRuin $ruins ($gate.Depth - 3.2) 0 0
+Assert ($ruins.RuinApproach -eq $gate -and !$gate.Opened) 'A nearby side gate does not turn the character automatically.'
+$beforeTurn = $ruins.RuinForwardSpeed
+[void]$ruins.Touch(0)
+Assert ($ruins.RuinEntrance -eq $gate -and $ruins.Phase -eq 'RuinTransfer' -and $gate.Opened -and
+    $ruins.RuinPassageStartForwardSpeed -eq $beforeTurn -and $ruins.Progress -eq 0) 'A with a closed left portal nearby takes it directly with its existing motion.'
+$ruins.Step(.02, .46)
+Assert ([Math]::Abs($ruins.RuinForwardSpeed - $beforeTurn) -lt .09 -and $ruins.Progress -gt 0) 'The first transition frame preserves speed.'
+CrossRuin $ruins 0
+Assert ($ruins.RuinRoomId -eq 1 -and $ruins.RuinRoomStyle -eq 2 -and $ruins.RuinVisitedCount -eq 2) 'A left turn continues into a distinct gallery without another command.'
 $voiceGate = $ruins.RuinPortals | Where-Object Gate -eq Voice
 FollowRuin $ruins $voiceGate
-Assert ($ruins.RuinRoomId -eq 6 -and $ruins.RuinLayer -eq -2) 'A simple voice prompt gains access to another distinct layer.'
+Assert ($ruins.RuinRoomId -eq 6 -and $ruins.RuinLayer -eq -2) 'A roof action also opens a closed stylized gate.'
+
+$rightRoute = [Echoes.Journey]::new(92)
+$rightRoute.SelectChapter(1)
+$right = $rightRoute.RuinPortals | Where-Object Direction -eq Right
+FlyRuin $rightRoute ($right.Depth - 5.10) 0 0
+$rightRoute.RuinRightReach = .65
+[void]$rightRoute.Touch(1)
+Assert ($rightRoute.Phase -eq 'RuinExplore') 'A small right range does not capture the same distant input.'
+$rightRoute.RuinRightReach = 1.65
+Step $rightRoute .4 0
+[void]$rightRoute.Touch(1)
+Assert ($rightRoute.Phase -eq 'RuinTransfer' -and $rightRoute.RuinEntrance -eq $right -and
+    $rightRoute.RuinPassageStartForwardSpeed -eq 0 -and $rightRoute.Progress -eq 0) 'A larger right range accepts B while stopped and at a fractional offset.'
+$rightRoute.Step(.02, 0)
+Assert ($rightRoute.Progress -gt 0 -and $rightRoute.Progress -lt .005) 'A stationary turn eases into movement.'
+CrossRuin $rightRoute 0
 
 $ceilingRoute=[Echoes.Journey]::new(92)
 $ceilingRoute.SelectChapter(1)
 $top = $ceilingRoute.RuinPortals | Where-Object Direction -eq Upper
-Pose $ceilingRoute Open (($top.Depth - 7.0) / 3.20) .70
-for ($attempt = 0; $attempt -lt 14 -and $ceilingRoute.Phase -eq 'RuinExplore'; $attempt++) {
-    Pose $ceilingRoute Fist .18 .30
-    Pose $ceilingRoute Open .00 .30
-    for ($scan = 0; $scan -lt 18 -and $ceilingRoute.Phase -eq 'RuinExplore'; $scan++) {
-        $ceilingRoute.Step(.02,.30)
-        if ($ceilingRoute.RuinCanChoosePassage -and $ceilingRoute.RuinApproach -eq $top) { [void]$ceilingRoute.Touch(1) }
-    }
+FlyRuin $ceilingRoute ($top.Depth - 2.5) 0 0
+Pose $ceilingRoute Fist .22 0
+Assert ($ceilingRoute.Phase -eq 'RuinExplore') 'A fist while near the upper passage does not select it.'
+Pose $ceilingRoute Open 1.2 0
+if ($ceilingRoute.Phase -eq 'RuinExplore') {
+    Pose $ceilingRoute Fist .18 0
+    Pose $ceilingRoute Open 1.2 0
 }
 Assert ($ceilingRoute.Phase -eq 'RuinTransfer' -and $ceilingRoute.RuinEntrance -eq $top -and
-    $ceilingRoute.Flight.Height -ge .64) 'Actual repeated releases make the ceiling entrance reachable without a test altitude override.'
+    $ceilingRoute.RuinPassageStartAltitude -ge .45) 'Real hand releases enter the upper passage automatically without pressing B.'
 CrossRuin $ceilingRoute
 Assert ($ceilingRoute.RuinLayer -eq 1) 'A ceiling branch leads to an independent upper floor.'
 
 $floorRoute = [Echoes.Journey]::new(92)
 $floorRoute.SelectChapter(1)
 $low = $floorRoute.RuinPortals | Where-Object Direction -eq Lower
-FlyRuin $floorRoute ($low.Depth - 4.32) .46 0
-[void]$floorRoute.Touch(1)
-for ($i=0; $i -lt 50; $i++) {
-    $floorRoute.Flight.Reset(.46, [Echoes.Journey]::RuinHeightLimit)
-    $floorRoute.Step(.02, .34)
-    if ($floorRoute.RuinLane -gt .7 -and $floorRoute.RuinCanChoosePassage) { break }
-}
-Assert ($floorRoute.RuinLane -gt .4 -and $floorRoute.RuinCanChoosePassage -and $floorRoute.RuinApproach -eq $low) 'The upper edge of the floor opening accepts a lateral offset before its mouth.'
-[void]$floorRoute.Touch(1)
-Assert ($floorRoute.Phase -eq 'RuinTransfer' -and $floorRoute.RuinEntrance -eq $low) 'The widened lower opening accepts a glancing approach.'
+FlyRuin $floorRoute ($low.Depth - 2.55) 0 .53
+Step $floorRoute .40 0
+Assert ($floorRoute.Phase -eq 'RuinExplore' -and $floorRoute.Flight.Speed -eq 0) 'Being on the floor at a lower entrance does not count as falling.'
+$floorRoute.Flight.Reset(.47, [Echoes.Journey]::RuinHeightLimit)
+Step $floorRoute .12 0
+Assert ($floorRoute.Phase -eq 'RuinTransfer' -and $floorRoute.RuinEntrance -eq $low -and
+    $floorRoute.RuinPassageStartLane -gt .3 -and $floorRoute.RuinPassageStartVerticalSpeed -lt 0) 'Descending into the lower range captures the passage from a loose lateral approach.'
 CrossRuin $floorRoute
 
 $circuit = [Echoes.Journey]::new(44)
@@ -511,7 +526,7 @@ Assert ($resumed.Phase -eq 'Complete' -and $resumed.RuinRetryOutcome -eq 'Guided
 
 $heartbeat=[Echoes.Journey]::new(92)
 $heartbeat.SelectChapter(1)
-$heart = $heartbeat.RuinObjects | Where-Object Kind -eq Heart
+$heart = $heartbeat.RuinObjects | Where-Object Kind -eq Heart | Select-Object -First 1
 FlyRuin $heartbeat ($heart.Depth - 1.7) $heart.Altitude 0
 Assert (!$heart.Collected -and $heartbeat.RuinHeartAge -lt 0 -and $heart.Reveal -lt .2) 'From the center only a trace of an alcove is visible.'
 RuinSteer $heartbeat $heart.Lane
@@ -526,7 +541,7 @@ Assert ($heartbeat.RuinCanTake -and $heartbeat.RuinSearchTarget -eq $heart) 'Sto
 Assert ($heartbeat.RuinHearts -eq 1 -and $heart.Collected) 'The heart is taken only when explicitly picked up.'
 Assert ($heartbeat.Restore($heartSave)) 'The pre-pickup heart checkpoint restores.'
 $heardCue=$heartbeat.CueId
-$heart = $heartbeat.RuinObjects | Where-Object Kind -eq Heart
+$heart = $heartbeat.RuinObjects | Where-Object Kind -eq Heart | Select-Object -First 1
 FlyRuin $heartbeat ($heart.Depth - 1.3) $heart.Altitude $heart.Lane
 Assert ($heartbeat.RuinHeartAge -lt 0 -and $heartbeat.CueId -eq $heardCue) 'The scare stays consumed after a checkpoint restore.'
 FlyRuin $heartbeat $heart.Depth $heart.Altitude $heart.Lane
@@ -556,6 +571,7 @@ for ($room=0; $room -lt 16; $room++) {
         }
     }
 }
+Assert (($kinds.Values | Measure-Object -Sum).Sum -eq 112) 'Seven side caches in each of 16 galleries yield 112 loose finds.'
 Assert ($directions.Count -eq 4 -and $depths.Count -eq 7 -and $styles.Count -eq 10) 'The atlas has four voluntary entry directions, seven elevations and ten distinct chests.'
 Assert ($kinds.Phone -gt $kinds.Heart -and $kinds.Phone -gt $kinds.Brain -and $kinds.Computer -gt $kinds.Heart -and $kinds.Computer -gt $kinds.Brain) 'Both technological finds individually appear more frequently.'
 foreach ($start in 0..15) {

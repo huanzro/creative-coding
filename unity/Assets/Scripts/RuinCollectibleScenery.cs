@@ -6,7 +6,13 @@ namespace Echoes
     internal sealed partial class WorldSet
     {
         private const float RuinNicheLateral = 3.87f;
-        private readonly List<RuinNicheView> ruinNiches = new List<RuinNicheView>(3);
+        private static readonly Color[] RuinClueColors =
+        {
+            new Color(1f, .46f, .47f), new Color(.87f, .73f, 1f),
+            new Color(.45f, .88f, 1f), new Color(.53f, 1f, .78f)
+        };
+
+        private readonly List<RuinNicheView> ruinNiches = new List<RuinNicheView>(7);
         private readonly Dictionary<(RuinObjectKind, int), RuinNicheParts> ruinNicheMeshes =
             new Dictionary<(RuinObjectKind, int), RuinNicheParts>();
 
@@ -29,7 +35,7 @@ namespace Echoes
             }
         }
 
-        private void DrawRuinNiche(int slot, RuinObject item, RuinRouteFrame frame, Journey journey, float time)
+        private void DrawRuinNiche(int slot, RuinObject item, RuinRouteFrame frame, Journey journey, float time, float gap)
         {
             if (slot == ruinNiches.Count)
             {
@@ -70,9 +76,10 @@ namespace Echoes
             view.SeamRenderer.enabled = !item.Collected;
             if (item.Collected) return;
             Color roomLight = RuinGalleryAccentFor(journey.RuinRoomStyle, journey.RuinRoomId);
-            Color trace = Color.Lerp(roomLight, new Color(.75f, .88f, .93f), .53f);
-            float pulse = Mathf.Sin(time * 2.15f + item.Id * .79f);
-            Light(view.SeamRenderer, trace, .075f + .027f * pulse + .18f * item.Reveal);
+            Color trace = Color.Lerp(RuinClueColors[(int)item.Kind], roomLight, .22f);
+            float pulse = .5f + .5f * Mathf.Sin(time * 2.15f + item.Id * .79f);
+            float near = 1 - Mathf.SmoothStep(0, 1, (Mathf.Abs(gap) - 3.2f) / 7.2f);
+            Light(view.SeamRenderer, trace, .17f + near * (.28f + .18f * pulse) + .18f * item.Reveal);
         }
 
         private void HideRuinNichesFrom(int slot)
@@ -107,8 +114,10 @@ namespace Echoes
             Box(fittings, .06f, -.55f, -.17f, 1.36f, .13f, 1.44f, alloy, -4);
             Box(fittings, -.59f, -.02f, -.70f, .23f, 1.24f, .33f, alloy, -16);
             Box(fittings, -.62f, -.36f, -.85f, .27f, .23f, .19f, edge, -16);
-            Box(seam, -.68f, -.31f, -.952f, .086f, .024f, .012f, Color.white, -16);
-            Box(seam, -.57f, -.31f, -.922f, .041f, .012f, .012f, Color.white, -16);
+            Box(fittings, -.68f, -.36f, -.947f, .58f, .24f, .095f, recess, -16);
+            Box(seam, -.67f, -.322f, -1.002f, .39f, .048f, .024f, Color.white, -16);
+            Box(seam, -.77f, -.406f, -1.021f, .18f, .026f, .019f, Color.white, -16);
+            Box(seam, -.98f, -.341f, -.905f, .03f, .113f, .126f, Color.white, -16);
 
             // Different remnants of the archive were used to board up the four kinds of hiding place.
             switch (kind)

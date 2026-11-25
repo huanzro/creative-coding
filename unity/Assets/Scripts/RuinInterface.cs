@@ -28,33 +28,39 @@ namespace Echoes
                 ? $"上层 +{journey.RuinLayer}" : $"下层 {journey.RuinLayer}";
             Paint(new Rect(26, 130, 332, 35), InkGlass);
             GUI.Label(new Rect(43, 134, 310, 27), $"{level}   ·   {journey.RuinRoomName}", body);
-            if (journey.RuinSearchTarget != null && !journey.RuinLootOpen && !journey.RuinCanChoosePassage)
+            if (journey.Phase == Stage.RuinExplore && !journey.RuinLootOpen)
             {
-                Paint(new Rect(26, 173, 332, 32), InkGlass);
-                GUI.Label(new Rect(43, 176, 305, 26),
-                    journey.RuinCanTake ? journey.RuinTakeLabel : "靠近墙龛了，停声查看", body);
-            }
-            else if (journey.RuinCanChoosePassage && journey.RuinGuide == null)
-            {
-                string way;
-                switch (journey.RuinApproach.Direction)
+                const float firstHint = 173;
+                var portal = journey.RuinApproach;
+                if (portal != null)
                 {
-                    case RuinDirection.Left: way = "← 左侧弯道"; break;
-                    case RuinDirection.Right: way = "→ 右侧弯道"; break;
-                    case RuinDirection.Upper: way = "↑ 上行坡道"; break;
-                    default: way = "↓ 下行坡道"; break;
+                    var (way, action, tint) = portal.Direction switch
+                    {
+                        RuinDirection.Left => ("← 左侧弯道", "按 A 进入", GlassBlue),
+                        RuinDirection.Right => ("→ 右侧弯道", "按 B 进入", GlassBlue),
+                        RuinDirection.Upper => ("↑ 上行坡道", "张手进入", MemoryViolet),
+                        _ => ("↓ 下行坡道", "下降进入", Mint)
+                    };
+                    bool inReach = journey.RuinCanChoosePassage;
+                    DrawRuinHint(firstHint, way + "   ·   " + action, tint, inReach);
                 }
-                Paint(new Rect(26, 173, 332, 32), InkGlass);
-                GUI.Label(new Rect(43, 176, 305, 26), way + "   ·   B 进入", body);
-            }
-            if (journey.RuinGuide != null && journey.RuinGateCharge > 0)
-            {
-                Paint(new Rect(44, 116, 186, 3), Opacity(GlassBlue, .19f));
-                Paint(new Rect(44, 116, 186 * Mathf.Clamp01(journey.RuinGateCharge), 3), GlassBlue);
+                if (journey.RuinSearchTarget != null && (!journey.RuinCanChoosePassage || journey.RuinCanTake))
+                    DrawRuinHint(portal == null ? firstHint : firstHint + 36,
+                        journey.RuinCanTake ? journey.RuinTakeLabel : "靠近墙龛了，停声查看", Amber, journey.RuinCanTake);
+                else if (!journey.RuinCanChoosePassage && journey.RuinSearchTarget == null && journey.RuinNearbyClue is RuinObject clue)
+                    DrawRuinHint(portal == null ? firstHint : firstHint + 36,
+                        clue.Lane < 0 ? "← 左侧墙缝有微光" : "→ 右侧墙缝有微光", Amber, false);
             }
 
             if (journey.RuinLootOpen) DrawRuinLoot(journey);
             else if (journey.Phase == Stage.RuinRetry) DrawRuinRetry(journey);
+        }
+
+        private void DrawRuinHint(float y, string hint, Color tint, bool ready)
+        {
+            Paint(new Rect(26, y, 332, 32), InkGlass);
+            Paint(new Rect(26, y, 2, 32), Opacity(tint, ready ? .94f : .30f));
+            GUI.Label(new Rect(43, y + 3, 305, 26), hint, body);
         }
 
         private void DrawRuinLoot(Journey journey)

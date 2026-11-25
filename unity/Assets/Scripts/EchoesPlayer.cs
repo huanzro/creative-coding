@@ -39,15 +39,23 @@ namespace Echoes
         private const string MazeKey = "EchoesUnity.Forest.MazeScale";
         private const string WebKey = "EchoesUnity.Forest.WebRange";
         private const string MawKey = "EchoesUnity.Forest.MawRange";
+        private const string RuinLeftReachKey = "EchoesUnity.Ruins.LeftReach";
+        private const string RuinRightReachKey = "EchoesUnity.Ruins.RightReach";
+        private const string RuinUpperReachKey = "EchoesUnity.Ruins.UpperReach";
+        private const string RuinLowerReachKey = "EchoesUnity.Ruins.LowerReach";
         private const string BrightnessKey = "EchoesUnity.Projection.Brightness";
         private const string FalloffKey = "EchoesUnity.Projection.Falloff";
         private const string GradientKey = "EchoesUnity.Projection.Gradient";
         private bool projectionSettings, changedTuning;
+        private bool ruinSettings;
         private const float TurnHoldSeconds = .72f;
         private readonly float[] touchBegan = new float[4];
         private readonly bool[] pendingTouch = new bool[4];
+        private readonly bool[] heldTouch = new bool[4];
+        private readonly bool[] browserTouch = new bool[2];
         private Frame remote = new Frame();
-        private const string SaveKey = "EchoesUnity.Checkpoint.Ruins.7";
+        private const string SaveKey = "EchoesUnity.Checkpoint.Ruins.8";
+        private const string PreviousGallerySaveKey = "EchoesUnity.Checkpoint.Ruins.7";
         private const string PreviousCircuitSaveKey = "EchoesUnity.Checkpoint.Ruins.6";
         private const string PreviousRuinsSaveKey = "EchoesUnity.Checkpoint.Ruins.5";
         private const string PreviousSaveKey = "EchoesUnity.Checkpoint.3D.2";
@@ -93,6 +101,7 @@ namespace Echoes
             // Awake is not rerun when Unity reloads scripts during a Play Mode iteration.
             preview = Application.platform != RuntimePlatform.WebGLPlayer;
             view = new EchoesView();
+            journey.MeasureRuinPassage = MeasureRuinPassage;
             view.UseWorld = PlayerPrefs.GetInt("EchoesUnity.World3D", 1) != 0;
             view.ScreenBrightness = PlayerPrefs.GetFloat(BrightnessKey, ProjectionLighting.DefaultValue);
             view.ProjectionFalloff = PlayerPrefs.GetFloat(FalloffKey, ProjectionLighting.DefaultValue);
@@ -107,6 +116,10 @@ namespace Echoes
             journey.MazeWalkScale = PlayerPrefs.GetFloat(MazeKey, Journey.DefaultMazeWalkScale);
             journey.ForestWebRange = PlayerPrefs.GetFloat(WebKey, Journey.DefaultForestCaptureRange);
             journey.ForestMawRange = PlayerPrefs.GetFloat(MawKey, Journey.DefaultForestCaptureRange);
+            journey.RuinLeftReach = PlayerPrefs.GetFloat(RuinLeftReachKey, 1);
+            journey.RuinRightReach = PlayerPrefs.GetFloat(RuinRightReachKey, 1);
+            journey.RuinUpperReach = PlayerPrefs.GetFloat(RuinUpperReachKey, 1);
+            journey.RuinLowerReach = PlayerPrefs.GetFloat(RuinLowerReachKey, 1);
             savedRevision = journey.Revision;
             Application.targetFrameRate = 60;
 #if UNITY_EDITOR
@@ -258,6 +271,12 @@ namespace Echoes
 
         private void DrawSettings(GUIStyle label, GUIStyle button)
         {
+            if (ruinSettings)
+            {
+                if (GUI.Button(new Rect(354, 12, 148, 31), "返回游戏设置", button)) ruinSettings = false;
+                DrawRuinSettings(label, button);
+                return;
+            }
             if (GUI.Button(new Rect(354, 12, 148, 31), projectionSettings ? "返回游戏设置" : "投影校准", button))
                 projectionSettings = !projectionSettings;
             if (projectionSettings)
@@ -323,6 +342,7 @@ namespace Echoes
                 PlayerPrefs.Save();
             }
             GUI.Label(new Rect(20, 448, 285, 26), "森林 · 速度与捕捉范围", label);
+            if (GUI.Button(new Rect(325, 446, 177, 27), "遗迹入口范围", button)) ruinSettings = true;
             journey.ForestLateralScale = TuningSlider(473, "左右移速", LateralKey, journey.ForestLateralScale,
                 Journey.MinForestLateralScale, Journey.MaxForestLateralScale, label);
             journey.MazeWalkScale = TuningSlider(496, "迷宫行走速度", MazeKey, journey.MazeWalkScale,
@@ -331,6 +351,24 @@ namespace Echoes
                 Journey.MinForestCaptureRange, Journey.MaxForestCaptureRange, label);
             journey.ForestMawRange = TuningSlider(542, "食人花捕捉范围", MawKey, journey.ForestMawRange,
                 Journey.MinForestCaptureRange, Journey.MaxForestCaptureRange, label);
+        }
+
+        private void DrawRuinSettings(GUIStyle label, GUIStyle button)
+        {
+            const float minimum = Journey.RuinMinimumReach, maximum = Journey.RuinMaximumReach;
+            GUI.Label(new Rect(20, 14, 315, 28), "遗迹入口范围", label);
+            GUI.Label(new Rect(20, 54, 480, 52), "倍率越大，越早能从附近转入对应的岔道。四个方向可以分别调节。", label);
+            journey.RuinLeftReach = TuningSlider(112, "左侧 · 按 A", RuinLeftReachKey, journey.RuinLeftReach, minimum, maximum, label);
+            journey.RuinRightReach = TuningSlider(153, "右侧 · 按 B", RuinRightReachKey, journey.RuinRightReach, minimum, maximum, label);
+            journey.RuinUpperReach = TuningSlider(194, "上方 · 张手", RuinUpperReachKey, journey.RuinUpperReach, minimum, maximum, label);
+            journey.RuinLowerReach = TuningSlider(235, "下方 · 下降", RuinLowerReachKey, journey.RuinLowerReach, minimum, maximum, label);
+            if (!GUI.Button(new Rect(20, 288, 141, 30), "恢复默认", button)) return;
+            journey.RuinLeftReach = journey.RuinRightReach = journey.RuinUpperReach = journey.RuinLowerReach = 1;
+            PlayerPrefs.DeleteKey(RuinLeftReachKey);
+            PlayerPrefs.DeleteKey(RuinRightReachKey);
+            PlayerPrefs.DeleteKey(RuinUpperReachKey);
+            PlayerPrefs.DeleteKey(RuinLowerReachKey);
+            changedTuning = true;
         }
 
         private void DrawProjectionSettings(GUIStyle label, GUIStyle button)
@@ -447,7 +485,11 @@ namespace Echoes
         {
             liveHand = value == "open" ? Hand.Open : value == "closed" ? Hand.Fist : Hand.Missing;
             lastHandAt = Time.unscaledTime;
-            if (liveHand == Hand.Missing && !preview) journey.SetHand(Hand.Missing);
+            if (liveHand == Hand.Missing && !preview)
+            {
+                Array.Clear(browserTouch, 0, browserTouch.Length);
+                journey.SetHand(Hand.Missing);
+            }
         }
 
         public void BrowserVoice(string value)
@@ -477,11 +519,40 @@ namespace Echoes
             if (int.TryParse(value, out int option)) Touch(option, false);
         }
 
+        public void BrowserTouch(string value)
+        {
+            if (!int.TryParse(value, out int input) || input < 0 || input > 3) return;
+            int option = input / 2;
+            bool down = (input & 1) != 0;
+            if (!down)
+            {
+                browserTouch[option] = false;
+                return;
+            }
+            if (preview || paused || !inputReady || browserTouch[option]) return;
+            browserTouch[option] = true;
+            Touch(option, false);
+        }
+
+        private static RuinTransferMetrics MeasureRuinPassage(Journey game)
+        {
+            RuinPortal portal = game.RuinEntrance;
+            RuinTrackConnection path = WorldSet.RuinConnection(game, portal);
+            float distance = path.TravelMetres(WorldSet.RuinPassageStart(game));
+            float source = RuinTrack.RouteMetresPerDepth(game.RuinRoomId, game.RuinRoomLength);
+            float destination = RuinTrack.RouteMetresPerDepth(portal.TargetRoom, game.RuinRoomLengthFor(portal.TargetRoom));
+            return new RuinTransferMetrics(distance, source, destination);
+        }
+
         private void TrackTouch(int option, bool down, bool physical)
         {
             if (paused || !inputReady || !Application.isFocused)
             {
-                if (!down) pendingTouch[option + (physical ? 2 : 0)] = false;
+                if (!down)
+                {
+                    int index = option + (physical ? 2 : 0);
+                    pendingTouch[index] = heldTouch[index] = false;
+                }
                 return;
             }
             TrackReadyTouch(option,down,physical,Time.unscaledTime);
@@ -490,6 +561,8 @@ namespace Echoes
         private void TrackReadyTouch(int option, bool down, bool physical, float now)
         {
             int index = option + (physical ? 2 : 0);
+            if (heldTouch[index] == down) return;
+            heldTouch[index] = down;
             if (!down)
             {
                 bool turnBack = pendingTouch[index] && now - touchBegan[index] >= TurnHoldSeconds;
@@ -515,7 +588,13 @@ namespace Echoes
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
             physicalReady = exhibit.Ready;
 #endif
-            ResolveTouchHolds(now, active && keyboard, active && physicalReady);
+            bool nativeKeys = active && keyboard;
+            bool physicalTouches = active && physicalReady;
+            ResolveTouchHolds(now, nativeKeys, physicalTouches);
+            if (!active || preview) Array.Clear(browserTouch, 0, browserTouch.Length);
+            journey.SetRuinSteering(
+                nativeKeys && heldTouch[0] || physicalTouches && heldTouch[2] || browserTouch[0],
+                nativeKeys && heldTouch[1] || physicalTouches && heldTouch[3] || browserTouch[1]);
         }
 
         private void ResolveTouchHolds(float now, bool keyboardReady, bool physicalReady)
@@ -523,7 +602,8 @@ namespace Echoes
             bool allowTurn = journey.ForestCanTurnAround;
             for (int i = 0; i < pendingTouch.Length; i++)
             {
-                if (!allowTurn || !(i < 2 ? keyboardReady : physicalReady)) pendingTouch[i] = false;
+                if (!(i < 2 ? keyboardReady : physicalReady)) heldTouch[i] = false;
+                if (!allowTurn || !heldTouch[i]) pendingTouch[i] = false;
                 if (!pendingTouch[i] || now - touchBegan[i] < TurnHoldSeconds) continue;
                 Array.Clear(pendingTouch, 0, pendingTouch.Length);
                 journey.TurnAroundForest();
@@ -561,8 +641,9 @@ namespace Echoes
         public void Restore(string unused)
         {
             string save = PlayerPrefs.GetString(SaveKey,
-                PlayerPrefs.GetString(PreviousCircuitSaveKey,
-                    PlayerPrefs.GetString(PreviousRuinsSaveKey, PlayerPrefs.GetString(PreviousSaveKey, ""))));
+                PlayerPrefs.GetString(PreviousGallerySaveKey,
+                    PlayerPrefs.GetString(PreviousCircuitSaveKey,
+                        PlayerPrefs.GetString(PreviousRuinsSaveKey, PlayerPrefs.GetString(PreviousSaveKey, "")))));
             if (string.IsNullOrEmpty(save)) return;
             try
             {

@@ -137,7 +137,7 @@ namespace Echoes
             ruinLane = journey.RuinLane, ruinSteering = journey.RuinSteering,
             ruinHeartAge = journey.RuinHeartAge,
             ruinTransfer = journey.Phase == Stage.RuinTransfer ? journey.Progress : -1,
-            ruinUnlock = journey.RuinGateCharge,
+            ruinUnlock = journey.RuinDoorOpening,
             ruinFinds = NearbyRuinFinds(journey),
             releaseAge = Age(journey.PoseTime, journey.LastRelease, 2.2f),
             turnAge = Age(journey.PoseTime, journey.LastSpin, 1.35f),

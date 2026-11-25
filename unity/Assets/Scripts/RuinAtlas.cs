@@ -8,6 +8,10 @@ namespace Echoes
 
     public sealed class RuinPortal
     {
+        internal const float LeadDepth = 3.65f;
+        internal const float TailDepth = 1.22f;
+        internal const float MaximumReach = 1.65f;
+
         public int Id { get; }
         public float Depth { get; }
         public float Altitude { get; }
@@ -84,7 +88,15 @@ namespace Echoes
         internal const int RoomCount = 16;
         internal const int PassageSlots = 5;
         internal const int ObjectSlots = 4;
+        private const int ExtraFindsPerRoom = 4;
+        private const int FirstExtraFind = RoomCount * ObjectSlots;
         internal const int ExitRoom = 9;
+
+        private static readonly RuinObjectKind[] AdditionalFinds =
+        {
+            RuinObjectKind.Brain, RuinObjectKind.Computer, RuinObjectKind.Heart, RuinObjectKind.Phone
+        };
+        private static readonly float[] AdditionalFindFractions = { .109f, .335f, .560f, .825f };
         private static readonly (string name, int layer, int style, int length, int chest)[] Rooms =
         {
             ("文明长廊", 0, 0, 48, -1), ("铭文断层", 0, 2, 40, 0),
@@ -173,7 +185,8 @@ namespace Echoes
                     portals[slot] = new RuinPortal(id, depth, height, lane, dir, gate, hidden,
                         destination, (roomId * 7 + slot * 3 + (seed & 7)) % 10);
                 }
-                var objects = new RuinObject[room.chest < 0 ? 3 : 4];
+                int originalCount = room.chest < 0 ? 3 : 4;
+                var objects = new RuinObject[originalCount + ExtraFindsPerRoom];
                 int lastSide = 0;
                 for (int i = 0; i < 3; i++)
                 {
@@ -189,32 +202,127 @@ namespace Echoes
                     int side = lastSide != 0 ? -lastSide : lane == 0 ? ((roomId & 1) == 0 ? -1 : 1) : lane;
                     lastSide = side;
                     float shelf = Math.Max(.16f, Math.Min(.42f, .12f + height * .28f));
-                    stop = FindRuinCacheDepth(stop, room.length, portals, objects, i);
                     objects[i] = new RuinObject(roomId * ObjectSlots + i, stop, shelf, side, kind, -1);
                 }
                 if (room.chest >= 0)
-                    objects[3] = new RuinObject(roomId * ObjectSlots + 3, room.length * .72f + Offset(random, 1),
-                        room.style == 5 ? .06f : .32f + (float)random.NextDouble() * .70f,
-                        room.style == 5 ? 0 : random.Next(-1, 2), RuinObjectKind.Chest, room.chest);
+                {
+                    float stop = room.length * .72f + Offset(random, 1);
+                    float shelf = room.style == 5 ? .06f : .32f + (float)random.NextDouble() * .70f;
+                    int side = room.style == 5 ? 0 : random.Next(-1, 2);
+                    if (side >= 0) stop = KeepRuinChestReachable(stop, shelf, room.length, portals);
+                    objects[3] = new RuinObject(roomId * ObjectSlots + 3, stop, shelf, side, RuinObjectKind.Chest, room.chest);
+                }
+                PlaceRuinCaches(seed, roomId, room.length, portals, objects, originalCount);
                 atlas[roomId] = new RuinRoom(room.name, room.layer, room.style, room.length, portals, objects);
             }
             return atlas;
         }
 
-        private static float FindRuinCacheDepth(float origin, float length, RuinPortal[] portals, RuinObject[] objects, int count)
+        private static float KeepRuinChestReachable(float origin, float height, float length, RuinPortal[] portals)
         {
-            float best = origin;
-            float bestScore = float.NegativeInfinity;
-            for (int step = -12; step <= 12; step++)
+            // A chest on the inner or right aisle can share B with a right exit.
+            // Preserve older placements whenever their contact space still has a free point.
+            const float interactionDepth = 1.25f;
+            const float interactionHeight = .40f;
+            float candidate = origin - interactionDepth;
+            while (candidate <= origin + interactionDepth)
             {
-                float candidate = origin + step * .4f;
-                if (candidate < 4.6f || candidate > length - 5.2f) continue;
-                float clearance = 4.5f;
+                float next = AfterRightEntrance(candidate, height + interactionHeight, portals, 0);
+                if (candidate == next) return origin;
+                candidate = next;
+            }
+
+            float closest = origin;
+            float offset = float.PositiveInfinity;
+            for (float depth = 4.75f; depth <= length - 4.8f; depth += .12f)
+            {
+                float delta = Math.Abs(depth - origin);
+                if (delta >= offset || AfterRightEntrance(depth, height, portals, .32f) != depth) continue;
+                bool clipsShaft = Array.Exists(portals, p => p.Lane == 0 && Math.Abs(depth - p.Depth) < 1.55f);
+                if (clipsShaft) continue;
+                closest = depth;
+                offset = delta;
+            }
+            return closest;
+        }
+
+        private static float AfterRightEntrance(float depth, float height, RuinPortal[] portals, float padding)
+        {
+            const float reach = RuinPortal.MaximumReach;
+            float beyond = depth;
+            foreach (RuinPortal portal in portals)
+            {
+                if (portal.Direction != RuinDirection.Right || Math.Abs(height - portal.Altitude) > .63f * reach) continue;
+                float tail = portal.Depth + RuinPortal.TailDepth * reach + padding;
+                if (depth >= portal.Depth - RuinPortal.LeadDepth * reach - padding && depth <= tail)
+                    beyond = Math.Max(beyond, tail + .028f);
+            }
+            return beyond;
+        }
+
+        private static void PlaceRuinCaches(int seed, int room, float length,
+            RuinPortal[] portals, RuinObject[] objects, int originalCount)
+        {
+            for (int i = 0; i < 3; i++)
+            {
+                RuinObject item = objects[i];
+                float depth = FindRuinCacheDepth(item.Depth, length, item.Lane, portals, objects, i);
+                objects[i] = new RuinObject(item.Id, depth, item.Altitude, item.Lane, item.Kind, item.ChestStyle);
+            }
+
+            // A separate stream keeps all legacy chest, gate and artifact identities intact.
+            var extraRandom = new Random(unchecked(seed * 397 ^ (room + 1) * 8191));
+            int firstSide = -objects[0].Lane;
+            for (int i = 0; i < ExtraFindsPerRoom; i++)
+            {
+                int slot = originalCount + i;
+                int side = (i & 1) == 0 ? firstSide : -firstSide;
+                float anchor = length * AdditionalFindFractions[i] + Offset(extraRandom, .82f);
+                float stop = FindRuinCacheDepth(anchor, length, side, portals, objects, slot);
+                float shelf = .25f + Offset(extraRandom, .068f);
+                int id = FirstExtraFind + room * ExtraFindsPerRoom + i;
+                objects[slot] = new RuinObject(id, stop, shelf, side, AdditionalFinds[i], -1);
+            }
+        }
+
+        private static float FindRuinCacheDepth(float origin, float length, int side, RuinPortal[] portals,
+            RuinObject[] objects, int slot)
+        {
+            const float minimumDepth = 4.75f;
+            const float rightLead = RuinPortal.LeadDepth * RuinPortal.MaximumReach + .23f;
+            const float rightTail = RuinPortal.TailDepth * RuinPortal.MaximumReach + .23f;
+            float best = Math.Max(minimumDepth, Math.Min(length - 4.8f, origin));
+            float bestScore = float.NegativeInfinity;
+            for (int step = -44; step <= 44; step++)
+            {
+                float candidate = origin + step * .35f;
+                if (candidate < minimumDepth || candidate > length - 4.8f) continue;
+                float portalSpace = 3.25f;
                 foreach (RuinPortal portal in portals)
-                    clearance = Math.Min(clearance, Math.Abs(portal.Depth - candidate));
-                for (int previous = 0; previous < count; previous++)
-                    clearance = Math.Min(clearance, Math.Abs(objects[previous].Depth - candidate));
-                float score = Math.Min(3.1f, clearance) - Math.Abs(candidate - origin) * .20f;
+                {
+                    float delta = candidate - portal.Depth;
+                    if (side > 0 && portal.Direction == RuinDirection.Right && delta >= -rightLead && delta <= rightTail)
+                    {
+                        // Keep B available for pickup across the full range of the entrance slider.
+                        portalSpace = -40f;
+                        break;
+                    }
+                    float sideGap = portal.Lane == side || portal.Lane == 0 ? 0 : 1.25f;
+                    float separation = Math.Abs(delta);
+                    // Keep low wall niches off the cross-section of an ascending or descending shaft.
+                    float gap = portal.Lane == 0 && separation < 1.24f ? -20f : separation + sideGap;
+                    portalSpace = Math.Min(portalSpace, gap);
+                }
+                float cacheSpace = 3.25f;
+                for (int previous = 0; previous < objects.Length; previous++)
+                {
+                    RuinObject neighbor = objects[previous];
+                    if (previous == slot || neighbor == null) continue;
+                    float sideGap = neighbor.Lane == side || neighbor.Lane == 0 ? 0 : 1.65f;
+                    cacheSpace = Math.Min(cacheSpace, Math.Abs(neighbor.Depth - candidate) + sideGap);
+                }
+                float overlapPenalty = cacheSpace < 1.4f ? 12f : 0;
+                float score = cacheSpace * 1.45f + portalSpace * .74f - Math.Abs(candidate - origin) * .24f - overlapPenalty;
                 if (score <= bestScore) continue;
                 best = candidate;
                 bestScore = score;
