@@ -90,8 +90,17 @@ namespace Echoes
         private int forestEchoCursor, forestEchoCount;
         public const float MinForestLateralScale = .35f, DefaultForestLateralScale = .70f, MaxForestLateralScale = 1.45f;
         public const float MinForestCaptureRange = .45f, DefaultForestCaptureRange = 1, MaxForestCaptureRange = 1.65f;
+        public const float MinForestDoorJumpHeightScale = .75f, DefaultForestDoorJumpHeightScale = 2.60f, MaxForestDoorJumpHeightScale = 4f;
         private float forestLateralScale = DefaultForestLateralScale;
         private float forestWebRange = DefaultForestCaptureRange, forestMawRange = DefaultForestCaptureRange;
+        private float forestDoorJumpHeightScale = DefaultForestDoorJumpHeightScale;
+
+        public float ForestDoorJumpHeightScale
+        {
+            get => forestDoorJumpHeightScale;
+            set => forestDoorJumpHeightScale = TuningValue(value, MinForestDoorJumpHeightScale,
+                MaxForestDoorJumpHeightScale, DefaultForestDoorJumpHeightScale);
+        }
 
         public float ForestLateralScale
         {

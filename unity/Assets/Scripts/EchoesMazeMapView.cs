@@ -20,7 +20,7 @@ namespace Echoes
         internal MazeMapCommand DrawMazeMap(Journey journey, bool open, bool showRoute)
         {
             PrepareInterface();
-            Matrix4x4 matrix = BeginFrame(ScreenViewport);
+            Matrix4x4 matrix = BeginFrame(StageViewport);
             var command = MazeMapCommand.None;
             string toggle = open ? "收起地图" : "迷宫地图";
             if (Application.platform != RuntimePlatform.WebGLPlayer) toggle += " · F2";

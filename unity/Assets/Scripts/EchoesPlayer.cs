@@ -37,11 +37,13 @@ namespace Echoes
         private const string RuinRightReachKey = "EchoesUnity.Ruins.RightReach";
         private const string RuinUpperReachKey = "EchoesUnity.Ruins.UpperReach";
         private const string RuinLowerReachKey = "EchoesUnity.Ruins.LowerReach";
+        private const string JumpHeightKey = "EchoesUnity.Flight.JumpHeight";
+        private const string DoorJumpHeightKey = "EchoesUnity.Flight.DoorJumpHeight";
         private const string BrightnessKey = "EchoesUnity.Projection.Brightness";
         private const string FalloffKey = "EchoesUnity.Projection.Falloff";
         private const string GradientKey = "EchoesUnity.Projection.Gradient";
-        private bool projectionSettings, changedTuning;
-        private bool ruinSettings;
+        private const string StageScaleKey = "EchoesUnity.Projection.StageScale";
+        private bool projectionSettings, flightSettings, ruinSettings, changedTuning;
         private readonly bool[] physicalTouchDown = new bool[2];
         private readonly bool[] browserTouch = new bool[2];
         private Frame remote = new Frame();
@@ -98,6 +100,7 @@ namespace Echoes
             view.ScreenBrightness = PlayerPrefs.GetFloat(BrightnessKey, ProjectionLighting.DefaultValue);
             view.ProjectionFalloff = PlayerPrefs.GetFloat(FalloffKey, ProjectionLighting.DefaultValue);
             view.ProjectionGradient = PlayerPrefs.GetInt(GradientKey, 1) != 0;
+            view.StageScale = PlayerPrefs.GetFloat(StageScaleKey, 1);
             cast = Mathf.Clamp(PlayerPrefs.GetInt("EchoesUnity.Cast", 0), 0, CastNames.Length - 1);
             if (FindObjectOfType<AudioListener>() == null)
                 gameObject.AddComponent<AudioListener>();
@@ -112,6 +115,8 @@ namespace Echoes
             journey.RuinRightReach = PlayerPrefs.GetFloat(RuinRightReachKey, 1);
             journey.RuinUpperReach = PlayerPrefs.GetFloat(RuinUpperReachKey, 1);
             journey.RuinLowerReach = PlayerPrefs.GetFloat(RuinLowerReachKey, 1);
+            journey.JumpHeightScale = PlayerPrefs.GetFloat(JumpHeightKey, Journey.DefaultJumpHeightScale);
+            journey.ForestDoorJumpHeightScale = PlayerPrefs.GetFloat(DoorJumpHeightKey, Journey.DefaultForestDoorJumpHeightScale);
             savedRevision = journey.Revision;
             Application.targetFrameRate = 60;
 #if UNITY_EDITOR
@@ -147,10 +152,7 @@ namespace Echoes
             microphone.Update(now, dt);
             if (microphone.Ready) voice = microphone.Level;
 #endif
-            var gesture = paused || !inputReady ? Hand.Missing : preview
-                ? PreviewHand(keyboard)
-                : liveHand;
-            journey.SetHand(gesture);
+            UpdateHand(keyboard, !paused && inputReady);
             bool leftHeld = keyboard && Input.GetKey(KeyCode.A);
             bool rightHeld = keyboard && Input.GetKey(KeyCode.B);
             if (keyboard && Input.GetKeyDown(KeyCode.A) && (!journey.InForest || !rightHeld)) TrackTouch(0, true, false);
@@ -246,12 +248,11 @@ namespace Echoes
                 view.DrawProjection(remote.spirit, mirror, true);
                 return;
             }
+            if (Event.current.type == EventType.Repaint)
+                GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), Texture2D.blackTexture, ScaleMode.StretchToFill, false);
             SpiritFrame spirit = LocalSpirit;
-            if (characterOnly && !ShowProjectionCalibration) view.DrawProjection(spirit, mirror, true);
-            else
-            {
-                view.DrawStage(journey, spirit, StageSplit, ShowProjectionCalibration);
-            }
+            if (characterOnly && !ShowProjectionCalibration) view.DrawProjection(spirit, mirror, true, view.StageViewport);
+            else view.DrawStage(journey, spirit, StageSplit, ShowProjectionCalibration);
             if (!settings && !characterOnly && journey.ForestMazeActive)
                 DrawMazeMapControls();
             if (Application.platform == RuntimePlatform.WebGLPlayer) return;
@@ -274,6 +275,12 @@ namespace Echoes
             {
                 if (GUI.Button(new Rect(354, 12, 148, 31), "返回游戏设置", button)) ruinSettings = false;
                 else DrawRuinSettings(label, button);
+                return;
+            }
+            if (flightSettings)
+            {
+                if (GUI.Button(new Rect(354, 12, 148, 31), "返回游戏设置", button)) flightSettings = false;
+                else DrawFlightSettings(label, button);
                 return;
             }
             if (deviceSettings)
@@ -333,7 +340,8 @@ namespace Echoes
                 PlayerPrefs.Save();
             }
             GUI.Label(new Rect(20, 352, 285, 26), "森林 · 速度与捕捉范围", label);
-            if (GUI.Button(new Rect(325, 350, 177, 27), "遗迹入口范围", button)) ruinSettings = true;
+            if (GUI.Button(new Rect(293, 349, 116, 29), "遗迹入口范围", button)) ruinSettings = true;
+            if (GUI.Button(new Rect(416, 349, 86, 29), "跳跃高度", button)) flightSettings = true;
             journey.ForestLateralScale = TuningSlider(381, "左右移速", LateralKey, journey.ForestLateralScale,
                 Journey.MinForestLateralScale, Journey.MaxForestLateralScale, label);
             journey.MazeWalkScale = TuningSlider(414, "迷宫行走速度", MazeKey, journey.MazeWalkScale,
@@ -362,6 +370,24 @@ namespace Echoes
             changedTuning = true;
         }
 
+        private void DrawFlightSettings(GUIStyle label, GUIStyle button)
+        {
+            GUI.Label(new Rect(20, 14, 315, 28), "跳跃高度", label);
+            journey.JumpHeightScale = TuningSlider(73, "常规单跳高度", JumpHeightKey, journey.JumpHeightScale,
+                Journey.MinJumpHeightScale, Journey.MaxJumpHeightScale, label);
+            GUI.Label(new Rect(20, 103, 484, 33), "每次握拳再张手触发一次起跳。", label);
+
+            journey.ForestDoorJumpHeightScale = TuningSlider(153, "右路门前单跳", DoorJumpHeightKey, journey.ForestDoorJumpHeightScale,
+                Journey.MinForestDoorJumpHeightScale, Journey.MaxForestDoorJumpHeightScale, label);
+            GUI.Label(new Rect(20, 183, 484, 53), "进入森林右路的机器门廊后，门前的所有入口共用这个高度。", label);
+            if (!GUI.Button(new Rect(20, 251, 141, 30), "恢复默认", button)) return;
+            journey.JumpHeightScale = Journey.DefaultJumpHeightScale;
+            journey.ForestDoorJumpHeightScale = Journey.DefaultForestDoorJumpHeightScale;
+            PlayerPrefs.DeleteKey(JumpHeightKey);
+            PlayerPrefs.DeleteKey(DoorJumpHeightKey);
+            changedTuning = true;
+        }
+
         private void DrawProjectionSettings(GUIStyle label, GUIStyle button)
         {
             GUI.Label(new Rect(20, 14, 315, 28), "拟全息投影校准", label);
@@ -382,14 +408,18 @@ namespace Echoes
             view.ProjectionFalloff = TuningSlider(283, "渐亮速率", FalloffKey, view.ProjectionFalloff,
                 ProjectionLighting.MinimumFalloff, ProjectionLighting.MaximumFalloff, label);
             DrawLightingCurve(338, "背景亮度倍率", "到人物的距离", true, label);
-            GUI.Label(new Rect(20, 476, 482, 42), !view.ProjectionGradient ? "渐亮已关闭，可在上方重新启用。" :
-                $"三维主画面实时预览。人物背后保留 {ProjectionLighting.CenterGain(view.ProjectionFalloff):0%} 背景亮度。", label);
-            if (!GUI.Button(new Rect(20, 521, 141, 30), "恢复默认", button)) return;
+            view.StageScale = TuningSlider(465, "主画面大小", StageScaleKey, view.StageScale,
+                EchoesView.MinimumStageScale, 1, label, "%");
+            GUI.Label(new Rect(20, 493, 482, 27), !view.ProjectionGradient ? "渐亮已关闭，可在上方重新启用。" :
+                $"人物背后保留 {ProjectionLighting.CenterGain(view.ProjectionFalloff):0%} 背景亮度。", label);
+            if (!GUI.Button(new Rect(20, 527, 141, 30), "恢复默认", button)) return;
             view.ScreenBrightness = view.ProjectionFalloff = ProjectionLighting.DefaultValue;
             view.ProjectionGradient = true;
+            view.StageScale = 1;
             PlayerPrefs.DeleteKey(BrightnessKey);
             PlayerPrefs.DeleteKey(FalloffKey);
             PlayerPrefs.DeleteKey(GradientKey);
+            PlayerPrefs.DeleteKey(StageScaleKey);
             changedTuning = true;
         }
 
@@ -400,7 +430,6 @@ namespace Echoes
             GUI.Label(new Rect(plot.xMax-116, plot.yMax+1, 118, 25), horizontal + " →", label);
             if (Event.current.type != EventType.Repaint) return;
             var previousColor = GUI.color;
-            var previousMatrix = GUI.matrix;
             Texture2D pixel = Texture2D.whiteTexture;
             GUI.color = new Color(.055f,.095f,.14f);
             GUI.DrawTexture(plot,pixel);
@@ -411,30 +440,30 @@ namespace Echoes
                 GUI.DrawTexture(new Rect(plot.x,plot.y+i*plot.height/4,plot.width,1),pixel);
             }
             GUI.color = radial ? new Color(.62f,.86f,1) : new Color(1,.83f,.51f);
-            Vector2 last = default;
-            const int segments = 48;
-            for (int i=0; i<=segments; i++)
+            const int segments = 192;
+            float column = plot.width / segments;
+            float lastY = plot.yMax;
+            for (int i = 0; i <= segments; i++)
             {
-                float t = i/(float)segments;
-                float level = radial ? ProjectionLighting.RadialGain(t*1.24f,view.ProjectionCoreRadius,view.ProjectionFalloff) :
-                    ProjectionLighting.Tone(t,view.ScreenBrightness);
-                Vector2 next = new Vector2(plot.x+t*plot.width,plot.yMax-level*plot.height);
+                float t = i / (float)segments;
+                float level = radial ? ProjectionLighting.RadialGain(t * 1.24f, view.ProjectionCoreRadius, view.ProjectionFalloff) :
+                    ProjectionLighting.Tone(t, view.ScreenBrightness);
+                float nextY = plot.yMax - level * plot.height;
                 if (i > 0)
                 {
-                    Vector2 direction = next-last;
-                    GUI.matrix = previousMatrix * Matrix4x4.TRS(last,
-                        Quaternion.Euler(0,0,Mathf.Atan2(direction.y,direction.x)*Mathf.Rad2Deg),Vector3.one);
-                    GUI.DrawTexture(new Rect(0,-1,direction.magnitude+1,2),pixel);
+                    float top = Mathf.Max(plot.y, Mathf.Min(lastY, nextY) - .8f);
+                    float bottom = Mathf.Min(plot.yMax, Mathf.Max(lastY, nextY) + .8f);
+                    GUI.DrawTexture(new Rect(plot.x + (i - 1) * column, top, column, bottom - top), pixel);
                 }
-                last = next;
+                lastY = nextY;
             }
-            GUI.matrix = previousMatrix;
             GUI.color = previousColor;
         }
 
         private float TuningSlider(float y,string title,string key,float value,float min,float max,GUIStyle label,string unit = "×")
         {
-            GUI.Label(new Rect(20,y,223,24), title+"  "+value.ToString("0.00")+unit,label);
+            string display = unit == "%" ? value.ToString("0%") : value.ToString("0.00") + unit;
+            GUI.Label(new Rect(20,y,223,24), title + "  " + display,label);
             float next=GUI.HorizontalSlider(new Rect(249,y+7,247,19),value,min,max);
             if (Mathf.Approximately(next,value)) return value;
             next=Mathf.Clamp(Mathf.Round(next*100)/100,min,max);

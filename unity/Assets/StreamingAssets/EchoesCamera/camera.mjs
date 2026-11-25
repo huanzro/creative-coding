@@ -1,19 +1,84 @@
-import { GestureGate, handOpenness } from './core.js';
+import { handOpenness } from './core.js';
 
 const video = document.getElementById('preview');
+const previewFrame = document.getElementById('preview-frame');
 const status = document.getElementById('status');
 const button = document.getElementById('camera');
-const gesture = new GestureGate();
-const frameInterval = 85;
+const previewButton = document.getElementById('popout');
+const frameInterval = 48;
+const confirmPoseAfter = 38;
 const handLostAfter = 320;
+const openThreshold = 1.58, closedThreshold = 1.38;
 const receivedPose = {
   open: 'Unity 已收到：张手',
   closed: 'Unity 已收到：握拳',
   missing: 'Unity 已连接。把一只手放进画面，先张开手掌。'
 };
 let stream, detector, frameReader, timer, queuedState;
+let previewWindow, previewStatus;
 let generation = 0, sending = false, connected = true;
 let videoTime = -1, lastLandmarksAt = -Infinity;
+let pose = 'missing', candidate = null, candidateAt = 0;
+
+function setStatus(text) {
+  if (status.textContent === text) return;
+  status.textContent = text;
+  if (previewStatus) previewStatus.textContent = text;
+}
+
+async function togglePreview() {
+  if (!stream) return;
+  if (previewWindow && !previewWindow.closed) {
+    previewWindow.close();
+    return;
+  }
+  previewButton.disabled = true;
+  const current = generation;
+  let popup;
+  try {
+    if (window.documentPictureInPicture) {
+      try {
+        popup = await window.documentPictureInPicture.requestWindow({ width: 352, height: 308 });
+      } catch { /* Fall back to a separate browser window. */ }
+    }
+    if (!popup) popup = window.open('', '', 'popup=yes,width=352,height=308');
+    if (!popup) {
+      previewButton.textContent = '允许弹窗后重试';
+      return;
+    }
+    if (generation !== current) {
+      popup.close();
+      return;
+    }
+    const doc = popup.document;
+    doc.title = '光的回响 · 手势定位';
+    doc.documentElement.lang = 'zh-CN';
+    doc.head.append(document.getElementById('camera-style').cloneNode(true));
+    doc.body.className = 'floating-preview';
+    const frame = previewFrame.cloneNode(true);
+    const feed = frame.querySelector('video');
+    feed.muted = true;
+    feed.srcObject = stream;
+    const label = doc.createElement('p');
+    label.className = 'preview-status';
+    label.textContent = status.textContent;
+    doc.body.append(frame, label);
+    void feed.play().catch(() => {});
+    previewWindow = popup;
+    previewStatus = label;
+    previewButton.textContent = '关闭独立预览';
+    popup.addEventListener('pagehide', () => {
+      if (previewWindow !== popup) return;
+      previewWindow = previewStatus = null;
+      previewButton.textContent = '打开独立预览';
+    }, { once: true });
+  } catch {
+    popup?.close();
+    previewButton.textContent = '重试打开独立预览';
+  } finally {
+    previewButton.disabled = !stream;
+  }
+}
 
 async function report(state) {
   queuedState = state;
@@ -27,7 +92,7 @@ async function report(state) {
       const response = await fetch('./state/' + next, { method: 'POST', cache: 'no-store' });
       if (!response.ok) throw new Error('Unity connection lost');
       const label = receivedPose[next];
-      if (generation === current && label && status.textContent !== label) status.textContent = label;
+      if (generation === current && label) setStatus(label);
     }
   } catch {
     connected = false;
@@ -46,13 +111,18 @@ function releaseCamera() {
   stream?.getTracks().forEach(track => track.stop());
   stream = null;
   video.srcObject = null;
-  gesture.reset();
+  previewWindow?.close();
+  previewWindow = previewStatus = null;
+  previewButton.textContent = '打开独立预览';
+  previewButton.disabled = true;
+  pose = 'missing';
+  candidate = null;
   lastLandmarksAt = -Infinity;
 }
 
 function stop(message, state = 'off') {
   releaseCamera();
-  status.textContent = message;
+  setStatus(message);
   button.textContent = '开启摄像头';
   void report(state);
 }
@@ -63,20 +133,27 @@ async function loadDetector() {
   const files = await FilesetResolver.forVisionTasks(new URL('wasm', vendor).href);
   return HandLandmarker.createFromOptions(files, {
     baseOptions: { modelAssetPath: new URL('hand_landmarker.task', vendor).href, delegate: 'CPU' },
-    runningMode: 'VIDEO', numHands: 1, minHandDetectionConfidence: .65,
-    minHandPresenceConfidence: .65, minTrackingConfidence: .6
+    runningMode: 'VIDEO', numHands: 1, minHandDetectionConfidence: .55,
+    minHandPresenceConfidence: .55, minTrackingConfidence: .55
   });
 }
 
 function identify(source, aspect, now) {
   const points = source ? detector.detectForVideo(source, now).landmarks[0] : null;
   const score = handOpenness(points?.map(point => ({ x: point.x * aspect, y: point.y, z: point.z * aspect })));
-  if (now - lastLandmarksAt >= handLostAfter) gesture.reset();
-  if (score !== null) {
-    lastLandmarksAt = now;
-    gesture.update(score, now);
+  if (now - lastLandmarksAt >= handLostAfter) {
+    pose = 'missing';
+    candidate = null;
   }
-  void report(gesture.state === 'unknown' ? 'missing' : gesture.state);
+  if (score !== null) lastLandmarksAt = now;
+  const observed = score === null ? null : score >= openThreshold ? 'open' : score <= closedThreshold ? 'closed' : null;
+  if (observed !== candidate) {
+    candidate = observed;
+    candidateAt = now;
+  } else if (candidate && now - candidateAt >= confirmPoseAfter) {
+    pose = candidate;
+  }
+  void report(pose);
 }
 
 async function trackFrames(reader, current) {
@@ -120,7 +197,7 @@ function trackPreview() {
 async function start() {
   const current = ++generation;
   button.disabled = true;
-  status.textContent = '等待浏览器的摄像头权限…';
+  setStatus('等待浏览器的摄像头权限…');
   void report('loading');
   try {
     const next = await navigator.mediaDevices.getUserMedia({
@@ -134,10 +211,11 @@ async function start() {
     });
     video.srcObject = stream;
     void video.play().catch(() => {});
-    status.textContent = '载入手势识别模型…';
+    previewButton.disabled = false;
+    setStatus('载入手势识别模型…');
     if (!detector) detector = await loadDetector();
     if (generation !== current) return;
-    status.textContent = '等待摄像头画面…';
+    setStatus('等待摄像头画面…');
     if (typeof MediaStreamTrackProcessor === 'function') {
       // Read the camera directly so a hidden preview tab cannot slow gesture sampling.
       frameReader = new MediaStreamTrackProcessor({ track, maxBufferSize: 1 }).readable.getReader();
@@ -161,6 +239,7 @@ async function start() {
 }
 
 button.addEventListener('click', () => stream ? stop('摄像头已关闭。') : void start());
+previewButton.addEventListener('click', () => void togglePreview());
 window.addEventListener('pagehide', () => {
   releaseCamera();
   if (connected) void fetch('./state/off', { method: 'POST', keepalive: true }).catch(() => {});

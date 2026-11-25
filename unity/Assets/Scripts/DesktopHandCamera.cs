@@ -1,5 +1,6 @@
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -23,9 +24,13 @@ namespace Echoes
 
         private sealed class Session
         {
+            private const int PoseQueueLimit = 4;
+            private const double PoseTimeoutSeconds = 1.25;
             public readonly TcpListener Listener = new TcpListener(IPAddress.Loopback, 0);
             public readonly string Token = Guid.NewGuid().ToString("N");
             private readonly string pageRoot, mediaRoot;
+            private readonly object sampleLock = new object();
+            private readonly Queue<Sample> pendingPoses = new Queue<Sample>(PoseQueueLimit);
             private volatile bool running = true;
             private volatile Sample latest = new Sample("waiting");
             private int requests;
@@ -43,10 +48,51 @@ namespace Echoes
                 get
                 {
                     Sample sample = latest;
-                    double age = (Stopwatch.GetTimestamp() - sample.At) / (double)Stopwatch.Frequency;
-                    if (age > 1.25 && (sample.State == "open" || sample.State == "closed" || sample.State == "missing"))
+                    if (Expired(sample) && (IsPose(sample.State) || sample.State == "missing"))
                         return "stale";
                     return sample.State;
+                }
+            }
+
+            private static bool Expired(Sample sample) =>
+                Stopwatch.GetTimestamp() - sample.At > PoseTimeoutSeconds * Stopwatch.Frequency;
+            private static bool IsPose(string state) => state == "open" || state == "closed";
+
+            private void Receive(string state)
+            {
+                lock (sampleLock)
+                {
+                    string previous = State;
+                    latest = new Sample(state);
+                    if (!IsPose(state))
+                    {
+                        pendingPoses.Clear();
+                        pendingPoses.Enqueue(latest);
+                    }
+                    else if (state != previous)
+                    {
+                        // Preserve short pose changes until the next rendered frames can consume them.
+                        if (previous == "stale" || pendingPoses.Count == PoseQueueLimit)
+                        {
+                            pendingPoses.Clear();
+                            pendingPoses.Enqueue(new Sample("missing"));
+                        }
+                        pendingPoses.Enqueue(latest);
+                    }
+                }
+            }
+
+            public Hand ReadGesture(bool enabled)
+            {
+                lock (sampleLock)
+                {
+                    if (!enabled || State == "stale" || pendingPoses.Count != 0 && Expired(pendingPoses.Peek()))
+                    {
+                        pendingPoses.Clear();
+                        return Hand.Missing;
+                    }
+                    string state = pendingPoses.Count == 0 ? latest.State : pendingPoses.Dequeue().State;
+                    return state == "open" ? Hand.Open : state == "closed" ? Hand.Fist : Hand.Missing;
                 }
             }
 
@@ -68,7 +114,7 @@ namespace Echoes
                 }
                 catch (Exception error) when (error is SocketException || error is ObjectDisposedException)
                 {
-                    if (running) latest = new Sample("bridge-error");
+                    if (running) Receive("bridge-error");
                 }
                 finally { running = false; }
             }
@@ -104,7 +150,7 @@ namespace Echoes
                                 string state = path.Substring(6);
                                 if (ValidState(state))
                                 {
-                                    latest = new Sample(state);
+                                    Receive(state);
                                     Reply(stream, "204 No Content", null, 0);
                                     return;
                                 }
@@ -186,14 +232,7 @@ namespace Echoes
         private Session session;
         private string error = "摄像头已关闭";
         public bool Active => session != null;
-        public Hand Gesture
-        {
-            get
-            {
-                string state = session?.State;
-                return state == "open" ? Hand.Open : state == "closed" ? Hand.Fist : Hand.Missing;
-            }
-        }
+        public Hand ReadGesture(bool enabled) => session?.ReadGesture(enabled) ?? Hand.Missing;
         public string Status
         {
             get

@@ -27,6 +27,13 @@ namespace Echoes
         private Font interfaceFont;
         public int TimeOfDay { get; set; }
         public float ScrollSpeed { get; set; } = 1;
+        public const float MinimumStageScale = .50f;
+        private float stageScale = 1;
+        public float StageScale
+        {
+            get => stageScale;
+            set => stageScale = float.IsNaN(value) ? 1 : Mathf.Clamp(value, MinimumStageScale, 1);
+        }
         private float screenBrightness = ProjectionLighting.DefaultValue, projectionFalloff = ProjectionLighting.DefaultValue;
         public float ScreenBrightness
         {
@@ -113,6 +120,16 @@ namespace Echoes
 
         private static Rect ScreenViewport => new Rect(0, 0, Screen.width, Screen.height);
 
+        internal Rect StageViewport
+        {
+            get
+            {
+                Rect screen = ScreenViewport;
+                Vector2 size = screen.size * stageScale;
+                return new Rect(screen.center - size * .5f, size);
+            }
+        }
+
         public void Advance(Journey journey)
         {
             if (journey.World != lastChapter || journey.Time < lastTime)
@@ -147,7 +164,7 @@ namespace Echoes
         public void DrawStage(Journey journey, SpiritFrame frame, bool splitProjection, bool previewWorld = false)
         {
             if (Event.current.type != EventType.Repaint) return;
-            Matrix4x4 matrix = BeginFrame(ScreenViewport);
+            Matrix4x4 matrix = BeginFrame(StageViewport);
             if (journey.IsOpening)
             {
                 if (world != null && world.Ready) DrawSpatialOpening(frame, splitProjection);
@@ -368,14 +385,16 @@ namespace Echoes
             bool characterOnly, bool mazeWalking, bool continuousTouch, Action toggleSettings, Action<GUIStyle, GUIStyle> settings)
         {
             PrepareInterface();
-            Matrix4x4 matrix = BeginFrame(ScreenViewport);
+            Matrix4x4 matrix = BeginFrame(StageViewport);
             if (characterOnly && settings == null) { EndFrame(matrix); return; }
-            if (GUI.Button(new Rect(1065, 27, 186, 36), settings == null ? "游戏设置 · F1" : "关闭设置 · F1", button))
+            if (settings == null && GUI.Button(new Rect(1065, 27, 186, 36), "游戏设置 · F1", button))
                 toggleSettings();
             Paint(new Rect(26, 22, 689, 100), new Color(.02f, .05f, .09f, .85f));
             GUI.Label(new Rect(44, 30, 630, 39), heading, title);
             GUI.Label(new Rect(44, 74, 650, 41), message, body);
             Paint(new Rect(26, 650, 1228, 50), new Color(.02f, .05f, .09f, .86f));
+            bool enabled = GUI.enabled;
+            GUI.enabled = enabled && settings == null;
             DrawTouchControl(new Rect(42, 658, 164, 34), left, 0, continuousTouch, choose);
             DrawTouchControl(new Rect(213, 658, 164, 34), right, 1, continuousTouch, choose);
             GUI.Label(new Rect(393, 651, 310, 25), mazeWalking ? "A/B 转向 · 松开空格走 · 按住停" : "空格握拳 · 松开张手 · Z轻声 · X加速", body);
@@ -387,14 +406,17 @@ namespace Echoes
             string[] names = { "试玩", "森林", "遗迹", "星海" };
             for (int i = 0; i < names.Length; i++)
                 if (GUI.Button(new Rect(935 + i * 78, 658, 72, 34), names[i], button)) select((i - 1).ToString());
-            if (settings != null)
-            {
-                var panel = new Rect(724, 72, 527, 568);
-                Paint(panel, new Color(.02f, .05f, .09f, .96f));
-                GUI.BeginGroup(panel);
-                settings(body, button);
-                GUI.EndGroup();
-            }
+            GUI.enabled = enabled;
+            EndFrame(matrix);
+            if (settings == null) return;
+
+            matrix = BeginFrame(ScreenViewport);
+            if (GUI.Button(new Rect(1065, 27, 186, 36), "关闭设置 · F1", button)) toggleSettings();
+            var panel = new Rect(724, 72, 527, 568);
+            Paint(panel, new Color(.02f, .05f, .09f, .96f));
+            GUI.BeginGroup(panel);
+            settings(body, button);
+            GUI.EndGroup();
             EndFrame(matrix);
         }
 
@@ -410,7 +432,7 @@ namespace Echoes
         public void DrawOpeningControls(float time, Action skip)
         {
             PrepareInterface();
-            Matrix4x4 matrix = BeginFrame(ScreenViewport);
+            Matrix4x4 matrix = BeginFrame(StageViewport);
             if (time > .75f && GUI.Button(new Rect(1100, 660, 140, 29), "跳过 · Esc", button)) skip();
             EndFrame(matrix);
         }
