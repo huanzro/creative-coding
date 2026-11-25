@@ -5,6 +5,7 @@ Shader "Hidden/Echoes/WorldSurface"
         _Surface ("Material", Float) = 0
         _Tint ("Tint", Color) = (1,1,1,1)
         _Glow ("Emission", Float) = .24
+        _StageCoverage ("Projection background coverage", Float) = 1
         _GrainTex ("Surface color", 2D) = "gray" {}
         _Grain ("Surface texture strength and scale", Vector) = (0,.5,0,0)
     }
@@ -24,7 +25,7 @@ Shader "Hidden/Echoes/WorldSurface"
             #include "AutoLight.cginc"
             #include "Lighting.cginc"
 
-            float _Surface, _Glow;
+            float _Surface, _Glow, _StageCoverage;
             float4 _Tint;
             sampler2D _GrainTex;
             float4 _Grain, _EchoesFootfall, _EchoesTerrainSink;
@@ -134,7 +135,7 @@ Shader "Hidden/Echoes/WorldSurface"
                 }
                 else color *= (.65 + 2.55*_Glow) * (.78 + .22*abs(dot(n,eye/max(range,.05))));
                 float fog = 1-exp(-max(0,range-1.3)*_EchoesAir.w);
-                return float4(lerp(color,_EchoesAir.rgb,fog*(emissive ? .37 : .94)),1);
+                return float4(lerp(color,_EchoesAir.rgb,fog*(emissive ? .37 : .94)),_StageCoverage);
             }
             ENDCG
         }

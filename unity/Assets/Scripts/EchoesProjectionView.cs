@@ -302,8 +302,10 @@ namespace Echoes
             if (rescue && approach)
             {
                 float t=frame.forestSnareAge;
-                var shot=ForestRescueStoryboard.Sample(t,frame.forestTrap==ForestTrapKind.Web);
-                if(shot.bright>.006f)
+                bool web=frame.forestTrap==ForestTrapKind.Web;
+                var shot=ForestRescueStoryboard.Sample(t,web);
+                if (!web) DrawMawRescueLight(t,shot,center,body,gain,scale,mirror,rotation,orbitCount,frame.motionTime);
+                else if(shot.bright>.006f)
                 {
                     Vector2 target=new Vector2(shot.fly.x*.52f,-shot.fly.y*.56f+shot.fly.z*.11f);
                     float departure=OpeningStoryboard.Ease(ForestRescueStoryboard.Departure,2.74f,t);
@@ -339,6 +341,46 @@ namespace Echoes
                         if (coil > .02f) Stroke(from, next, 2.8f*scale, Mint, gain * coil * .70f, glow);
                         from = next;
                     }
+                }
+            }
+        }
+
+        private void DrawMawRescueLight(float time,ForestRescueStoryboard.Performance shot,Vector2 center,float body,
+            float gain,float scale,bool mirror,float rotation,int orbitCount,float motionTime)
+        {
+            const float worldToPortrait = .87f/.77f;
+            Vector2 Project(Vector3 at) => spirit.ProjectPortraitPoint(at*worldToPortrait);
+            Vector2 Place(Vector2 at) => center+PortraitOffset(at,mirror,rotation)*body;
+            if (shot.bright>.006f)
+            {
+                float departure=OpeningStoryboard.Ease(ForestRescueStoryboard.Departure,2.68f,time);
+                Vector2 orbit=ForestOrbit(Mathf.Max(0,orbitCount),motionTime);
+                Vector2 fly=Place(Vector2.Lerp(orbit,Project(shot.fly),departure));
+                for (int i=0;i<6;i++)
+                {
+                    float past=time-.067f-i*.054f;
+                    if(past<ForestRescueStoryboard.Departure) break;
+                    Vector2 mote=Place(Vector2.Lerp(orbit,Project(ForestRescueStoryboard.Sample(past,false).fly),departure));
+                    float warm=shot.bright*(1-i/6f);
+                    Orb(mote.x,mote.y,scale*(4+6*warm),Amber,warm*gain*.76f);
+                }
+                DrawFirefly(fly,motionTime,false,scale*(.55f+.36f*shot.bright),gain*Mathf.Clamp01(shot.bright*1.48f),
+                    OpeningStoryboard.Ease(6.91f,7.71f,time));
+            }
+            if (shot.mouthPulse>.025f)
+            {
+                Vector2 impact=Place(Project(ForestRescueStoryboard.MawContactPosition(time)));
+                float pulse=shot.mouthPulse;
+                Ripple(impact.x,impact.y,body*(.046f+.13f*(1-pulse)),Amber,gain*pulse*.54f);
+            }
+            if (shot.splinters>.015f)
+            {
+                for (int i=0;i<5;i++)
+                {
+                    float drift=Mathf.Max(0,time-ForestRescueStoryboard.Break-i*.045f);
+                    Vector3 fall=new Vector3(Mathf.Sin(i*2.4f)*.31f*drift,-.07f-.22f*drift,0);
+                    Vector2 spark=Place(Project(shot.fly+fall));
+                    Orb(spark.x,spark.y,scale*(3+shot.splinters*5),Amber,gain*shot.splinters*.55f);
                 }
             }
         }

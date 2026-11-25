@@ -8,6 +8,7 @@ namespace Echoes
     internal sealed class SpiritRig : IDisposable
     {
         public const float WidthScale = .9f, HeightScale = 1.2f;
+        private const float PortraitFov = 30.5f;
         private static readonly Color[] Accent = {
             new Color(.95f,.66f,.29f), new Color(.39f,.79f,.93f), new Color(.75f,.59f,1f)
         };
@@ -77,7 +78,7 @@ namespace Echoes
             portraitCamera.renderingPath = RenderingPath.Forward;
             portraitCamera.nearClipPlane = .1f;
             portraitCamera.farClipPlane = 25;
-            portraitCamera.fieldOfView = 30.5f;
+            portraitCamera.fieldOfView = PortraitFov;
             portraitCamera.aspect = .75f;
             portraitCamera.targetTexture = target;
             portraitCamera.AddCommandBuffer(CameraEvent.BeforeForwardAlpha, commands);
@@ -89,6 +90,13 @@ namespace Echoes
         {
             Vector3 viewport = portraitCamera.WorldToViewportPoint(anchors[index]);
             return new Vector2((viewport.x - .5f) * WidthScale, (.5f - viewport.y) * HeightScale);
+        }
+
+        public Vector2 ProjectPortraitPoint(Vector3 fromCenter)
+        {
+            if (portraitCamera == null) return new Vector2(fromCenter.x*.40f,-fromCenter.y*.40f);
+            Vector3 viewport = portraitCamera.WorldToViewportPoint(new Vector3(0,1.16f,0)+fromCenter);
+            return new Vector2((viewport.x-.5f)*WidthScale,(.5f-viewport.y)*HeightScale);
         }
 
         public void Render(SpiritFrame frame)
@@ -135,6 +143,8 @@ namespace Echoes
             poseTint = tint;
             poseContact = contact;
             ForestPredatorShot encounter=ForestPredatorShot.Read(frame);
+            float escapeFraming=encounter.MawRescue ? OpeningStoryboard.Window(encounter.Age,6.92f,7.23f,8.39f,9.33f) : 0;
+            portraitCamera.fieldOfView=PortraitFov+5*escapeFraming;
             var center=new Vector3(0,1.16f,0);
             Matrix4x4 portraitPose = encounter.Prey(center);
             if (frame.forestMaze && !encounter.Visible)

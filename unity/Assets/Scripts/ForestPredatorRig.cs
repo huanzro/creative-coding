@@ -9,18 +9,19 @@ namespace Echoes
     {
         public readonly ForestTrapKind Kind;
         public readonly float Age, Enter, Clasp, Leave, Swallow;
+        public readonly bool MawRescue;
         public bool Visible => Enter > .015f && Leave < .998f;
         public bool Web => Kind == ForestTrapKind.Web;
 
-        private ForestPredatorShot(ForestTrapKind kind,float age,float enter,float clasp,float leave,float swallow)
-        { Kind=kind; Age=age; Enter=enter; Clasp=clasp; Leave=leave; Swallow=swallow; }
+        private ForestPredatorShot(ForestTrapKind kind,float age,float enter,float clasp,float leave,float swallow,bool mawRescue=false)
+        { Kind=kind; Age=age; Enter=enter; Clasp=clasp; Leave=leave; Swallow=swallow; MawRescue=mawRescue; }
 
         public static ForestPredatorShot Read(SpiritFrame frame) => frame.forest
             ? Sample(frame.forestTrap,frame.forestSnareAge,frame.forestFall,frame.forestDescent)
             : default;
 
         public static ForestPredatorShot Read(Journey journey) => Sample(journey.ForestTrap,
-            journey.Phase==Stage.ForestTrapped ? journey.Age : -1,
+            journey.Phase==Stage.ForestTrapped ? journey.ForestRescueAuthoredAge : -1,
             journey.Phase==Stage.ForestFalling ? journey.Progress : -1,
             journey.Phase==Stage.ForestTransition ? journey.Progress : -1);
 
@@ -29,6 +30,9 @@ namespace Echoes
             if(kind!=ForestTrapKind.Web && kind!=ForestTrapKind.Maw) return default;
             if(capture>=0)
             {
+                if(kind==ForestTrapKind.Maw)
+                    return new ForestPredatorShot(kind,capture,Ease(.02f,.62f,capture),
+                        Ease(.31f,1.11f,capture),Ease(7.50f,8.93f,capture),0,true);
                 float leave=Ease(7.20f,8.95f,capture);
                 float clasp=Ease(.24f,.65f,capture)*(1-Ease(6.53f,7.31f,capture));
                 return new ForestPredatorShot(kind,capture,Ease(.015f,.34f,capture),clasp,leave,0);
@@ -143,6 +147,8 @@ namespace Echoes
                 return spiderPose;
             }
 
+            if(shot.MawRescue) return PosePitcherRescue(shot,volume);
+
             Vector3 root=new Vector3(Mathf.Lerp(-.53f,.015f,rise),
                 Mathf.Lerp(-1.64f,.015f,rise)-.72f*leave-.14f*clasp,
                 Mathf.Lerp(.64f,.51f,rise)+.40f*leave);
@@ -151,6 +157,27 @@ namespace Echoes
             float gape=Mathf.Lerp(46,4,clasp)+9*swing+2f*Mathf.Sin(age*8)*(1-clasp);
             pitcherPose[1]=pitcherPose[0]*Matrix4x4.Rotate(Quaternion.Euler(gape,0,0));
             pitcherPose[2]=pitcherPose[0]*Matrix4x4.Rotate(Quaternion.Euler(-gape*.88f,0,0));
+            return pitcherPose;
+        }
+
+        private Matrix4x4[] PosePitcherRescue(ForestPredatorShot shot,float volume)
+        {
+            float t=shot.Age, appear=shot.Enter, leave=shot.Leave;
+            var rescue=ForestRescueStoryboard.Sample(t,false);
+            float shudder=Mathf.Sin(t*20)*rescue.mouthPulse;
+            var center=new Vector3(Mathf.Lerp(-.53f,.015f,appear)+.26f*rescue.free+.055f*shudder,
+                Mathf.Lerp(-1.64f,.045f,appear)-.13f*shot.Clasp-.84f*leave-.17f*rescue.pop,
+                Mathf.Lerp(.64f,.51f,appear)+.50f*leave+.39f*rescue.free);
+            var recoil=Quaternion.Euler(Mathf.Lerp(29,4,appear)+20*leave-19*rescue.pop,
+                -21*(1-appear)+13*leave+15*rescue.free,shudder*7+11*rescue.pop);
+            pitcherPose[0]=Matrix4x4.TRS(center,recoil,Vector3.one*volume);
+
+            // The lower petal loses its grip first. The upper petal yields as the fly burns out.
+            float bite=Mathf.Lerp(46,4,shot.Clasp)+8*Mathf.Sin(appear*Mathf.PI);
+            float top=Mathf.Max(bite+2.8f*shudder,5+49*rescue.upperJaw+9*rescue.pop);
+            float bottom=Mathf.Max(bite*.88f-4.8f*shudder,3+38*rescue.lowerJaw+6*rescue.pop);
+            pitcherPose[1]=pitcherPose[0]*Matrix4x4.Rotate(Quaternion.Euler(top,0,0));
+            pitcherPose[2]=pitcherPose[0]*Matrix4x4.Rotate(Quaternion.Euler(-bottom,0,0));
             return pitcherPose;
         }
 

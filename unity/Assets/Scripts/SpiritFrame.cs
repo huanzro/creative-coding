@@ -118,7 +118,7 @@ namespace Echoes
             forestShaftProgress = journey.ForestShaftProgress,
             forestRescue = journey.ForestHasRescue,
             forestLane = journey.ForestLane, forestSteering = journey.ForestSteering, forestTrap = journey.ForestTrap,
-            forestSnareAge = journey.Phase == Stage.ForestTrapped ? journey.Age : -1,
+            forestSnareAge = journey.Phase == Stage.ForestTrapped ? journey.ForestRescueAuthoredAge : -1,
             forestDescent = journey.Phase == Stage.ForestTransition ? journey.Progress : -1,
             forestPlant = journey.Cue == JourneyCue.Plant && journey.InForest
                 ? PlantAge(journey.CueAge) : 0,

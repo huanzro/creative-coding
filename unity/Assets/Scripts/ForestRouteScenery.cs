@@ -24,10 +24,13 @@ namespace Echoes
         private readonly float[] wispTimes = new float[FlightWisps];
         private readonly Transform[] rescueFibers = new Transform[8];
         private readonly MeshRenderer[] rescueSparks = new MeshRenderer[7];
+        private readonly MeshRenderer[] mawRescueTrail = new MeshRenderer[6];
         private readonly Mesh[] clearingBeds = new Mesh[3];
         private Transform forestEffects, forestMouth;
         private ForestProp closingWeb, rescueFly;
+        private MeshRenderer rescueWingLeft, rescueWingRight;
         private ForestPredatorRig forestPredator;
+        private MeshRenderer mawRescuePulse;
         private Mesh seedMesh, seedRootsMesh, dormantSilkMesh, dormantMawMesh;
         private float lastWispAt = -1;
         private int wispIndex;
@@ -203,6 +206,8 @@ namespace Echoes
             forestPredator=new ForestPredatorRig(forestEffects);
             forestMouth=BuildForestHollow();
             rescueFly=MakeProp(ForestFeatureKind.Amber);
+            rescueWingLeft=rescueFly.Upper.GetComponent<MeshRenderer>();
+            rescueWingRight=rescueFly.Lower.GetComponent<MeshRenderer>();
             var fiberMesh=Geometry();
             fiberMesh.Tube(new[]{Vector3.down*.5f,Vector3.up*.5f},new[]{1f,1f},5,Color.white);
             Mesh fiber=fiberMesh.Finish("Silk strand");
@@ -222,6 +227,15 @@ namespace Echoes
                 rescueSparks[i]=Lamp("Released gold firefly",Vector3.zero,.06f,Warm,.72f);
                 rescueSparks[i].transform.SetParent(forestEffects,false);
             }
+            for (int i=0;i<mawRescueTrail.Length;i++)
+            {
+                mawRescueTrail[i] = Lamp("Gold shed from the firefly's wings",Vector3.zero,.034f,Warm,.32f);
+                mawRescueTrail[i].transform.SetParent(forestEffects,false);
+            }
+            var pulse = Geometry();
+            Ring(pulse,Vector3.zero,.48f,.012f,Warm,Quaternion.identity,32,1);
+            mawRescuePulse = Piece("Pulse inside the petal seam",pulse.Finish("Open gold pulse"),
+                glow,forestEffects,Vector3.zero).GetComponent<MeshRenderer>();
         }
 
         private void BuildClearingBeds()
@@ -414,11 +428,13 @@ namespace Echoes
         {
             ForestPredatorShot shot=ForestPredatorShot.Read(journey);
             Quaternion heading=ForestOrientation(journey);
-            forestPredator.PoseInWorld(shot,actor,heading);
             bool rescue=journey.Phase==Stage.ForestTrapped && journey.ForestHasRescue;
+            Vector3 trapAnchor = rescue && journey.ForestTrap == ForestTrapKind.Maw
+                ? actor-heading*ForestRescueStoryboard.MawEscapeOffset(journey.ForestRescueAuthoredAge) : actor;
+            forestPredator.PoseInWorld(shot,trapAnchor,heading);
             bool web=shot.Web && shot.Visible;
             closingWeb.Root.gameObject.SetActive(web);
-            PoseRescuingLight(journey,actor,time,rescue,split);
+            PoseRescuingLight(journey,trapAnchor,rescue,split);
             if (web && !rescue)
             {
                 float draw=shot.Clasp;
@@ -438,10 +454,10 @@ namespace Echoes
             forestMouth.localScale=new Vector3(Mathf.Max(.014f,size),1,Mathf.Max(.014f,size));
         }
 
-        private void PoseRescuingLight(Journey journey,Vector3 actor,float time,bool active,bool split)
+        private void PoseRescuingLight(Journey journey,Vector3 actor,bool active,bool split)
         {
             bool web=journey.ForestTrap==ForestTrapKind.Web;
-            float t=journey.Age;
+            float t=journey.ForestRescueAuthoredAge;
             var shot=ForestRescueStoryboard.Sample(active?t:0,web);
             Quaternion orientation=ForestOrientation(journey);
             Vector3 fly=actor+orientation*shot.fly;
@@ -450,8 +466,12 @@ namespace Echoes
             {
                 rescueFly.Root.localPosition=fly;
                 rescueFly.Root.localRotation=orientation*Quaternion.Euler(0,21*Mathf.Sin(t*8),14*Mathf.Sin(t*14));
-                rescueFly.Root.localScale=Vector3.one*Mathf.Lerp(.43f,1,shot.bright);
-                Light(rescueFly.Lamp, Warm,shot.bright*(split?1.4f:2.8f));
+                rescueFly.Root.localScale=Vector3.one*Mathf.Lerp(.43f,web ? 1 : .98f,shot.bright);
+                float bodyGlow = web ? (split ? 1.4f : 2.8f) : (split ? .98f : 1.36f);
+                Light(rescueFly.Lamp,Warm,shot.bright*bodyGlow,foreground:true);
+                Color wings = web ? Jade : Color.Lerp(Jade,Warm,.69f);
+                Light(rescueWingLeft,wings,shot.bright*.29f,foreground:true);
+                Light(rescueWingRight,wings,shot.bright*.29f,foreground:true);
                 float wingBeat=Mathf.Sin(t*41)*(1-Ease(6.89f,7.60f,t));
                 PoseWing(rescueFly.Upper,-1,wingBeat);
                 PoseWing(rescueFly.Lower,1,wingBeat);
@@ -466,8 +486,9 @@ namespace Echoes
                 spark.transform.localPosition=fly+orientation*new Vector3(Mathf.Cos(angle)*from*.31f,
                     -.08f-from*(.18f+i*.041f),Mathf.Sin(angle)*from*.26f);
                 spark.transform.localScale=Vector3.one*(.009f+.014f*shot.splinters);
-                Light(spark,Warm,shot.splinters*.7f);
+                Light(spark,Warm,shot.splinters*.7f,foreground:true);
             }
+            PoseMawRescueEffects(actor,orientation,t,shot,active && !web,split);
             for(int i=0;i<rescueFibers.Length;i++)
             {
                 float breakAt=6.56f+i*.17f;
@@ -498,6 +519,33 @@ namespace Echoes
                 Light(closingWeb.Lamp,Color.Lerp(Pale,Warm,shot.bright),.24f+shot.bright*.15f);
             }
 
+        }
+
+        private void PoseMawRescueEffects(Vector3 anchor,Quaternion heading,float time,
+            ForestRescueStoryboard.Performance shot,bool active,bool split)
+        {
+            for (int i=0;i<mawRescueTrail.Length;i++)
+            {
+                var lamp = mawRescueTrail[i];
+                float lag = .068f + i*.055f;
+                bool visible = active && time-lag>ForestRescueStoryboard.Departure && shot.bright>.03f;
+                lamp.gameObject.SetActive(visible);
+                if (!visible) continue;
+                Vector3 earlier = ForestRescueStoryboard.Sample(time-lag,false).fly;
+                float glow = shot.bright*(1-i/(float)mawRescueTrail.Length);
+                lamp.transform.localPosition=anchor+heading*(earlier+Vector3.up*.018f*Mathf.Sin(i*13.4f));
+                lamp.transform.localScale=Vector3.one*(.009f+.021f*glow);
+                Light(lamp,Warm,glow*(split ? .34f : .60f),foreground:true);
+            }
+
+            mawRescuePulse.gameObject.SetActive(active && shot.mouthPulse>.025f);
+            if (!mawRescuePulse.gameObject.activeSelf) return;
+            float pulse = shot.mouthPulse;
+            mawRescuePulse.transform.localPosition=anchor+heading*(ForestRescueStoryboard.MawContactPosition(time)+Vector3.back*.055f);
+            mawRescuePulse.transform.localRotation=heading*Quaternion.Euler(-5,-27,17);
+            float expansion = .21f + .49f*(1-pulse);
+            mawRescuePulse.transform.localScale=new Vector3(expansion,expansion*.44f,expansion);
+            Light(mawRescuePulse,Warm,pulse*(split ? .49f : 1.08f),foreground:true);
         }
 
         private void PoseFlightWake(Journey journey,float time,Vector3 actor,float glide)

@@ -28,6 +28,7 @@ namespace Echoes
             Red = new Color(1,.25f,.16f), Pale = new Color(.70f,.83f,1), IrisBlue=new Color(.61f,.51f,1);
         private static readonly int Tint = Shader.PropertyToID("_Tint");
         private static readonly int Lit = Shader.PropertyToID("_Glow");
+        private static readonly int StageCoverage = Shader.PropertyToID("_StageCoverage");
 
         public WorldSet(Shader surfaces, Shader skyShader, Shader mistShader)
         {
@@ -117,10 +118,11 @@ namespace Echoes
             return renderer;
         }
 
-        private void Light(MeshRenderer renderer, Color color, float power)
+        private void Light(MeshRenderer renderer, Color color, float power, bool foreground = false)
         {
             properties.SetColor(Tint, color);
             properties.SetFloat(Lit, power);
+            properties.SetFloat(StageCoverage, foreground ? 0 : 1);
             renderer.SetPropertyBlock(properties);
         }
 

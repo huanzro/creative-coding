@@ -51,7 +51,8 @@ Shader "Hidden/Echoes/ForestPredator"
                     smoothstep(.58,.93,input.color.r);
                 tone += amber * float3(.52,.19,.061);
                 float fog = 1-exp(-max(0,distance(_WorldSpaceCameraPos,input.world)-1.3)*_EchoesAir.w);
-                return float4(lerp(tone,_EchoesAir.rgb,fog*(1-_Projection)*.68),1);
+                // Predators are foreground performers in the main scene and opaque in the portrait.
+                return float4(lerp(tone,_EchoesAir.rgb,fog*(1-_Projection)*.68),_Projection);
             }
             ENDCG
         }

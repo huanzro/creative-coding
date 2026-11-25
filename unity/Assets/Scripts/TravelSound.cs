@@ -182,8 +182,9 @@ namespace Echoes
 
         private static AudioClip ComposeRescue(bool web)
         {
+            if (!web) return ComposeFlowerRescue();
             var data=new float[(int)(Rate*Journey.ForestRescueDuration)];
-            var random=new System.Random(web?4271:7785);
+            var random=new System.Random(4271);
             double grain=0, fiber=0;
             for(int i=0;i<data.Length;i++)
             {
@@ -195,12 +196,38 @@ namespace Echoes
                 double strand=Decay(t,6.72,11)+Decay(t,7.06,13)+.58*Decay(t,7.43,10.5);
                 double glow=.35*Decay(t,2.15,4.2)+.62*Decay(t,3.14,6.1)+.92*Decay(t,5.48,3.9)+1.18*Decay(t,6.29,2);
                 double cloth=Decay(t,7.67,4.1)+.53*Decay(t,8.32,4.3);
-                double tension=(snag*.39+work*.19+strand*.27)*(web ? grain : fiber*1.7);
+                double tension=(snag*.39+work*.19+strand*.27)*grain;
                 double tonal=glow*(Tone(t,784)*.14+Tone(t,1174)*.05);
-                double body=cloth*(.13*fiber+.12*Tone(t,72))+.13*snag*Tone(t,web?173:81);
+                double body=cloth*(.13*fiber+.12*Tone(t,72))+.13*snag*Tone(t,173);
                 data[i]=(float)((tension+tonal+body)*Math.Min(1,t*12)*Math.Min(1,(data.Length-i)/(Rate*.37)));
             }
-            return MachineClip(web?"One firefly, web rescue":"One firefly, flower rescue",data);
+            return MachineClip("One firefly, web rescue",data);
+        }
+
+        private static AudioClip ComposeFlowerRescue()
+        {
+            var data = new float[(int)(Rate*Journey.ForestMawRescueDuration)];
+            var random = new System.Random(7785);
+            double soil = 0, leaf = 0;
+            for (int i = 0; i < data.Length; i++)
+            {
+                double seconds = i/(double)Rate;
+                double t = seconds*Journey.ForestRescueDuration/Journey.ForestMawRescueDuration;
+                soil += (random.NextDouble()*2-1-soil)*.17;
+                leaf += (soil-leaf)*.26;
+                double bite = Decay(t,.24,5.2) + .62*Decay(t,.63,6.1);
+                double first = Decay(t,ForestRescueStoryboard.MawFirstContact,7);
+                double second = Decay(t,ForestRescueStoryboard.MawSecondContact,5.8);
+                double release = Decay(t,ForestRescueStoryboard.Break,5.2);
+                double footing = Decay(t,8.24,5.7);
+                double petals = .31*bite*soil + (.16*second + .26*release + .28*footing)*leaf;
+                double ground = (.17*bite + .058*footing)*Tone(seconds,77);
+                double pulses = first*.16*Tone(seconds,880) + second*.20*Tone(seconds,1047) +
+                    release*(.20*Tone(seconds,1319) + .10*Tone(seconds,1760));
+                double fade = Math.Min(1,seconds*16)*Math.Min(1,(data.Length-i)/(Rate*.23));
+                data[i] = (float)((petals + ground + pulses)*fade);
+            }
+            return MachineClip("One firefly opens the petals",data);
         }
 
         private static double Decay(double time,double start,double rate) => time<start ? 0 : Math.Exp(-(time-start)*rate);

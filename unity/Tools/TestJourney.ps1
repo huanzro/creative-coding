@@ -390,11 +390,14 @@ $maw=$caught.ForestFeatures | Where-Object Kind -eq Maw | Select-Object -First 1
 FlyFlat $caught ($maw.Depth + .4) .08 $maw.Lane
 $reserve=$caught.ForestLights
 Assert ($caught.ForestTrap -eq 'Maw' -and $caught.Phase -eq 'ForestTrapped' -and $caught.ForestHasRescue) 'A low contact must use the flower snare with a reserved rescue.'
-Step $caught 3 0
+$captureTime = $caught.ForestCaptureTime
+$spendTime = [Echoes.Journey]::ForestRescueSpendAt * $captureTime / [Echoes.Journey]::ForestRescueDuration
+Assert ($captureTime -lt 7) 'The flower rescue runs on its own shorter clock.'
+Step $caught ($spendTime - .1) 0
 Assert ($caught.ForestLights -eq $reserve -and $caught.Phase -eq 'ForestTrapped') 'The same fly struggles before it is spent.'
-Step $caught 3.85 0
+Step $caught .2 0
 Assert ($caught.ForestLights -eq $reserve - 1 -and $caught.Cue -eq 'ForestRescueLight') 'Only the final rescue beat spends the companion.'
-Step $caught 2.6 0
+Step $caught ($captureTime - $caught.Age + .1) 0
 Assert ($caught.Phase -eq 'ForestExplore' -and $caught.ForestLights -eq ($reserve - 1) -and $caught.Cue -eq 'ForestRescued') 'The rescue should consume exactly one collected fly and resume the route.'
 
 $empty=[Echoes.Journey]::new(100)
@@ -412,9 +415,23 @@ Assert ($empty.ForestTrap -eq 'Web' -and $empty.ForestWindFactor -gt 0 -and $emp
 $empty.Retry()
 Step $empty 9.48 0
 Assert ($empty.Phase -eq 'ForestFalling' -and $empty.ForestLights -eq 0 -and $empty.ForestTrap -eq 'Web') 'The last rescue releases the sprite before the same spider returns in the defeat.'
-Step $empty 3.3 0
+Step $empty 2.15 0
+Assert ($empty.Phase -eq 'ForestFalling') 'The shortened defeat still gives the spider enough time to finish its catch.'
+Step $empty .42 0
 Assert ($empty.Phase -eq 'ForestExplore' -and $empty.Distance -eq 0 -and $empty.ForestLights -eq 3 -and
     $empty.Checkpoint.forestSeed -ne $seed) 'Zero reserve restarts the forest with three lights and new hazard placements.'
+
+$lastMaw=[Echoes.Journey]::new(100)
+$lastMaw.SelectChapter(0)
+$last=$lastMaw.Checkpoint
+$last.forestReserve=1
+Assert ($lastMaw.Restore($last)) 'Restore the flower scene with one light.'
+$maw=$lastMaw.ForestFeatures | Where-Object Kind -eq Maw | Select-Object -First 1
+FlyFlat $lastMaw $maw.Depth $maw.Altitude $maw.Lane
+Step $lastMaw ($lastMaw.ForestCaptureTime + .04) 0
+Assert ($lastMaw.Phase -eq 'ForestFalling' -and $lastMaw.ForestTrap -eq 'Maw' -and $lastMaw.ForestLights -eq 0) 'The flower rescue reaches its end before the last-light defeat starts.'
+Step $lastMaw 2.53 0
+Assert ($lastMaw.Phase -eq 'ForestExplore' -and $lastMaw.ForestLights -eq 3) 'The flower swallow also finishes on the shorter restart clock.'
 
 $redOut=[Echoes.Journey]::new(100)
 $redOut.SelectChapter(0)
@@ -452,8 +469,22 @@ Steer $resumed 1
 Pose $resumed Fist .55 .7
 Pose $resumed Open 1.7 .3
 Assert ($resumed.ForestLights -eq 0 -and $resumed.Phase -eq 'ForestTransition' -and $resumed.ForestTrap -eq 'Web') 'The final upper root may spend the last companion and selects the web ending.'
-Step $resumed 5.3 0
+Step $resumed ($resumed.ForestTransitionTime - $resumed.Age - .16) 0
+Assert ($resumed.Phase -eq 'ForestTransition') 'The spider still has a visible beat before the descent.'
+Step $resumed .35 0
 Assert ($resumed.Chapter -eq 1) 'The upper warp enters the same existing ruins.'
+
+$mawEnding=[Echoes.Journey]::new(100)
+$mawEnding.SelectChapter(0)
+$mawSave=$mawEnding.Checkpoint
+$mawSave.forestBranch=1
+$mawSave.forestDepth=188
+$mawSave.forestSites=3
+$mawSave.forestRoute=1
+$mawSave.forestReserve=0
+Assert ($mawEnding.Restore($mawSave) -and $mawEnding.ForestTrap -eq 'Maw' -and $mawEnding.Phase -eq 'ForestTransition') 'A lower-root save restores the flower swallow.'
+Step $mawEnding 3.85 0
+Assert ($mawEnding.Chapter -eq 1) 'The abbreviated flower swallow also carries the character into the ruins.'
 
 $jumpTuning = [Echoes.Journey]::new(100)
 $jumpTuning.SelectChapter(0)

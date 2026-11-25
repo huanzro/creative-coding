@@ -356,35 +356,41 @@ namespace Echoes
             if (journey.Phase==Stage.ForestTrapped)
             {
                 bool web=journey.ForestTrap==ForestTrapKind.Web;
-                var acting=ForestRescueStoryboard.Sample(journey.Age,web);
+                float authoredAge=journey.ForestRescueAuthoredAge;
+                var acting=ForestRescueStoryboard.Sample(authoredAge,web);
                 Vector3 trap=WorldSet.ForestTrapSite(journey);
                 Vector3 caught=Vector3.Lerp(point,trap,acting.tight*.37f);
-                caught+=heading*new Vector3(.13f*Mathf.Sin(journey.Age*7.3f)*acting.effort,
-                    (web?.13f:-.09f)*acting.tight + .19f*acting.pull,
-                    .19f*acting.tight-.16f*acting.balance);
                 Vector3 floor=point-Vector3.up*(frame.altitude-journey.ForestFlightFloor)*5.2f;
-                return Vector3.Lerp(caught,floor,OpeningStoryboard.Ease(7.42f,9.32f,journey.Age));
+                if (web)
+                {
+                    caught+=heading*new Vector3(.13f*Mathf.Sin(authoredAge*7.3f)*acting.effort,
+                        .13f*acting.tight+.19f*acting.pull,.19f*acting.tight-.16f*acting.balance);
+                    return Vector3.Lerp(caught,floor,OpeningStoryboard.Ease(7.42f,9.32f,authoredAge));
+                }
+                caught+=heading*new Vector3(.045f*Mathf.Sin(authoredAge*11.8f)*acting.effort,
+                    -.16f*acting.tight+.07f*acting.pry,.06f*acting.tight);
+                return Vector3.Lerp(caught,floor,OpeningStoryboard.Ease(7.58f,9.32f,authoredAge))+
+                    heading*ForestRescueStoryboard.MawEscapeOffset(authoredAge);
             }
             if (!transition) return point;
 
             if (journey.ForestTrap==ForestTrapKind.Cable)
                 return WorldSet.MachineCableActor(point,phase,journey.ForestCableAnchor);
             Vector3 mouth=WorldSet.ForestDescentMouth(journey);
-            float t=journey.Progress;
-            float move=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.20f,.75f,t));
+            float move=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.20f,.75f,phase));
             point=Vector3.Lerp(point,mouth,move);
             if(journey.ForestTrap==ForestTrapKind.Web)
             {
-                float tug=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.08f,.23f,t));
-                float drop=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.34f,.67f,t));
+                float tug=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.08f,.23f,phase));
+                float drop=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.34f,.67f,phase));
                 point.y+=.73f*tug*(1-drop);
-                point.y-=3.55f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.63f,1,t));
+                point.y-=3.55f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.63f,1,phase));
             }
             else
             {
-                float scoop=Mathf.Sin(Mathf.PI*Mathf.Clamp01(Mathf.InverseLerp(.10f,.61f,t)));
+                float scoop=Mathf.Sin(Mathf.PI*Mathf.Clamp01(Mathf.InverseLerp(.10f,.61f,phase)));
                 point.y+=.49f*scoop;
-                point.y-=3.42f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,1,t));
+                point.y-=3.42f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,1,phase));
             }
             return point;
         }
@@ -446,14 +452,25 @@ namespace Echoes
             }
             if (j.Phase==Stage.ForestTrapped)
             {
-                float arrive=OpeningStoryboard.Ease(.18f,1.76f,j.Age);
-                float hero=OpeningStoryboard.Window(j.Age,2.12f,3.08f,6.70f,8.71f);
                 bool web=j.ForestTrap==ForestTrapKind.Web;
-                Vector3 wide=web ? new Vector3(.55f,1.04f,-2.91f) : new Vector3(-1.48f,1.44f,-2.77f);
-                Vector3 close=web ? new Vector3(-.61f,.40f,-1.92f) : new Vector3(-1.78f,1.23f,-1.77f);
-                Vector3 rescueAt=actor+heading*Vector3.Lerp(wide,close,hero);
-                at=Vector3.Lerp(at,rescueAt,arrive);
-                focus=Vector3.Lerp(focus,actor+heading*new Vector3(.19f,.08f,.15f),arrive);
+                float t=j.ForestRescueAuthoredAge;
+                float arrive=OpeningStoryboard.Ease(.18f,1.76f,t);
+                if (web)
+                {
+                    float hero=OpeningStoryboard.Window(t,2.12f,3.08f,6.70f,8.71f);
+                    Vector3 rescueAt=actor+heading*Vector3.Lerp(new Vector3(.55f,1.04f,-2.91f),new Vector3(-.61f,.40f,-1.92f),hero);
+                    at=Vector3.Lerp(at,rescueAt,arrive);
+                    focus=Vector3.Lerp(focus,actor+heading*new Vector3(.19f,.08f,.15f),arrive);
+                    return;
+                }
+                var beat=ForestRescueStoryboard.Sample(t,false);
+                float detail=OpeningStoryboard.Window(t,1.85f,3.34f,6.42f,7.62f);
+                float settle=OpeningStoryboard.Ease(8.15f,9.34f,t);
+                Vector3 planted=actor-heading*ForestRescueStoryboard.MawEscapeOffset(t);
+                Vector3 close=Vector3.Lerp(new Vector3(1.64f,1.20f,-2.83f),new Vector3(1.37f,.94f,-2.23f),detail);
+                Vector3 seam=new Vector3(.09f,.05f,.11f)+beat.fly*(detail*.32f);
+                at=Vector3.Lerp(at,planted+heading*close,arrive*(1-settle));
+                focus=Vector3.Lerp(focus,Vector3.Lerp(planted+heading*seam,actor,beat.free*.64f),arrive*(1-settle));
                 return;
             }
             if(j.Phase==Stage.ForestDoor)

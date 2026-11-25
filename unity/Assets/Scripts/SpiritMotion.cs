@@ -62,6 +62,10 @@ namespace Echoes
             new Vector3(.14f, .96f, -.21f), .23f, .46f, 17);
         private static readonly SpiritArm Brace = new SpiritArm(new Vector3(.76f, -.58f, -.36f),
             new Vector3(.38f, -.72f, -.72f), .45f, 0, 27);
+        private static readonly SpiritArm MawUpperPalm = new SpiritArm(new Vector3(.54f,.43f,-.68f),
+            new Vector3(.16f,.71f,-.69f),.09f,.32f,-14);
+        private static readonly SpiritArm MawLowerPalm = new SpiritArm(new Vector3(.58f,-.43f,-.69f),
+            new Vector3(.13f,-.27f,-.95f),.12f,.18f,20);
 
         public static SpiritPose Sample(SpiritFrame frame, float tracked, float closed, float voice, float[] dance)
         {
@@ -391,25 +395,59 @@ namespace Echoes
             float t = frame.forestSnareAge;
             bool web = frame.forestTrap == ForestTrapKind.Web;
             var shot=ForestRescueStoryboard.Sample(t,web);
+            if (!web)
+            {
+                ActMawRescue(ref pose,t,shot);
+                return;
+            }
             float brace=shot.tight;
             float looking=OpeningStoryboard.Window(t,2.15f,2.81f,6.92f,8.23f);
             float wrench=shot.pull*(.92f+.08f*Mathf.Sin(t*13));
-            pose.yaw += (web ? -29 : 35)*brace + 17*wrench - 24*shot.returnLook;
-            pose.lean += (web ? -19 : 21)*brace + shot.effort*Mathf.Sin(t*8.0f)*9 + 13*shot.balance;
-            pose.pitch += (web ? -13 : 31)*brace - 9*wrench + 17*shot.balance;
-            pose.nod += 19*looking + (web ? -6 : 18)*shot.effort;
-            pose.look = Mathf.Lerp(pose.look,web ? 31 : 42,looking*.91f) - 30*shot.returnLook;
-            pose.left = SpiritArm.Blend(pose.left,web ? HoldAbove : Brace,brace);
-            pose.right = SpiritArm.Blend(pose.right,web ? Hold : Brace,brace);
-            pose.left = SpiritArm.Blend(pose.left,web ? Hold : Push,wrench);
-            pose.right = SpiritArm.Blend(pose.right,web ? Sweep : Reach,wrench);
+            pose.yaw += -29*brace + 17*wrench - 24*shot.returnLook;
+            pose.lean += -19*brace + shot.effort*Mathf.Sin(t*8.0f)*9 + 13*shot.balance;
+            pose.pitch += -13*brace - 9*wrench + 17*shot.balance;
+            pose.nod += 19*looking - 6*shot.effort;
+            pose.look = Mathf.Lerp(pose.look,31,looking*.91f) - 30*shot.returnLook;
+            pose.left = SpiritArm.Blend(pose.left,HoldAbove,brace);
+            pose.right = SpiritArm.Blend(pose.right,Hold,brace);
+            pose.left = SpiritArm.Blend(pose.left,Hold,wrench);
+            pose.right = SpiritArm.Blend(pose.right,Sweep,wrench);
             pose.left = SpiritArm.Blend(pose.left,Wing,shot.balance*.78f);
             pose.right = SpiritArm.Blend(pose.right,Wing,shot.balance*.65f);
             pose.step += .46f*shot.effort*Mathf.Sin(t*9)+.60f*shot.balance;
-            pose.tuck = Mathf.Max(pose.tuck,brace*(web ? .45f : .76f));
+            pose.tuck = Mathf.Max(pose.tuck,brace*.45f);
             pose.settle += shot.balance*.79f;
             pose.ribbon += .43f*brace + .38f*shot.effort;
             pose.expression += .78f*brace;
+        }
+
+        private static void ActMawRescue(ref SpiritPose pose,float t,ForestRescueStoryboard.Performance shot)
+        {
+            float duck=OpeningStoryboard.Window(t,.18f,.63f,1.30f,2.56f);
+            float press=shot.pry*(1-OpeningStoryboard.Ease(6.95f,7.64f,t));
+            float retreat=OpeningStoryboard.Window(t,6.93f,7.47f,8.02f,9.25f);
+            float landing=shot.balance;
+
+            pose.left=SpiritArm.Blend(pose.left,CoverHead,duck*.88f);
+            pose.right=SpiritArm.Blend(pose.right,MawLowerPalm,Mathf.Max(duck*.55f,shot.tight*.85f));
+            pose.left=SpiritArm.Blend(pose.left,MawUpperPalm,Mathf.Max(.38f*shot.watch,press));
+            pose.right=SpiritArm.Blend(pose.right,MawLowerPalm,press);
+            pose.left=SpiritArm.Blend(pose.left,Wing,retreat*.77f);
+            pose.right=SpiritArm.Blend(pose.right,Reach,retreat*.77f);
+            pose.right=SpiritArm.Blend(pose.right,Brace,landing*.76f);
+
+            pose.yaw+=26*shot.tight-43*retreat+17*shot.returnLook;
+            pose.look=Mathf.Lerp(pose.look,44,shot.watch*.94f)-24*retreat+25*shot.returnLook;
+            pose.nod+=28*duck+17*shot.watch-22*shot.pop+15*landing;
+            pose.pitch+=25*duck+15*press-29*shot.pop+24*landing;
+            pose.lean+=15*duck+10*shot.mouthPulse*Mathf.Sin(t*19)-23*retreat+14*landing;
+            pose.shift-=.21f*retreat;
+            pose.lift+=.32f*shot.pop;
+            pose.step+=.38f*shot.lowerJaw*(1-retreat)+.63f*retreat;
+            pose.tuck=Mathf.Max(pose.tuck,.83f*duck+.46f*press+.38f*shot.pop);
+            pose.settle+=.43f*shot.tight+.58f*landing;
+            pose.ribbon+=.36f*shot.tight+.73f*shot.pop+.24f*retreat;
+            pose.expression+=.72f*duck+.40f*press;
         }
 
         private static void ActForestCapture(ref SpiritPose pose, SpiritFrame frame)

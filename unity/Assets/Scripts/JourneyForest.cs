@@ -52,7 +52,9 @@ namespace Echoes
     {
         private const int StartingLights = 3;
         private const float PlantTime = .80f;
+        // Both rescue performances use this authored clock. The flower plays it in less time.
         public const float ForestRescueDuration = 9.4f;
+        public const float ForestMawRescueDuration = 6.2f;
         public const float ForestRescueSpendAt = 6.8f;
         private const float BranchDepth = 112;
         internal const float ForkEntranceDepth = 103, ForkSplitDepth = BranchDepth, ForkBendEnd = MazeEntranceDepth;
@@ -65,13 +67,15 @@ namespace Echoes
         internal const float MachineDoorDepth = 179, MachineShaftDepth = 205, MachineHeartDepth = 275;
         private const float DoorDepth = MachineDoorDepth, ShaftDepth = MachineShaftDepth, HeartDepth = MachineHeartDepth;
         private const int PreviousHeartDepth = 208;
-        public const float ForestTransitionDuration = 5.2f;
+        public const float ForestTransitionDuration = 3.7f;
         internal const float ForestFallSwallowStart = .49f, ForestDescentSwallowStart = .41f;
         internal const float ForestRecyclerSwallowStart = .81f, ForestCableSwallowStart = .79f;
         public const float ForestDoorDuration = 13.4f;
         public const float ForestMachineUpperFloor = 1.46f;
         public float ForestTransitionTime => ForestTrap == ForestTrapKind.Cable ? 8.8f : ForestTransitionDuration;
-        public const float ForestFallDuration = 3.15f;
+        public const float ForestFallDuration = 2.45f;
+        public float ForestCaptureTime => ForestTrap == ForestTrapKind.Maw ? ForestMawRescueDuration : ForestRescueDuration;
+        internal float ForestRescueAuthoredAge => Age * (ForestRescueDuration / ForestCaptureTime);
 
         private readonly Random forestRandom;
         private readonly List<ForestFeature> forestFeatures = new List<ForestFeature>();
@@ -643,8 +647,8 @@ namespace Echoes
 
         private void UpdateForestCapture()
         {
-            Progress = Clamp(Age / ForestRescueDuration);
-            if (!forestRescueDeparted && Age >= ForestRescueSpendAt)
+            Progress = Clamp(Age / ForestCaptureTime);
+            if (!forestRescueDeparted && ForestRescueAuthoredAge >= ForestRescueSpendAt)
             {
                 forestRescueDeparted = true;
                 ForestLights--;
@@ -652,10 +656,10 @@ namespace Echoes
                 Notify(JourneyCue.ForestRescueLight);
             }
             if (Progress < 1) return;
+            Flight.Reset(ForestFlightFloor,ForestHeightLimit);
             if (ForestLights == 0) { BeginForestFall(); return; }
             ForestTrap = ForestTrapKind.None;
             ForestHasRescue = false;
-            Flight.Reset(ForestFlightFloor,ForestHeightLimit);
             forestProtectedUntil = Time + .8f;
             Signal(FireflyKind.Amber);
             Notify(JourneyCue.ForestRescued);
