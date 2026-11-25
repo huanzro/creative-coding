@@ -8,7 +8,7 @@ namespace Echoes
         private readonly float[] distance;
         private readonly int[][] paths;
 
-        internal MazeDirections(ForestMaze maze)
+        internal MazeDirections(ForestMaze maze, int guideFloor = -1)
         {
             this.maze = maze;
             int count = maze.Nodes.Count;
@@ -21,7 +21,13 @@ namespace Echoes
                 distance[i] = float.PositiveInfinity;
                 next[i] = -1;
             }
-            distance[maze.RootChamber] = 0;
+            int topFloor = maze.Nodes[maze.RootChamber].Level;
+            if (guideFloor >= 0 && guideFloor < topFloor)
+            {
+                foreach (ForestMazeNode node in maze.Nodes)
+                    if (node.Level == guideFloor + 1) distance[node.Id] = 0;
+            }
+            else distance[maze.RootChamber] = 0;
 
             // The same weighted graph drives the passages drawn and walked by the game.
             for (int settled = 0; settled < count; settled++)
@@ -35,6 +41,7 @@ namespace Echoes
                 foreach (ForestMazeEdge edge in maze.Connections(current))
                 {
                     int other = edge.Other(current);
+                    if (guideFloor >= 0 && maze.Nodes[other].Level != guideFloor) continue;
                     float candidate = distance[current] + edge.Length;
                     if (candidate >= distance[other]) continue;
                     distance[other] = candidate;

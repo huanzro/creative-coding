@@ -25,6 +25,7 @@ namespace Echoes
         public bool Ready => rendered && Texture != null;
         public RenderTexture Texture => graded != null ? graded : scene;
         public Vector2 ActorScreen { get; private set; } = new Vector2(.5f,.75f);
+        internal Vector3 ProjectToViewport(Vector3 point) => camera.WorldToViewportPoint(point);
         public float ActorBody { get; private set; } = 162;
 
         private static readonly int Air = Shader.PropertyToID("_EchoesAir");

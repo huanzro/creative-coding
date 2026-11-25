@@ -228,7 +228,11 @@ namespace Echoes
             if (frame.forest)
                 DrawForestSwarm(frame, center, actorSize, false, 0, (splitProjection ? .33f : .94f) * overlayGain, !spatial);
             else if (!frame.ruins) DrawLiveHandoff(frame, center, actorSize, false, 0, 1, (splitProjection ? .24f : 1) * overlayGain);
-            if (frame.forest) DrawForestHud(journey);
+            if (frame.forest)
+            {
+                if (spatial && journey.ForestMazeGuideActive) DrawMazeGuide(journey);
+                DrawForestHud(journey);
+            }
             if (frame.ruins) DrawRuinHud(journey);
             EndFrame(matrix);
         }

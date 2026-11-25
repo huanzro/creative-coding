@@ -68,7 +68,8 @@ public static class MazeNavigationChecks
         CheckHeldAndReverse();
         CheckReverseBoundary();
         CheckNearestBehindHeld();
-        return $"Passed {approaches} fork approaches, {choices} stopped-heading tunnel selections, {rollingChoices} moving-heading tunnel selections, held input cancellation/wrap and corridor reversals across 197 mazes.";
+        CheckFloorClocks();
+        return $"Passed {approaches} fork approaches, {choices} stopped-heading tunnel selections, {rollingChoices} moving-heading tunnel selections, corridor reversals across 197 mazes, and the clocks on all three floors.";
     }
 
     static Journey NewJourney(int seed)
@@ -91,6 +92,32 @@ public static class MazeNavigationChecks
         ((List<ForestFeature>)Fields["forestFeatures"].GetValue(game)).Clear();
         game.Flight.Reset(0);
         return game;
+    }
+
+    static void CheckFloorClocks()
+    {
+        const int seed = 541;
+        Journey game = NewJourney(seed);
+        var nodes = game.ForestMaze.Nodes;
+        game.AdvanceMazeFloorClock(119.9f);
+        Check(!game.ForestMazeGuideActive && game.ForestMazeFloor == 0, seed, 0, "the marker waits for two minutes");
+        Arrive(game, nodes[1], 0);
+        game.AdvanceMazeFloorClock(.11f);
+        Check(game.ForestMazeGuideActive, seed, 1, "moving to another point on the same floor keeps the elapsed time");
+
+        PositionBeforeRoom(game, nodes[4], 3, Bearing(nodes[3], nodes[4]));
+        Check(game.ForestMazeGuideActive && game.ForestMazeFloor == 0, seed, 3, "the marker stays on during the ramp");
+        game.Step(Tick, 0);
+        Check(!game.ForestMazeGuideActive && game.ForestMazeFloor == 1, seed, 4, "arriving at the second floor resets the clock");
+        game.AdvanceMazeFloorClock(Journey.MazeGuideDelay);
+        Check(game.ForestMazeGuideActive, seed, 4, "the second-floor timer can activate its own route");
+
+        Arrive(game, nodes[8], 7);
+        Check(!game.ForestMazeGuideActive && game.ForestMazeFloor == 2, seed, 8, "arriving at the third floor starts a new timer");
+        game.AdvanceMazeFloorClock(Journey.MazeGuideDelay);
+        Check(game.ForestMazeGuideActive, seed, 8, "the third-floor timer can activate the exit guide");
+        Arrive(game, nodes[game.ForestMaze.RootChamber], 10);
+        Check(game.Phase == Stage.ForestPlanting && !game.ForestMazeGuideActive, seed, 11, "the guide disappears in the final chamber");
     }
 
     static void CheckHeldAndReverse()

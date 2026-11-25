@@ -15,7 +15,62 @@ namespace Echoes
         private readonly Rect[] mazeMapBounds = new Rect[3];
         private ForestMaze mappedMaze;
         private MazeDirections mazeDirections;
+        private ForestMaze guideMaze;
+        private MazeDirections guideDirections;
+        private int guideFloor = -1;
         private GUIStyle mapTitle, mapLabel, mapMark;
+        private GUIStyle guideArrow, guideLabel;
+
+        private void DrawMazeGuide(Journey journey)
+        {
+            ForestMaze maze = journey.ForestMaze;
+            int floor = journey.ForestMazeFloor;
+            if (guideMaze != maze || guideFloor != floor)
+            {
+                guideMaze = maze;
+                guideFloor = floor;
+                guideDirections = new MazeDirections(maze, floor);
+            }
+            Vector3 feet = new Vector3(journey.ForestMazeX, journey.ForestMazeY, journey.ForestMazeZ);
+            int[] route = guideDirections.RouteFrom(journey.ForestMazeNode, journey.ForestMazeTarget,
+                feet.x, feet.y, feet.z, out _);
+            ForestMazeNode next = MazeRouteNext(maze, feet, route);
+            Vector3 waypoint = new Vector3(next.X, next.Y, next.Z);
+            Vector3 beacon = Vector3.MoveTowards(feet, waypoint, 5.2f) + Vector3.up * 3.65f;
+            Vector3 viewport = world.ProjectToViewport(beacon);
+
+            bool offscreen = viewport.z <= .05f || viewport.x < .085f || viewport.x > .915f;
+            Vector3 delta = waypoint - feet;
+            float bearing = Mathf.Atan2(delta.x, delta.z) * Mathf.Rad2Deg;
+            float turn = Mathf.DeltaAngle(journey.ForestMazeHeading, bearing);
+            string arrow = !offscreen && Mathf.Abs(turn) < 35f ? "↑" : turn >= 0 ? "→" : "←";
+            Vector2 at;
+            if (offscreen)
+                at = new Vector2(turn >= 0 ? Width - 85 : 85, Height * .55f);
+            else
+            {
+                at = new Vector2(viewport.x * Width, Mathf.Clamp((1 - viewport.y) * Height, 130, 580));
+                Vector2 actor = Vector2.Scale(world.ActorScreen, new Vector2(Width, Height));
+                if (Mathf.Abs(at.x - actor.x) < 96f)
+                    at.y = Mathf.Min(at.y, Mathf.Max(130, actor.y - .80f * world.ActorBody - 49f));
+            }
+
+            PrepareInterface();
+            if (guideArrow == null)
+            {
+                guideArrow = new GUIStyle(body) { alignment = TextAnchor.MiddleCenter, fontSize = 25, wordWrap = false };
+                guideLabel = new GUIStyle(body) { alignment = TextAnchor.MiddleCenter, fontSize = 16, wordWrap = false };
+                guideArrow.normal.textColor = guideLabel.normal.textColor = MapPlayer;
+            }
+            float shimmer = .5f + .5f * Mathf.Sin(journey.PoseTime * 3.1f);
+            Paint(new Rect(at.x - 47, at.y - 47, 94, 94), Opacity(MapPlayer, .28f + .19f * shimmer), glow);
+            Paint(new Rect(at.x - 20, at.y - 20, 40, 40), Opacity(MapInk, .86f), glow);
+            Paint(new Rect(at.x - 24, at.y - 24, 48, 48), Opacity(MapPlayer, .84f), ring);
+            GUI.Label(new Rect(at.x - 20, at.y - 20, 40, 40), arrow, guideArrow);
+            Paint(new Rect(at.x - 41, at.y + 24, 82, 23), MapInk);
+            string destination = floor < MazeLevels.Length - 1 ? "去" + MazeLevels[floor + 1] : "去终点";
+            GUI.Label(new Rect(at.x - 41, at.y + 24, 82, 23), destination, guideLabel);
+        }
 
         internal MazeMapCommand DrawMazeMap(Journey journey, bool open, bool showRoute)
         {
@@ -75,8 +130,7 @@ namespace Echoes
         {
             ForestMaze maze = journey.ForestMaze;
             Vector3 current = new Vector3(journey.ForestMazeX, journey.ForestMazeY, journey.ForestMazeZ);
-            int playerFloor = Mathf.Clamp(Mathf.RoundToInt(Mathf.InverseLerp(maze.Nodes[maze.Entry].Y,
-                maze.Nodes[maze.RootChamber].Y, current.y) * 2), 0, 2);
+            int playerFloor = journey.ForestMazeFloor;
             float remaining = 0;
             int[] route = showRoute ? mazeDirections.RouteFrom(journey.ForestMazeNode, journey.ForestMazeTarget,
                 current.x, current.y, current.z, out remaining) : null;
@@ -161,19 +215,20 @@ namespace Echoes
 
         private static string MazeRouteInstruction(Journey journey, Vector3 current, int[] route, float remaining)
         {
-            ForestMaze maze = journey.ForestMaze;
-            ForestMazeNode next = maze.Nodes[route[0]];
+            ForestMazeNode next = MazeRouteNext(journey.ForestMaze, current, route);
             Vector2 delta = new Vector2(next.X-current.x,next.Z-current.z);
-            if (delta.sqrMagnitude < 1.5f && route.Length > 1)
-            {
-                next = maze.Nodes[route[1]];
-                delta = new Vector2(next.X-current.x,next.Z-current.z);
-            }
             float turn = Mathf.DeltaAngle(journey.ForestMazeHeading,
                 Mathf.Atan2(delta.x,delta.y)*Mathf.Rad2Deg);
             string turnLabel = Mathf.Abs(turn) < 14 ? "沿当前朝向前进" :
                 (turn < 0 ? "向左转约 " : "向右转约 ") + Mathf.RoundToInt(Mathf.Abs(turn)) + "°";
             return $"沿金线前往出口 · 约 {Mathf.CeilToInt(remaining)} 米\n{turnLabel}，朝向标出的通道。";
+        }
+
+        private static ForestMazeNode MazeRouteNext(ForestMaze maze, Vector3 current, int[] route)
+        {
+            ForestMazeNode first = maze.Nodes[route[0]];
+            Vector2 delta = new Vector2(first.X - current.x, first.Z - current.z);
+            return route.Length > 1 && delta.sqrMagnitude < 1.5f ? maze.Nodes[route[1]] : first;
         }
 
         private static bool RouteIncludes(int[] route, ForestMazeEdge edge)

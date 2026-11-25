@@ -117,6 +117,7 @@ namespace Echoes
             journey.MazeWalkScale = PlayerPrefs.GetFloat(MazeKey, Journey.DefaultMazeWalkScale);
             journey.ForestWebRange = PlayerPrefs.GetFloat(WebKey, Journey.DefaultForestCaptureRange);
             journey.ForestMawRange = PlayerPrefs.GetFloat(MawKey, Journey.DefaultForestCaptureRange);
+            journey.ForestFireflyRange = PlayerPrefs.GetFloat(FireflyRangeKey, Journey.DefaultForestFireflyRange);
             journey.RuinLeftReach = PlayerPrefs.GetFloat(RuinLeftReachKey, 1);
             journey.RuinRightReach = PlayerPrefs.GetFloat(RuinRightReachKey, 1);
             journey.RuinUpperReach = PlayerPrefs.GetFloat(RuinUpperReachKey, 1);
@@ -176,7 +177,7 @@ namespace Echoes
                 Mathf.Max(journey.Voice * .42f, journey.WindOutput), journey);
 #endif
 
-            if (!journey.IsOpening && savedRevision != journey.Revision)
+            if (!forestDebugPoint.HasValue && !journey.IsOpening && savedRevision != journey.Revision)
             {
                 savedRevision = journey.Revision;
                 PlayerPrefs.SetString(SaveKey, JsonUtility.ToJson(journey.Checkpoint));
@@ -258,7 +259,8 @@ namespace Echoes
                 return;
             }
             var state = Snapshot();
-            view.DrawControls(state.title, state.message, state.left, state.right, state.voice,
+            string heading = forestDebugPoint.HasValue ? "调试 · " + ForestDebugLabels[(int)forestDebugPoint.Value] : state.title;
+            view.DrawControls(heading, state.message, state.left, state.right, state.voice,
                 option => Choose(option.ToString()), Select, () => Retry(""), () => Restore(""),
                 () => Pause(paused ? "0" : "1"), paused, characterOnly, journey.ForestMazeWalkArea,
                 journey.InForest || journey.InRuins && journey.Phase == Stage.RuinExplore && !journey.RuinLootOpen,
@@ -268,6 +270,11 @@ namespace Echoes
 
         private void DrawSettings(GUIStyle label, GUIStyle button)
         {
+            if (forestDebugSettings)
+            {
+                DrawForestDebugSettings(label, button);
+                return;
+            }
             if (ruinSettings)
             {
                 if (GUI.Button(new Rect(354, 12, 148, 31), "返回游戏设置", button)) ruinSettings = false;
@@ -330,6 +337,7 @@ namespace Echoes
                 PlayerPrefs.Save();
             }
             bool world = GUI.Toggle(new Rect(20, 305, 300, 27), view.UseWorld, "星海使用三维背景");
+            if (GUI.Button(new Rect(336, 304, 166, 30), "森林调试断点", button)) forestDebugSettings = true;
             if (world != view.UseWorld)
             {
                 view.UseWorld = world;
@@ -347,6 +355,8 @@ namespace Echoes
                 Journey.MinForestCaptureRange, Journey.MaxForestCaptureRange, label);
             journey.ForestMawRange = TuningSlider(480, "食人花捕捉范围", MawKey, journey.ForestMawRange,
                 Journey.MinForestCaptureRange, Journey.MaxForestCaptureRange, label);
+            journey.ForestFireflyRange = TuningSlider(513, "萤火接触范围", FireflyRangeKey, journey.ForestFireflyRange,
+                Journey.MinForestFireflyRange, Journey.MaxForestFireflyRange, label);
         }
 
         private void DrawRuinSettings(GUIStyle label, GUIStyle button)
@@ -504,6 +514,7 @@ namespace Echoes
 
         public void PlayOpening()
         {
+            forestDebugPoint = null;
             settings = paused = characterOnly = false;
             journey.PlayOpening();
         }
@@ -617,6 +628,7 @@ namespace Echoes
         public void Select(string value)
         {
             if (!int.TryParse(value, out int chapter) || chapter < -1 || chapter > 2) return;
+            forestDebugPoint = null;
             // Selecting a chapter is an explicit entry point, not a progress checkpoint.
             if (chapter == -1) journey.SelectPractice();
             else journey.SelectChapter(chapter);
@@ -625,7 +637,8 @@ namespace Echoes
 
         public void Retry(string unused)
         {
-            journey.Retry();
+            if (forestDebugPoint.HasValue) StartForestDebugPoint(forestDebugPoint.Value);
+            else journey.Retry();
         }
 
         public void Restore(string unused)
@@ -642,6 +655,7 @@ namespace Echoes
                 if (!journey.Restore(JsonUtility.FromJson<JourneyCheckpoint>(save))) return;
             }
             catch (ArgumentException) { return; }
+            forestDebugPoint = null;
             savedRevision = journey.Revision;
         }
 

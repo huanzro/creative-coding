@@ -11,11 +11,13 @@ public static class MazeDirectionsCheck
 
     public static string Run()
     {
-        int layouts = 0, origins = 0;
+        int layouts = 0, origins = 0, floorOrigins = 0;
         foreach (int seed in Seeds())
         {
             var maze = new Echoes.ForestMaze(seed);
             var directions = new Echoes.MazeDirections(maze);
+            var floorDirections = new[] { new Echoes.MazeDirections(maze, 0), new Echoes.MazeDirections(maze, 1),
+                new Echoes.MazeDirections(maze, 2) };
             float[] distances = IndependentDistances(maze);
             foreach (Echoes.ForestMazeNode node in maze.Nodes)
             {
@@ -23,6 +25,10 @@ public static class MazeDirectionsCheck
                 Require(route[0]==node.Id && Math.Abs(distances[node.Id]-distance) < Tolerance, seed, "node cost");
                 CheckPath(maze, route, distance, seed);
                 origins++;
+                int[] guide = floorDirections[node.Level].RouteFrom(node.Id, -1, node.X, node.Y, node.Z, out float floorDistance);
+                Require(guide[0] == node.Id && !float.IsInfinity(floorDistance), seed, "floor guide starts at a reachable node");
+                CheckPath(maze, guide, floorDistance, seed, node.Level);
+                floorOrigins++;
             }
             foreach (Echoes.ForestMazeEdge edge in maze.Edges)
             {
@@ -43,7 +49,7 @@ public static class MazeDirectionsCheck
             }
             layouts++;
         }
-        return $"Passed {origins} route origins in {layouts} actual maze layouts, including player positions on graded ramps and both edge directions.";
+        return $"Passed {origins} map routes and {floorOrigins} per-floor guide routes in {layouts} actual maze layouts.";
     }
 
     private static IEnumerable<int> Seeds()
@@ -66,12 +72,16 @@ public static class MazeDirectionsCheck
         return result;
     }
 
-    private static void CheckPath(Echoes.ForestMaze maze, int[] route, float expected, int seed)
+    private static void CheckPath(Echoes.ForestMaze maze, int[] route, float expected, int seed, int floor = -1)
     {
-        Require(route[route.Length-1]==maze.RootChamber && route.Length<=maze.Nodes.Count, seed, "route ends in root chamber");
+        int destination = route[route.Length - 1];
+        int topFloor = maze.Nodes[maze.RootChamber].Level;
+        bool reachesTarget = floor >= 0 && floor < topFloor ? maze.Nodes[destination].Level == floor + 1 : destination == maze.RootChamber;
+        Require(reachesTarget && route.Length <= maze.Nodes.Count, seed, "route ends at the requested floor or the root chamber");
         float length = 0;
         for (int i=1; i<route.Length; i++)
         {
+            if (floor >= 0) Require(maze.Nodes[route[i - 1]].Level == floor, seed, "guide stays on its floor until the destination");
             float segment = float.PositiveInfinity;
             foreach (Echoes.ForestMazeEdge edge in maze.Connections(route[i-1]))
                 if (edge.Other(route[i-1])==route[i]) segment=edge.Length;

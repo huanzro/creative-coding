@@ -5,6 +5,7 @@ namespace Echoes
 {
     public enum ForestFeatureKind { Amber, Scarlet, Web, Maw, Plant }
     public enum ForestTrapKind { None, Web, Maw, Cable }
+    public enum ForestDebugPoint { Maw, Spider, MazeEnd, GearDoor, RecyclerDoor, PredictionDoor, Heart }
     public enum ForestBranch { Shared, Left, Right }
     public enum ForestSection
     {
@@ -96,9 +97,11 @@ namespace Echoes
         private int forestEchoCursor, forestEchoCount;
         public const float MinForestLateralScale = .35f, DefaultForestLateralScale = .70f, MaxForestLateralScale = 1.45f;
         public const float MinForestCaptureRange = .45f, DefaultForestCaptureRange = 1, MaxForestCaptureRange = 1.65f;
+        public const float MinForestFireflyRange = .50f, DefaultForestFireflyRange = 1f, MaxForestFireflyRange = 2f;
         public const float MinForestDoorJumpHeightScale = .75f, DefaultForestDoorJumpHeightScale = 2.60f, MaxForestDoorJumpHeightScale = 4f;
         private float forestLateralScale = DefaultForestLateralScale;
         private float forestWebRange = DefaultForestCaptureRange, forestMawRange = DefaultForestCaptureRange;
+        private float forestFireflyRange = DefaultForestFireflyRange;
         private float forestDoorJumpHeightScale = DefaultForestDoorJumpHeightScale;
 
         public float ForestDoorJumpHeightScale
@@ -124,6 +127,12 @@ namespace Echoes
         {
             get => forestMawRange;
             set => forestMawRange = TuningValue(value, MinForestCaptureRange, MaxForestCaptureRange, DefaultForestCaptureRange);
+        }
+
+        public float ForestFireflyRange
+        {
+            get => forestFireflyRange;
+            set => forestFireflyRange = TuningValue(value, MinForestFireflyRange, MaxForestFireflyRange, DefaultForestFireflyRange);
         }
 
         private static float TuningValue(float value, float min, float max, float fallback) =>
@@ -424,6 +433,44 @@ namespace Echoes
             Revision++;
         }
 
+        public bool JumpToForestDebugPoint(ForestDebugPoint point)
+        {
+            if (!Enum.IsDefined(typeof(ForestDebugPoint), point)) return false;
+            int seed = forestSeed;
+            SelectChapter(0);
+            if (point == ForestDebugPoint.Maw || point == ForestDebugPoint.Spider)
+            {
+                ForestFeatureKind kind = point == ForestDebugPoint.Maw ? ForestFeatureKind.Maw : ForestFeatureKind.Web;
+                ForestFeature feature = forestFeatures.Find(item => item.Kind == kind);
+                if (feature == null) return false;
+                Distance = feature.Depth;
+                ForestLane = ForestTargetLane = feature.Lane;
+                Flight.Reset(feature.Altitude, ForestHeightLimit);
+                SetHand(Hand.Open);
+                CollectForestContacts();
+                return Phase == Stage.ForestTrapped;
+            }
+
+            var checkpoint = Checkpoint;
+            checkpoint.forestSeed = seed;
+            checkpoint.forestBranch = (int)(point == ForestDebugPoint.MazeEnd ? ForestBranch.Left : ForestBranch.Right);
+            if (point == ForestDebugPoint.MazeEnd || point == ForestDebugPoint.Heart)
+            {
+                checkpoint.forestDepth = (int)(point == ForestDebugPoint.MazeEnd ? ClearingDepth : HeartDepth);
+                return Restore(checkpoint);
+            }
+
+            int door = (int)point - (int)ForestDebugPoint.GearDoor;
+            checkpoint.forestDepth = (int)VestibuleDepth;
+            checkpoint.forestLane = door - 1;
+            if (!Restore(checkpoint)) return false;
+            Distance = DoorDepth - .01f;
+            Flight.Reset(.36f, ForestHeightLimit);
+            SetHand(Hand.Open);
+            BeginForestDoor(door);
+            return true;
+        }
+
         private void ForestTouch(int option)
         {
             if (TouchMaze(option) || Branch==ForestBranch.Left && !ForestMazeActive) return;
@@ -541,11 +588,7 @@ namespace Echoes
                 }
                 else if (Flight.Height < .90f)
                 {
-                    ForestDoor = ForestLane < -.42f ? 0 : ForestLane > .42f ? 2 : 1;
-                    forestDoorLights = ForestLights;
-                    ForestSteering = 0;
-                    Change(Stage.ForestDoor, "");
-                    Notify(JourneyCue.ForestDoor);
+                    BeginForestDoor(ForestLane < -.42f ? 0 : ForestLane > .42f ? 2 : 1);
                 }
                 return;
             }
@@ -563,6 +606,15 @@ namespace Echoes
                 return;
             }
             Distance = next;
+        }
+
+        private void BeginForestDoor(int door)
+        {
+            ForestDoor = door;
+            forestDoorLights = ForestLights;
+            ForestSteering = 0;
+            Change(Stage.ForestDoor, "");
+            Notify(JourneyCue.ForestDoor);
         }
 
         private void UpdateForestDoor()
@@ -601,7 +653,8 @@ namespace Echoes
                 switch (feature.Kind)
                 {
                     case ForestFeatureKind.Amber:
-                        if (Math.Abs(ahead) > .86f || lateral > .31f || altitude > .14f) break;
+                        if (Math.Abs(ahead) > .86f * forestFireflyRange || lateral > .31f * forestFireflyRange ||
+                            altitude > .14f * forestFireflyRange) break;
                         feature.Collected = true;
                         ForestLights++;
                         RememberForestContact(feature);
@@ -609,7 +662,8 @@ namespace Echoes
                         Signal(FireflyKind.Amber);
                         break;
                     case ForestFeatureKind.Scarlet:
-                        if (Time < forestProtectedUntil || Math.Abs(ahead) > .78f || lateral > .30f || altitude > .13f) break;
+                        if (Time < forestProtectedUntil || Math.Abs(ahead) > .78f * forestFireflyRange ||
+                            lateral > .30f * forestFireflyRange || altitude > .13f * forestFireflyRange) break;
                         feature.Collected = true;
                         ForestLights = Math.Max(0, ForestLights - 1);
                         forestProtectedUntil = Time + .8f;

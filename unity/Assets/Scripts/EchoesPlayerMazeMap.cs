@@ -8,6 +8,7 @@ namespace Echoes
 
         private void UpdateMazeMap(bool keyboard)
         {
+            if (!paused) journey.AdvanceMazeFloorClock(Time.unscaledDeltaTime);
             if (!journey.ForestMazeActive)
             {
                 mazeMapOpen = mazeMapRoute = false;

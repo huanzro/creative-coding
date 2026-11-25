@@ -13,12 +13,15 @@ namespace Echoes
         private const float MazeReverseAngle = 108f, MazeForwardAngle = 72f;
         internal const string MazeWalkHint = "A/B 转向，张手走、握拳停。声音加速，岔口沿朝向进入通道。";
         public const float MinimumMazeWalkScale = .65f, DefaultMazeWalkScale = 1.30f, MaximumMazeWalkScale = 2f;
+        public const float MazeGuideDelay = 120f;
         private readonly List<int> mazePath = new List<int>();
         private int mazeFrom, mazeTarget = -1, mazeIncoming = -1, mazeReturnIndex, mazeReturnStop;
         private float mazeAlong, mazeYaw, mazeTurnFrom, mazeTurnTo, mazeTurnAge, mazeTurnDuration;
         private float mazeX, mazeY, mazeZ, mazeSpeed, mazeTravel;
         private float mazeWallHeading, mazeWallOffset, mazeGateStarted;
         private int mazeSteering;
+        private int mazeFloor;
+        private double mazeFloorSeconds;
         private float mazeThroatRemaining;
         private bool mazeAlignToPassage, mazeTurnHeld, mazeMayReverse;
         private float mazeWalkScale = DefaultMazeWalkScale;
@@ -48,6 +51,9 @@ namespace Echoes
         public ForestMazeMotion MazeMotion => mazeMotion;
         public int ForestMazeNode => mazeFrom;
         public int ForestMazeTarget => mazeTarget;
+        public int ForestMazeFloor => mazeFloor;
+        public bool ForestMazeGuideActive => ForestMazeWalkArea && mazeFloorSeconds >= MazeGuideDelay &&
+            (Phase == Stage.ForestExplore || Phase == Stage.ForestLoop);
         internal bool CanSteerMaze => Started && Gesture != Hand.Missing && ForestMazeWalkArea &&
             (Phase == Stage.ForestExplore || Phase == Stage.ForestLoop && mazeMotion == ForestMazeMotion.Retracing);
         internal float ForestMazePassageHeading => mazeTarget >= 0 ? ForestMaze.Heading(mazeFrom, mazeTarget) : mazeYaw;
@@ -55,6 +61,20 @@ namespace Echoes
         private bool AtMazeRoots => ForestMazeActive && Distance >= ClearingDepth;
         private float MazeWalkingPace => Gesture == Hand.Open
             ? mazeWalkScale * Math.Min(.98f + 2.55f * Voice, ForestMaze.MaximumSpeed / DefaultMazeWalkScale) : 0;
+
+        internal void AdvanceMazeFloorClock(float seconds)
+        {
+            if (ForestMazeWalkArea && seconds > 0 && !float.IsInfinity(seconds))
+                mazeFloorSeconds = Math.Min(MazeGuideDelay, mazeFloorSeconds + seconds);
+        }
+
+        private void RecordMazeFloor(int node)
+        {
+            int floor = ForestMaze.Nodes[node].Level;
+            if (floor == mazeFloor) return;
+            mazeFloor = floor;
+            mazeFloorSeconds = 0;
+        }
 
         // Both held inputs cancel. Rotation is independent of the gesture used to walk.
         public void SetMazeSteering(bool left, bool right)
@@ -72,12 +92,15 @@ namespace Echoes
             mazeThroatRemaining = 0;
             mazeAlignToPassage = mazeTurnHeld = mazeMayReverse = false;
             mazeFrom = 0;
+            mazeFloor = 0;
+            mazeFloorSeconds = 0;
             mazeX = mazeY = mazeZ = mazeAlong = mazeYaw = mazeTurnAge = mazeSpeed = mazeTravel = 0;
             mazeMotion = ForestMazeMotion.Walking;
             mazeWallOffset = 0;
             mazeGateStarted = Distance >= ClearingDepth ? Time - 1 : float.PositiveInfinity;
             if (ForestMaze == null) return;
             if (Distance >= ClearingDepth) mazeFrom = ForestMaze.RootChamber;
+            RecordMazeFloor(mazeFrom);
             mazePath.Add(mazeFrom);
             SetMazePosition(ForestMaze.Nodes[mazeFrom]);
             if (mazeFrom == ForestMaze.RootChamber)
@@ -259,6 +282,7 @@ namespace Echoes
         {
             int previous=mazeFrom;
             mazeFrom=mazeTarget;
+            RecordMazeFloor(mazeFrom);
             mazeTarget=-1;
             mazeIncoming=previous;
             mazeAlong=0;
@@ -365,6 +389,7 @@ namespace Echoes
                     int previous = mazeFrom;
                     if (!TraverseMazeEdge(mazeSpeed * dt)) return;
                     mazeFrom = mazeTarget;
+                    RecordMazeFloor(mazeFrom);
                     if (mazeReturnIndex > mazeReturnStop)
                     {
                         StartMazeEdge(mazePath[--mazeReturnIndex]);

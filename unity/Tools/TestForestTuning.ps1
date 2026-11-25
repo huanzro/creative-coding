@@ -190,4 +190,43 @@ foreach ($kind in @('Web','Maw')) {
         }
     }
 }
-Write-Output 'Passed both continuous forest approaches, fork checkpoint entry, continuous held movement, circular trap volumes and independent capture ranges.'
+foreach ($kind in @('Amber','Scarlet')) {
+    $trial = [Echoes.Journey]::new(541)
+    $trial.SelectChapter(0)
+    $trial.SetHand([Echoes.Hand]::Open)
+    $fly = $trial.ForestFeatures | Where-Object Kind -eq $kind | Select-Object -First 1
+    $lane.SetValue($trial, [single]$fly.LaneAt($trial.Time))
+    $distance.SetValue($trial, [single]($fly.DepthAt($trial.Time) - 1.10))
+    $trial.Flight.Reset($fly.AltitudeAt($trial.Time))
+    $trial.Step(.0001, 0)
+    Assert (!$fly.Collected) "The default $kind range rejects a distant contact."
+    $trial.ForestFireflyRange = 100
+    Assert ($trial.ForestFireflyRange -eq 2) 'The firefly range clamps to its maximum.'
+    $trial.Step(.0001, 0)
+    Assert ($fly.Collected -and $trial.ForestContact -eq $fly) "Increasing the range applies to the same $kind firefly."
+    $trial.ForestFireflyRange = -1
+    Assert ($trial.ForestFireflyRange -eq .5) 'The firefly range clamps to its minimum.'
+}
+
+$debug = [Echoes.Journey]::new(541)
+$debug.ForestFireflyRange = 1.7
+foreach ($kind in @('Maw','Spider')) {
+    $expected = if ($kind -eq 'Spider') { 'Web' } else { 'Maw' }
+    Assert ($debug.JumpToForestDebugPoint([Echoes.ForestDebugPoint]$kind)) "Start the $kind debug point."
+    Assert ($debug.Phase -eq 'ForestTrapped' -and $debug.ForestTrap -eq $expected -and $debug.Age -eq 0 -and
+        $debug.ForestHasRescue -and $debug.ForestThreatPulse -gt 0) "The $kind breakpoint starts the real capture beat."
+}
+Assert ($debug.JumpToForestDebugPoint([Echoes.ForestDebugPoint]::MazeEnd) -and
+    $debug.ForestMazeNode -eq $debug.ForestMaze.RootChamber -and $debug.ForestMazeFloor -eq 2 -and
+    $debug.Phase -eq 'ForestPlanting' -and $debug.ForestPlantsRequired -eq 2) 'The maze debug point opens the two-root chamber.'
+foreach ($index in 0..2) {
+    $point = @('GearDoor','RecyclerDoor','PredictionDoor')[$index]
+    Assert ($debug.JumpToForestDebugPoint([Echoes.ForestDebugPoint]$point) -and $debug.ForestDoor -eq $index -and
+        $debug.Phase -eq 'ForestDoor' -and $debug.Age -eq 0 -and $debug.Cue -eq 'ForestDoor') "Start door $index at the first frame."
+    $debug.Step(.02, 0)
+    Assert ($debug.Age -gt 0 -and $debug.ForestDoor -eq $index) "Door $index plays the regular animation."
+}
+Assert ($debug.JumpToForestDebugPoint([Echoes.ForestDebugPoint]::Heart) -and $debug.Section -eq 'Heart' -and
+    $debug.Phase -eq 'ForestPlanting' -and $debug.ForestPlantsRequired -eq 1 -and $debug.ForestLights -eq 3) 'The heart debug point starts at the regular planting spot.'
+Assert ([Math]::Abs($debug.ForestFireflyRange - 1.7) -lt .001) 'Rehearsal preserves the firefly range adjustment.'
+Write-Output 'Passed both forest approaches, held movement, predator and firefly ranges, and all seven debug points.'
