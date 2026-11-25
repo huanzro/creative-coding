@@ -1,6 +1,8 @@
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -21,6 +23,7 @@ namespace Echoes
         private bool overflow;
         private int sequence, lastMask, lastEnabled;
         private float lastInput, nextWrite;
+        private string portName;
         public bool Connected => port != null;
         public bool Ready { get; private set; }
         public bool FanSupported { get; private set; }
@@ -30,13 +33,37 @@ namespace Echoes
         public string Status { get; private set; } = "串口未连接";
         public event Action<int, bool> TouchChanged;
 
+        public static string[] AvailablePorts()
+        {
+            // Unity's .NET Standard profile does not expose Microsoft.Win32.Registry.
+            // A DOS-device query lists the COM aliases that Windows can open now.
+            int count = 0;
+            char[] names = null;
+            for (int capacity = 4096; capacity <= 65536; capacity *= 2)
+            {
+                names = new char[capacity];
+                count = QueryDosDevice(null, names, names.Length);
+                if (count > 0 || Marshal.GetLastWin32Error() != 122) break;
+            }
+            if (count <= 0) return Array.Empty<string>();
+            var numbers = new SortedSet<int>();
+            foreach (string value in new string(names, 0, count).Split('\0'))
+                if (IsPortName(value)) numbers.Add(int.Parse(value.Substring(3), CultureInfo.InvariantCulture));
+            var ports = new string[numbers.Count];
+            int index = 0;
+            foreach (int number in numbers) ports[index++] = "COM" + number.ToString(CultureInfo.InvariantCulture);
+            return ports;
+        }
+
+        private static bool IsPortName(string name) => Regex.IsMatch(name, @"^COM[1-9][0-9]{0,3}$", RegexOptions.IgnoreCase);
+
         public void Connect(string name, float now)
         {
             Dispose();
-            name = name.Trim().ToUpperInvariant();
-            if (!Regex.IsMatch(name, @"^COM[1-9][0-9]{0,3}$"))
+            name = (name ?? "").Trim().ToUpperInvariant();
+            if (!IsPortName(name))
             {
-                Status = "输入设备管理器中的端口，例如 COM3";
+                Status = "请先选择 Windows 检测到的 Arduino 串口";
                 return;
             }
             try
@@ -55,12 +82,17 @@ namespace Echoes
                 lastInput = now;
                 nextWrite = now;
                 sequence = 0;
+                portName = name;
                 Status = name + " 已打开，等待 EOL3";
             }
             catch (Win32Exception error)
             {
                 Dispose();
-                Status = "串口无法打开。 " + error.Message;
+                Status = error.NativeErrorCode == 2 || error.NativeErrorCode == 3
+                    ? name + " 已不在系统中。重新插好数据线后刷新端口。"
+                    : error.NativeErrorCode == 5 || error.NativeErrorCode == 32
+                        ? name + " 无法独占。关闭 Arduino 串口监视器或其他占用程序后重试。"
+                        : name + " 连接失败（Windows 错误 " + error.NativeErrorCode + "） " + error.Message;
             }
         }
 
@@ -84,16 +116,19 @@ namespace Echoes
                     Ready = FanSupported = false;
                     Status = "EOL3 心跳中断，输出已停止";
                 }
+                if (!Ready && now - lastInput > 4.5f)
+                    Status = portName + " 已打开，未收到 EOL3。请确认已烧录项目固件。";
                 if (!running && (LampsEnabled || FanEnabled)) StopOutput();
                 if (!Ready || now < nextWrite) return;
                 nextWrite = now + .1f;
                 int fan = FanEnabled ? (int)Math.Round(Math.Max(0, Math.Min(1, energy)) * 132) : 0;
                 Write(ExhibitProtocol.Output(sequence++, Lamp(0, now), Lamp(1, now), fan, FanSupported, forestPalette));
             }
-            catch (Win32Exception error)
+            catch (Win32Exception)
             {
+                string name = portName;
                 Dispose();
-                Status = "串口连接中断。 " + error.Message;
+                Status = name + " 连接中断。重新插好数据线后刷新端口。";
             }
         }
 
@@ -182,6 +217,7 @@ namespace Echoes
             StopOutput();
             port?.Dispose();
             port = null;
+            portName = null;
             Ready = FanSupported = overflow = false;
             line.Clear();
             Status = "串口未连接";
@@ -207,6 +243,8 @@ namespace Echoes
         [DllImport("kernel32.dll", EntryPoint = "CreateFileW", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern SafeFileHandle OpenPort(string name, uint access, uint share,
             IntPtr security, uint creation, uint flags, IntPtr template);
+        [DllImport("kernel32.dll", EntryPoint = "QueryDosDeviceW", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern int QueryDosDevice(string device, [Out, MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.U2)] char[] result, int capacity);
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool GetCommState(SafeFileHandle file, ref SerialState state);
         [DllImport("kernel32.dll", SetLastError = true)]

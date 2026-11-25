@@ -68,15 +68,19 @@ function Grant($game) {
 }
 
 function Steer($game, $lane) {
-    for ($i=0; $i -lt 2 -and $game.ForestTargetLane -ne $lane; $i++) {
-        $button = [int]($game.ForestTargetLane -lt $lane)
-        Assert ($game.Touch($button)) 'An available forest route should accept the requested lane.'
-        if ($game.ForestTargetLane -ne $lane) { Step $game 1.10 0 }
+    if ($game.Branch -eq 'Left' -and !$game.ForestMazeActive) { return }
+    $rate = 1.35 * $game.ForestLateralScale
+    for ($tick=0; $tick -lt 260 -and [Math]::Abs($lane-$game.ForestTargetLane) -gt .001; $tick++) {
+        $delta = $lane - $game.ForestTargetLane
+        $game.SetForestLateralInput($delta -lt 0, $delta -gt 0)
+        $game.Step([Math]::Min(.02, [Math]::Abs($delta) / $rate), 0)
     }
+    $game.SetForestLateralInput($false,$false)
 }
 
 function FlyFlat($game, $depth, $height, $lane) {
     $game.SetHand([Echoes.Hand]::Open)
+    $game.Flight.Reset($game.ForestFlightFloor, $game.ForestHeightLimit)
     Steer $game $lane
     for ($i = 0; $i -lt 1800 -and $game.Distance -lt $depth -and $game.Phase -eq 'ForestExplore'; $i++) {
         $game.Flight.Reset($height, $game.ForestHeightLimit)
@@ -142,15 +146,15 @@ Step $game 38 0
 Assert ($game.Phase -eq 'ForestExplore' -and $game.EnteredFromOpening) 'The opening should land in the first chapter.'
 Pose $game Open .36 .7
 Assert ($game.ForestLights -eq 3) 'The forest begins with three companion lights.'
-Steer $game -1
-Step $game .10 .7
+$game.SetForestLateralInput($true,$false)
+Step $game .32 .7
 Assert ($game.ForestLane -lt -.04 -and $game.ForestLane -gt -.15) 'Ground motion eases gently through intermediate positions.'
-[void]$game.Touch(1)
+$game.SetForestLateralInput($false,$true)
 Step $game .02 .7
 Assert ($game.ForestLane -lt 0) 'A steering reversal keeps position and momentum.'
 Steer $game 1
 Step $game 1.5 .7
-Assert ($game.Distance -eq 0 -and $game.ForestLane -gt .98 -and $game.ForestTargetLane -eq 1) 'The ground accepts lateral movement without advancing.'
+Assert ($game.Distance -eq 0 -and $game.ForestLane -gt .98 -and $game.ForestTargetLane -gt .999) 'The ground accepts held lateral movement without advancing.'
 Steer $game 0
 Pose $game Fist .48 .3
 Pose $game Open .65 .3

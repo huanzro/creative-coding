@@ -15,11 +15,6 @@ namespace Echoes
         private bool settings, characterOnly, splitProjection, noHand;
         private int cast;
         private static readonly string[] CastNames = { "三维精灵", "绿金长裙精灵", "兜帽旅人", "星纹术士" };
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
-        private bool typingPort;
-#else
-        private const bool typingPort = false;
-#endif
         private Hand liveHand;
         private float liveVoice, lastHandAt, lastAudioAt;
 #if UNITY_WEBGL && !UNITY_EDITOR
@@ -31,7 +26,6 @@ namespace Echoes
 #endif
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
         private readonly WindowsExhibit exhibit = new WindowsExhibit();
-        private string comPort = "COM3";
         private int exhibitCue;
 #endif
         private int savedRevision;
@@ -112,7 +106,8 @@ namespace Echoes
 #endif
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
             exhibit.TouchChanged += PhysicalTouch;
-            comPort = PlayerPrefs.GetString("EchoesUnity.Port", comPort);
+            comPort = PlayerPrefs.GetString("EchoesUnity.Port", "");
+            RefreshSerialPorts();
 #endif
 #if UNITY_WEBGL && !UNITY_EDITOR
             WebGLInput.captureAllKeyboardInput = false;
@@ -128,7 +123,7 @@ namespace Echoes
             if (projection) return;
             float now = Time.unscaledTime;
             float dt = Mathf.Min(.04f, Time.unscaledDeltaTime);
-            bool keyboard = preview && Application.isFocused && (!settings || !typingPort);
+            bool keyboard = preview && Application.isFocused;
             inputReady = preview || audioReady && cameraReady && now - lastAudioAt < .5f && now - lastHandAt < .5f;
             if (preview && Input.GetKeyDown(KeyCode.F1)) ToggleSettings();
             if (keyboard && Input.GetKeyDown(KeyCode.R)) Retry("");
@@ -140,14 +135,14 @@ namespace Echoes
             if (microphone.Ready) voice = microphone.Level;
 #endif
             var gesture = paused || !inputReady ? Hand.Missing : preview
-                ? noHand || !keyboard ? Hand.Missing : Input.GetKey(KeyCode.Space) ? Hand.Fist : Hand.Open
+                ? PreviewHand(keyboard)
                 : liveHand;
             journey.SetHand(gesture);
             bool leftHeld = keyboard && Input.GetKey(KeyCode.A);
             bool rightHeld = keyboard && Input.GetKey(KeyCode.B);
-            if (keyboard && Input.GetKeyDown(KeyCode.A) && (!journey.ForestMazeWalkArea || !rightHeld)) TrackTouch(0, true, false);
-            if (keyboard && Input.GetKeyDown(KeyCode.B) && (!journey.ForestMazeWalkArea || !leftHeld)) TrackTouch(1, true, false);
-            ResolveMazeSteering(leftHeld, rightHeld);
+            if (keyboard && Input.GetKeyDown(KeyCode.A) && (!journey.InForest || !rightHeld)) TrackTouch(0, true, false);
+            if (keyboard && Input.GetKeyDown(KeyCode.B) && (!journey.InForest || !leftHeld)) TrackTouch(1, true, false);
+            ResolveHeldSteering(leftHeld || view.ForestScreenTouchHeld(0), rightHeld || view.ForestScreenTouchHeld(1));
             if (!paused) journey.Step(journey.IsOpening ? Time.unscaledDeltaTime : dt, inputReady ? voice : 0, inputReady);
             UpdateMazeMap(keyboard);
             view.Advance(journey);
@@ -247,7 +242,7 @@ namespace Echoes
             if (!settings && !characterOnly && journey.ForestMazeActive)
                 DrawMazeMapControls();
             if (Application.platform == RuntimePlatform.WebGLPlayer) return;
-            if (journey.IsOpening)
+            if (journey.IsOpening && !settings)
             {
                 if (!characterOnly) view.DrawOpeningControls(journey.OpeningTime, journey.FinishOpening);
                 return;
@@ -255,12 +250,18 @@ namespace Echoes
             var state = Snapshot();
             view.DrawControls(state.title, state.message, state.left, state.right, state.voice,
                 option => Choose(option.ToString()), Select, () => Retry(""), () => Restore(""),
-                () => Pause(paused ? "0" : "1"), paused, characterOnly, journey.ForestMazeWalkArea,
+                () => Pause(paused ? "0" : "1"), paused, characterOnly, journey.ForestMazeWalkArea, journey.InForest,
                 ToggleSettings, settings ? DrawSettings : (Action<GUIStyle, GUIStyle>)null);
         }
 
         private void DrawSettings(GUIStyle label, GUIStyle button)
         {
+            if (deviceSettings)
+            {
+                if (GUI.Button(new Rect(354, 12, 148, 31), "返回游戏设置", button)) deviceSettings = false;
+                else DrawDeviceSettings(label, button);
+                return;
+            }
             if (GUI.Button(new Rect(354, 12, 148, 31), projectionSettings ? "返回游戏设置" : "投影校准", button))
                 projectionSettings = !projectionSettings;
             if (projectionSettings)
@@ -268,7 +269,14 @@ namespace Echoes
                 DrawProjectionSettings(label, button);
                 return;
             }
-            GUI.Label(new Rect(20, 14, 315, 28), "游戏设置 · Unity Play Mode", label);
+            GUI.Label(new Rect(20, 14, 160, 28), "游戏设置", label);
+            if (GUI.Button(new Rect(184, 12, 156, 31), "摄像头 / Arduino", button))
+            {
+                deviceSettings = true;
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+                RefreshSerialPorts();
+#endif
+            }
             GUI.Label(new Rect(20, 56, 85, 27), "背景时段", label);
             view.TimeOfDay = GUI.SelectionGrid(new Rect(110, 54, 394, 31), view.TimeOfDay,
                 new[] { "自动", "薄暮", "蓝调", "月夜", "破晓" }, 5, button);
@@ -277,62 +285,34 @@ namespace Echoes
             noHand = GUI.Toggle(new Rect(20, 139, 210, 27), noHand, "模拟手离开画面");
             characterOnly = GUI.Toggle(new Rect(226, 139, 153, 27), characterOnly, "纯黑人物");
             mirror = GUI.Toggle(new Rect(400, 139, 115, 27), mirror, "镜像");
-#if !UNITY_WEBGL || UNITY_EDITOR
-            if (GUI.Button(new Rect(20, 181, 130, 29), microphone.Active ? "关闭麦克风" : "开启麦克风", button))
-                microphone.Toggle(Time.unscaledTime);
-            if (GUI.Button(new Rect(160, 181, 94, 29), "重新校准", button)) microphone.Calibrate();
-            GUI.Label(new Rect(264, 181, 240, 30), microphone.Status, label);
-#endif
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
-            GUI.SetNextControlName("EchoesComPort");
-            comPort = GUI.TextField(new Rect(20, 228, 88, 29), comPort, 8);
-            typingPort = GUI.GetNameOfFocusedControl() == "EchoesComPort";
-            if (GUI.Button(new Rect(117, 228, 130, 29), exhibit.Connected ? "断开 Arduino" : "连接 Arduino", button))
-            {
-                if (exhibit.Connected) exhibit.Dispose();
-                else
-                {
-                    exhibit.Connect(comPort, Time.unscaledTime);
-                    if (exhibit.Connected) PlayerPrefs.SetString("EchoesUnity.Port", comPort);
-                }
-            }
-            GUI.Label(new Rect(259, 228, 244, 48), exhibit.Status, label);
-            bool guiEnabled = GUI.enabled;
-            GUI.enabled = exhibit.Ready && !paused;
-            exhibit.LampsEnabled = GUI.Toggle(new Rect(20, 272, 164, 28), exhibit.LampsEnabled, "启用双灯");
-            GUI.enabled = GUI.enabled && exhibit.FanSupported;
-            exhibit.FanEnabled = GUI.Toggle(new Rect(179, 272, 173, 28), exhibit.FanEnabled, "启用风扇");
-            GUI.enabled = guiEnabled;
-            if (GUI.Button(new Rect(371, 270, 132, 30), "关闭实体输出", button)) exhibit.StopOutput();
-#endif
 #if UNITY_EDITOR
-            if (GUI.Button(new Rect(20, 309, 183, 30), "打开独立人物窗口", button)) CharacterWindowRequested?.Invoke();
-            if (editorProjection) GUI.Label(new Rect(367, 309, 143, 29), "已分屏", label);
+            if (GUI.Button(new Rect(20, 186, 183, 30), "打开独立人物窗口", button)) CharacterWindowRequested?.Invoke();
+            if (editorProjection) GUI.Label(new Rect(367, 186, 143, 29), "已分屏", label);
 #endif
-            if (GUI.Button(new Rect(218, 309, 138, 30), "预览片头", button)) PlayOpening();
-            GUI.Label(new Rect(20, 358, 100, 28), "出场角色", label);
-            int picked = GUI.SelectionGrid(new Rect(116, 350, 388, 62), cast, CastNames, 2, button);
+            if (GUI.Button(new Rect(218, 186, 138, 30), "预览片头", button)) PlayOpening();
+            GUI.Label(new Rect(20, 245, 100, 28), "出场角色", label);
+            int picked = GUI.SelectionGrid(new Rect(116, 231, 388, 62), cast, CastNames, 2, button);
             if (picked != cast)
             {
                 cast = picked;
                 PlayerPrefs.SetInt("EchoesUnity.Cast", cast);
                 PlayerPrefs.Save();
             }
-            bool world = GUI.Toggle(new Rect(20, 420, 300, 27), view.UseWorld, "星海使用三维背景");
+            bool world = GUI.Toggle(new Rect(20, 305, 300, 27), view.UseWorld, "星海使用三维背景");
             if (world != view.UseWorld)
             {
                 view.UseWorld = world;
                 PlayerPrefs.SetInt("EchoesUnity.World3D", world ? 1 : 0);
                 PlayerPrefs.Save();
             }
-            GUI.Label(new Rect(20, 448, 285, 26), "森林 · 速度与捕捉范围", label);
-            journey.ForestLateralScale = TuningSlider(473, "左右移速", LateralKey, journey.ForestLateralScale,
+            GUI.Label(new Rect(20, 352, 285, 26), "森林 · 速度与捕捉范围", label);
+            journey.ForestLateralScale = TuningSlider(381, "左右移速", LateralKey, journey.ForestLateralScale,
                 Journey.MinForestLateralScale, Journey.MaxForestLateralScale, label);
-            journey.MazeWalkScale = TuningSlider(496, "迷宫行走速度", MazeKey, journey.MazeWalkScale,
+            journey.MazeWalkScale = TuningSlider(414, "迷宫行走速度", MazeKey, journey.MazeWalkScale,
                 Journey.MinimumMazeWalkScale, Journey.MaximumMazeWalkScale, label);
-            journey.ForestWebRange = TuningSlider(519, "蛛网捕捉范围", WebKey, journey.ForestWebRange,
+            journey.ForestWebRange = TuningSlider(447, "蛛网捕捉范围", WebKey, journey.ForestWebRange,
                 Journey.MinForestCaptureRange, Journey.MaxForestCaptureRange, label);
-            journey.ForestMawRange = TuningSlider(542, "食人花捕捉范围", MawKey, journey.ForestMawRange,
+            journey.ForestMawRange = TuningSlider(480, "食人花捕捉范围", MawKey, journey.ForestMawRange,
                 Journey.MinForestCaptureRange, Journey.MaxForestCaptureRange, label);
         }
 
@@ -487,12 +467,12 @@ namespace Echoes
                 bool held = active && down;
                 if (physicalTouchDown[option] == held) return;
                 physicalTouchDown[option] = held;
-                if (journey.ForestMazeWalkArea && physicalTouchDown[1-option]) return;
+                if (journey.InForest && physicalTouchDown[1-option]) return;
             }
             if (active && down) Touch(option, physical);
         }
 
-        private void ResolveMazeSteering(bool left, bool right)
+        private void ResolveHeldSteering(bool left, bool right)
         {
             bool active = Application.isFocused && !paused && inputReady;
             bool physicalReady = false;
@@ -500,7 +480,10 @@ namespace Echoes
             physicalReady = exhibit.Ready;
 #endif
             if (!active || !physicalReady) Array.Clear(physicalTouchDown, 0, physicalTouchDown.Length);
-            journey.SetMazeSteering(active && (left || physicalTouchDown[0]), active && (right || physicalTouchDown[1]));
+            left = active && (left || physicalTouchDown[0]);
+            right = active && (right || physicalTouchDown[1]);
+            journey.SetMazeSteering(left, right);
+            journey.SetForestLateralInput(left, right);
         }
 
         private void Touch(int option, bool physical)
@@ -570,6 +553,7 @@ namespace Echoes
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
             exhibit.TouchChanged -= PhysicalTouch;
             exhibit.Dispose();
+            desktopCamera.Dispose();
 #endif
 #if !UNITY_WEBGL || UNITY_EDITOR
             microphone.Stop();

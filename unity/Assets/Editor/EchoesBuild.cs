@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using UnityEditor;
+using UnityEditor.Callbacks;
 using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -134,6 +135,17 @@ namespace Echoes
             if (report.summary.result != BuildResult.Succeeded)
                 throw new InvalidOperationException("Unity Windows build failed: " + report.summary.result);
             Debug.Log("Echoes Windows build: " + output);
+        }
+
+        [PostProcessBuild]
+        private static void CopyWindowsCameraAssets(BuildTarget target, string executable)
+        {
+            if (target != BuildTarget.StandaloneWindows && target != BuildTarget.StandaloneWindows64) return;
+            string data = Path.Combine(Path.GetDirectoryName(executable), Path.GetFileNameWithoutExtension(executable) + "_Data");
+            string camera = Path.Combine(data, "StreamingAssets", "EchoesCamera");
+            Directory.CreateDirectory(camera);
+            File.Copy(Path.Combine(Website, "core.js"), Path.Combine(camera, "core.js"), true);
+            CopyDirectory(Path.Combine(Website, "vendor"), Path.Combine(camera, "vendor"));
         }
 
         private static void CopyDirectory(string source, string destination)

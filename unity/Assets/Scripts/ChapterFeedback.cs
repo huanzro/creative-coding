@@ -16,13 +16,13 @@ namespace Echoes
             GUI.Label(new Rect(1013, 88, 220, 26), $"随行萤火  {j.ForestLights}", body);
             if (j.Phase == Stage.ForestPlanting)
                 GUI.Label(new Rect(1013, 118, 220, 26), $"种下根光  {j.Plants}/{j.ForestPlantsRequired}", body);
-            for (int lane = -1; lane <= 1; lane++)
+            if (!j.ForestMazeWalkArea)
             {
-                float x = 1042 + (lane + 1) * 79;
-                bool selected = j.ForestTargetLane == lane;
-                Orb(x, 161, selected ? 14 : 7, selected ? Amber : Mint, selected ? .85f : .48f);
-                string label = lane < 0 ? "左" : lane == 0 ? "中" : "右";
-                GUI.Label(new Rect(x - 8, 172, 26, 24), label, body);
+                float x = Mathf.Lerp(1025, 1222, (j.ForestLane + 1) * .5f);
+                Paint(new Rect(1025,160,197,3),new Color(.33f,.49f,.44f,.75f));
+                Orb(x,162,15,Amber,.83f);
+                GUI.Label(new Rect(1017,172,86,24), "← 按住 A", body);
+                GUI.Label(new Rect(1153,172,86,24), "按住 B →", body);
             }
             if (j.ForestPlantCharge > 0)
                 Paint(new Rect(1014, 198, 218 * Mathf.Clamp01(j.ForestPlantCharge), 3), Amber);

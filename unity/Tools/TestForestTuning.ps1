@@ -27,9 +27,7 @@ function New-Maze($seed, $speed) {
     return $journey
 }
 
-function Get-SignedTurn($from, $to) {
-    return (($to - $from + 540) % 360) - 180
-}
+function Get-SignedTurn($from, $to) { return (($to - $from + 540) % 360) - 180 }
 
 function Get-ExitHeading($node, $exit) {
     return [Math]::Atan2($exit.X - $node.X, $exit.Z - $node.Z) * 180 / [Math]::PI
@@ -84,6 +82,25 @@ foreach ($button in 0..1) {
     Assert ($maze.ForestMazeTravel -eq $nextFork) 'Keeping the fist closed lets the player stay at the next junction.'
 }
 
+foreach ($side in 0..1) {
+    $sign = 2 * $side - 1
+    $positions = @()
+    foreach ($hold in @(.20, .57)) {
+        $trail = [Echoes.Journey]::new(541)
+        $trail.SelectChapter(0)
+        $trail.SetHand([Echoes.Hand]::Open)
+        $trail.SetForestLateralInput($side -eq 0, $side -eq 1)
+        for ($tick=0; $tick -lt [Math]::Round($hold * 100); $tick++) { $trail.Step(.01, 0) }
+        $trail.SetForestLateralInput($false, $false)
+        for ($tick=0; $tick -lt 250; $tick++) { $trail.Step(.02, 0) }
+        $stopped = $trail.ForestLane
+        for ($tick=0; $tick -lt 35; $tick++) { $trail.Step(.02, 0) }
+        Assert ($trail.Distance -eq 0 -and $trail.ForestLane -eq $stopped) 'Released input settles at an actual horizontal position.'
+        $positions += $sign * $stopped
+    }
+    Assert ($positions[0] -gt .12 -and $positions[0] -lt .28 -and $positions[1] -gt 2 * $positions[0] -and $positions[1] -lt .8) 'A longer hold moves farther. Both holds stop between the old lanes.'
+}
+
 $privateProperty = [System.Reflection.BindingFlags]'Instance,Public,NonPublic'
 $distance = [Echoes.Journey].GetProperty('Distance', $privateProperty)
 $lane = [Echoes.Journey].GetProperty('ForestLane', $privateProperty)
@@ -104,12 +121,14 @@ foreach ($side in 0..1) {
     $largestStep = 0
     for ($tick=0; $tick -lt 950 -and $fork.Distance -lt 124; $tick++) {
         if (!$buttonSent -and $fork.Distance -ge 111.45) {
-            Assert ($fork.Touch($side)) 'A late tap at the visible split is accepted.'
+            Assert ($fork.Touch($side)) 'A late press at the visible split is accepted.'
+            $fork.SetForestLateralInput($side -eq 0, $side -eq 1)
             $buttonSent = $true
         }
         $beforeX = Get-ForkX $fork
         $beforeDepth = $fork.Distance
         $fork.Step(.02, .55)
+        if ($fork.Branch -ne 'Shared') { $fork.SetForestLateralInput($false,$false) }
         $dx = (Get-ForkX $fork) - $beforeX
         $dz = $fork.Distance - $beforeDepth
         $largestStep = [Math]::Max($largestStep, [Math]::Sqrt($dx*$dx + $dz*$dz))
@@ -124,6 +143,21 @@ foreach ($side in 0..1) {
 }
 
 foreach ($kind in @('Web','Maw')) {
+    $circle = [Echoes.Journey]::new(541)
+    $circle.SelectChapter(0)
+    $circle.SetHand([Echoes.Hand]::Open)
+    $trap = $circle.ForestFeatures | Where-Object Kind -eq $kind | Select-Object -First 1
+    Assert ($trap.Lane -ne [Math]::Round($trap.Lane)) 'The trap is anchored between the old lane positions.'
+    $lane.SetValue($circle,[single]($trap.Lane + .40))
+    $distance.SetValue($circle,[single]($trap.Depth - .83))
+    $circle.Flight.Reset($trap.Altitude)
+    $circle.Step(.001,0)
+    Assert (!$trap.Collected -and $circle.Phase -eq 'ForestExplore') 'A diagonal outside the circular reach stays safe.'
+    $distance.SetValue($circle,[single]$trap.Depth)
+    $circle.Flight.Reset($trap.Altitude)
+    $circle.Step(.001,0)
+    Assert ($trap.Collected -and $circle.Phase -eq 'ForestTrapped') 'The same off-center point is caught when it moves inside the physical circle.'
+
     foreach ($wide in @($false,$true)) {
         $trial=[Echoes.Journey]::new(541)
         $trial.SelectChapter(0)
@@ -156,4 +190,4 @@ foreach ($kind in @('Web','Maw')) {
         }
     }
 }
-Write-Output 'Passed both continuous forest approaches, fork checkpoint entry, sustained silent maze walking with a fist brake, oriented turns, committed hidden traps and independent capture ranges.'
+Write-Output 'Passed both continuous forest approaches, fork checkpoint entry, continuous held movement, circular trap volumes and independent capture ranges.'
