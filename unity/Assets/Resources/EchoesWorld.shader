@@ -7,6 +7,7 @@ Shader "Hidden/Echoes/WorldSurface"
         _Glow ("Emission", Float) = .24
         _StageCoverage ("Projection background coverage", Float) = 1
         _StageLight ("Main scene brightness", Float) = 1
+        _RuinThresholdMesh ("Clipped by the Ruins threshold", Float) = 0
         _GrainTex ("Surface color", 2D) = "gray" {}
         _Grain ("Surface texture strength and scale", Vector) = (0,.5,0,0)
     }
@@ -27,10 +28,12 @@ Shader "Hidden/Echoes/WorldSurface"
             #include "Lighting.cginc"
 
             float _Surface, _Glow, _StageCoverage, _StageLight;
+            float _RuinThresholdMesh, _EchoesThresholdOpen;
             float4 _Tint;
             sampler2D _GrainTex;
             float4 _Grain, _EchoesFootfall, _EchoesTerrainSink;
             float4 _EchoesAir, _EchoesKey, _EchoesAmbience, _EchoesWeather, _EchoesPool, _EchoesPoolColor;
+            float4 _EchoesThresholdPlane;
             struct Vertex { float4 vertex:POSITION; float3 normal:NORMAL; float4 color:COLOR; };
             struct Varying
             {
@@ -78,6 +81,8 @@ Shader "Hidden/Echoes/WorldSurface"
 
             float4 frag(Varying i, fixed side : VFACE) : SV_Target
             {
+                if (_EchoesThresholdOpen * _RuinThresholdMesh > .5)
+                    clip(_EchoesThresholdPlane.w-dot(i.world,_EchoesThresholdPlane.xyz));
                 if (_Surface > 3.5 && _EchoesTerrainSink.w > .5)
                 {
                     float2 fromMouth = i.world.xz - _EchoesTerrainSink.xy;

@@ -9,7 +9,7 @@ namespace Echoes
     {
         public const float WidthScale = .9f, HeightScale = 1.2f;
         private const float PortraitFov = 30.5f;
-        private const int RedBirdCast = 4, BlackSwanCast = 5;
+        internal const int RedBirdCast = 4, BlackSwanCast = 5;
         private static readonly Color[] Accent = {
             new Color(.95f,.66f,.29f), new Color(.39f,.79f,.93f), new Color(.75f,.59f,1f)
         };
@@ -119,6 +119,10 @@ namespace Echoes
                 frame.forestSnareAge == previous.forestSnareAge && frame.forestFall == previous.forestFall &&
                 frame.forestDescent == previous.forestDescent &&
                 frame.forestDoor == previous.forestDoor && frame.forestDoorAge == previous.forestDoorAge &&
+                frame.ruinRetryPhase == previous.ruinRetryPhase && frame.ruinRetryAge == previous.ruinRetryAge &&
+                frame.ruinLookYaw == previous.ruinLookYaw && frame.ruinLookPitch == previous.ruinLookPitch &&
+                frame.starPointing == previous.starPointing && frame.starTipX == previous.starTipX &&
+                frame.starTipY == previous.starTipY && frame.starThrust == previous.starThrust &&
                 frame.cast == previous.cast && frame.fireflyPulse == previous.fireflyPulse) return;
             if (!target.IsCreated() && !target.Create()) return;
 
@@ -171,6 +175,13 @@ namespace Echoes
             if (frame.forestMaze && !encounter.Visible)
             {
                 portraitPose = Matrix4x4.Translate(center) * Matrix4x4.Rotate(Quaternion.Euler(0,frame.forestMazeHeading,0)) *
+                    Matrix4x4.Translate(-center) * portraitPose;
+            }
+            if (frame.ruinRetryPhase == RuinRetryPhase.Accepted || frame.ruinRetryPhase == RuinRetryPhase.Declined)
+            {
+                float turn = OpeningStoryboard.Ease(3.96f, Journey.RuinExitDuration, frame.ruinRetryAge);
+                float angle = (frame.ruinRetryPhase == RuinRetryPhase.Accepted ? 173 : -187) * turn;
+                portraitPose = Matrix4x4.Translate(center) * Matrix4x4.Rotate(Quaternion.Euler(0, angle, 0)) *
                     Matrix4x4.Translate(-center) * portraitPose;
             }
             RenderModel(portraitPose, Vector3.zero, anchors, commands, opening ? .31f : .17f);

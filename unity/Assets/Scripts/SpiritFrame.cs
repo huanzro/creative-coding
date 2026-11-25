@@ -115,8 +115,7 @@ namespace Echoes
         public ForestFlyView[] forestFlies;
         public bool ruins;
         public RuinRetryPhase ruinRetryPhase;
-        public float ruinRetryAge, ruinRetryProgress, ruinRetryPulse;
-        public int ruinRetryTraceLane;
+        public float ruinRetryAge, ruinLookYaw, ruinLookPitch;
         public float ruinLane, ruinSteering, ruinHeartAge, ruinTransfer, ruinUnlock;
         public RuinFindView[] ruinFinds;
         public float starTipX, starTipY, starThrust;
@@ -185,9 +184,7 @@ namespace Echoes
             ruins = journey.InRuins,
             ruinRetryPhase = journey.RuinRetryState,
             ruinRetryAge = journey.Phase == Stage.RuinRetry ? journey.Age : -1,
-            ruinRetryProgress = journey.Phase == Stage.RuinRetry ? journey.Progress : 0,
-            ruinRetryPulse = journey.RuinRetryPulse,
-            ruinRetryTraceLane = journey.RuinRetryTraceLane,
+            ruinLookYaw = journey.RuinLookYaw, ruinLookPitch = journey.RuinLookPitch,
             ruinLane = journey.RuinLane, ruinSteering = journey.RuinSteering,
             ruinHeartAge = journey.RuinHeartAge,
             ruinTransfer = journey.Phase == Stage.RuinTransfer ? journey.Progress : -1,

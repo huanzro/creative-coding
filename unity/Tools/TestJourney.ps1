@@ -192,39 +192,63 @@ foreach ($nextRoom in 1,11,12,3,13,14,5,8,10) {
 }
 if ($game.Phase -eq 'RuinExplore') { FlyRuin $game ($game.RuinRoomLength - 2) .60 0 }
 Assert ($game.Phase -eq 'RuinRetry' -and $game.RuinDisciplinesSeen -eq 9 -and $galleryOrder.Count -eq 9) 'The branching route presents all nine themes before the ending wall.'
-Step $game 4.50 0
-Assert ($game.RuinRetryState -eq 'Choice') 'Impact and the archived choice lead to two available branches.'
+Step $game 1.60 0
+Assert ($game.RuinRetryState -eq 'Gate') 'Collision splits the wall into a door.'
+Step $game 3.25 0
+Assert ($game.RuinRetryState -eq 'Survey') 'Crossing the wall reveals the archive framework.'
 $choiceSave = $game.Checkpoint
-$guide = [Echoes.Journey]::new(17)
-Assert ($guide.Restore($choiceSave) -and $guide.RuinRetryState -eq 'Choice') 'The wall can be resumed after restoring.'
+$refused = [Echoes.Journey]::new(17)
+Assert ($refused.Restore($choiceSave) -and $refused.RuinRetryState -eq 'Gate') 'Restoring at the wall restarts the entrance without reopening the old replay.'
 foreach ($room in $galleryOrder.Keys) {
-    Assert ($guide.RuinDisciplineFor($room) -eq $galleryOrder[$room]) 'The saved route retains each exhibit assignment.'
+    Assert ($refused.RuinDisciplineFor($room) -eq $galleryOrder[$room]) 'The saved route retains each exhibit assignment.'
 }
-Pose $guide Open .1 0
-[void]$guide.Touch(0)
-Step $guide 11 0
-Assert ($guide.Phase -eq 'Complete' -and $guide.RuinRetryOutcome -eq 'Guided') 'The player can complete the guided route.'
-Assert ($guide.Restore($choiceSave)) 'The same checkpoint can exercise taking back control.'
-Pose $guide Open .1 0
-[void]$guide.Touch(0)
-Step $guide 4.25 0
-[void]$guide.Touch(1)
-Step $guide 3.65 0
-Assert ($guide.Phase -eq 'Complete' -and $guide.RuinRetryOutcome -eq 'Takeover') 'Taking over records a deviation in the system route.'
-[void]$game.Touch(1)
-Step $game 1.20 0
-$correctSide = [int]($game.RuinRetryTraceLane -gt 0)
-[void]$game.Touch(1 - $correctSide)
-Assert ($game.RuinRetryState -eq 'Fault') 'A wrong replay direction pauses on its remembered trace.'
-Step $game 2.85 0
-[void]$game.Touch($correctSide)
-Assert ($game.RuinRetryState -eq 'Listen') 'The second attempt can follow the original movement.'
-Step $game 2.65 0
-Assert ($game.RuinRetryState -eq 'Release') 'Silence allows both beats to sound before breath opens the wall.'
-Step $game .59 .33
-Step $game 3.55 0
-Assert ($game.Phase -eq 'Complete' -and $game.RuinResult -eq 'Explored' -and $game.RuinRetryOutcome -eq 'Remembered' -and $game.RuinRetryAttempts -eq 2) 'The remembered route completes without a quota and preserves retries.'
-[void]$game.Touch(1)
+$stand = $game.Distance
+$ground = $game.Flight.Height
+$game.RuinDirectPalmLook = $false
+$game.SetRuinSteering($true, $false)
+Step $game .50 0
+Assert ($game.RuinLookYaw -lt -12 -and !$game.Touch(0)) 'A steers left and cannot accept the bargain early.'
+$game.SetRuinSteering($false, $true)
+Pose $game Fist .20 0
+Pose $game Open .65 0
+Assert ($game.RuinLookYaw -gt 0 -and $game.RuinLookPitch -gt 12) 'B and a fresh open palm turn right and tilt up.'
+$game.SetRuinSteering($false, $false)
+$beforeVoice = $game.RuinLookPitch
+Step $game .72 .48
+Assert ($game.RuinLookPitch -lt $beforeVoice - 12 -and $game.Distance -eq $stand -and
+    $game.Flight.Height -eq $ground) 'Voice looks downward while the actor stays in place.'
+Pose $refused Open 3.76 0
+Assert ($refused.RuinRetryState -eq 'Survey' -and $refused.RuinLookPitch -gt 8) 'An already visible camera palm tilts upward when exploration begins.'
+$beforeEnd = $game.Age
+Step $game ([Echoes.Journey]::RuinSurveyDuration - $beforeEnd - .08) 0
+Assert ($game.RuinRetryState -eq 'Survey') 'The player keeps camera controls through the ten-second window.'
+Step $game .18 0
+Assert ($game.RuinRetryState -eq 'Arrival') 'Only after the survey does the broker descend.'
+Step $game 8 0
+Assert ($game.RuinRetryState -eq 'Bargain' -and $game.RuinTokenCost -gt
+    [Echoes.Journey]::RuinCapacity * [Echoes.Journey]::RuinComputerTokenRate -and $game.RuinTradeQuote -gt 0) 'A full device inventory cannot pay the toll.'
+Assert (($game.RuinTradePhones * [Echoes.Journey]::RuinPhoneTokenRate + $game.RuinTradeComputers *
+    [Echoes.Journey]::RuinComputerTokenRate) -eq $game.RuinTradeQuote) 'The offered devices cover exactly the remaining token balance.'
+Assert ($game.Touch(0) -and $game.RuinRetryState -eq 'Accepted' -and $game.RuinTradeCommitted -and !$game.Touch(1)) 'Consent commits once and starts the extraction scene.'
+$acceptedSave = $game.Checkpoint
+$acceptedReload = [Echoes.Journey]::new(92)
+Assert ($acceptedReload.Restore($acceptedSave) -and $acceptedReload.RuinRetryState -eq 'Accepted' -and
+    !$acceptedReload.Touch(0)) 'Loading an accepted trade resumes the exit without requesting consent again.'
+Step $game 2.72 0
+Assert ($game.RuinRevealedTokens -eq $game.RuinTokenCost -and $game.RuinRetryState -eq 'Accepted') 'Replacing the organs with device tokens settles the gap.'
+Step $game 2.16 0
+Assert ($game.RuinRetryState -eq 'Accepted') 'The accepted cinematic runs for five seconds.'
+Step $game .16 0
+Assert ($game.InStars -and $game.RuinRetryOutcome -eq 'Traded' -and $game.RuinResult -eq 'Explored') 'Accepting opens Star Sea automatically.'
+Step $refused 21.1 0
+Assert ($refused.RuinRetryState -eq 'Bargain' -and $refused.Touch(1) -and !$refused.RuinTradeCommitted) 'Refusal is available even if the hand is out of frame.'
+Assert ($refused.Message -eq '你的大脑和我比不过是玩具') 'Refusal begins with the broker addressing the player.'
+Step $refused 2 0
+Assert ($refused.Message -eq '你的心脏终有停跳的那一天') 'Refusal preserves the second line.'
+Step $refused 2.86 0
+Assert ($refused.RuinRetryState -eq 'Declined' -and $refused.Message -eq '何必如此执着呢') 'The refusal holds the last line before the five-second handoff.'
+Step $refused .16 0
+Assert ($refused.InStars -and $refused.RuinRetryOutcome -eq 'Kept' -and !$refused.RuinTradeCommitted) 'Refusing waives the toll and reaches Star Sea.'
 Pose $game Open .1 0
 Assert ($game.Phase -eq 'StarsCanvas' -and $game.Started) 'Ruins lead directly into the open Star Sea.'
 $game.SetHand([Echoes.Hand]::Missing)
@@ -249,11 +273,12 @@ Step $game 1 0
 Assert ($game.Distance -eq $stopped -and $game.StarSpeed -eq 0) 'The camera comes to rest in silence.'
 $saved = [Echoes.Journey]::new()
 Assert ($saved.Restore($game.Checkpoint) -and $saved.Phase -eq 'StarsCanvas' -and $saved.Distance -eq $stopped -and
-    $saved.Plants -eq 2 -and $saved.RuinResult -eq 'Explored' -and $saved.RuinRetryOutcome -eq 'Remembered') 'Restore the existing route and precise Star Sea depth.'
+    $saved.Plants -eq 2 -and $saved.RuinResult -eq 'Explored' -and $saved.RuinRetryOutcome -eq 'Traded') 'Restore the existing route and precise Star Sea depth.'
 Assert ($saved.Checkpoint.ruinFindsExtra -eq $choiceSave.ruinFindsExtra -and
     $saved.Checkpoint.ruinExhibitOrder -eq $choiceSave.ruinExhibitOrder) 'The Star Sea checkpoint preserves the Ruins exhibition history.'
 $legacy = $game.Checkpoint
 $legacy.version = 10
+$legacy.ruinRetryOutcome = [int][Echoes.RuinRetryResolution]::Remembered
 $legacy.starPaths = 21
 $legacy.starMotifs = 1073
 $legacy.complete = $true
@@ -670,10 +695,10 @@ Assert ($resumed.Restore($circuit.Checkpoint) -and $resumed.RuinLoops -eq 1) 'Re
 $resumed.SetHand([Echoes.Hand]::Open)
 for ($sample = 0; $sample -lt 4000 -and $resumed.Phase -eq 'RuinExplore'; $sample++) { $resumed.Step(.02,.80) }
 Assert ($resumed.RuinRetryState -eq 'Impact' -and $resumed.RuinLoops -eq 1 -and $resumed.RuinRetryVisited -eq 0) 'Finishing the main gallery triggers the ending even without committing to a branch.'
-Step $resumed 4.3 0
-[void]$resumed.Touch(0)
-Step $resumed 10.5 0
-Assert ($resumed.Phase -eq 'Complete' -and $resumed.RuinRetryOutcome -eq 'Guided') 'The main-circuit ending remains finishable.'
+Step $resumed 24 0
+Assert ($resumed.RuinRetryState -eq 'Bargain' -and $resumed.Touch(1)) 'The main-circuit ending reaches the broker.'
+Step $resumed 5.1 0
+Assert ($resumed.InStars -and $resumed.RuinRetryOutcome -eq 'Kept') 'The main-circuit ending remains finishable.'
 
 $heartbeat=[Echoes.Journey]::new(92)
 $heartbeat.SelectChapter(1)
@@ -782,4 +807,4 @@ Assert ($touch -eq 3 -and $enabled -eq 7) 'Both physical inputs remain distinct.
 Assert ([Echoes.ExhibitProtocol]::Output(1, 1, .5, 200, $true) -eq "EOL3 IO 1 12 4 0 0 2 6 -1 166`n") 'Both lamps and bounded fan share the output packet.'
 Assert ([Echoes.ExhibitProtocol]::Output(1, 0, 0, 200, $false) -eq "EOL3 SET 1 0 0 0 0 0 0 -1`n") 'Lighting-only firmware still has a supported output.'
 Assert ([Echoes.ExhibitProtocol]::Output(1, .5, .5, 0, $true, $true) -eq "EOL3 IO 1 6 4 0 6 0 0 -1 0`n") 'Forest EOL3 palette routes the fireflies to dim warm yellow and red lamps.'
-Write-Output 'Passed forest controls, rescue, seeded maze, both roots, machine doors and upper gallery, layered ruins, all wall outcomes, stars, checkpoints, projection and EOL3.'
+Write-Output 'Passed forest controls, rescue, seeded maze, both roots, machine doors and upper gallery, layered ruins, broker choices, stars, checkpoints, projection and EOL3.'

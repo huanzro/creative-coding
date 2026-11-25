@@ -1,10 +1,18 @@
+/* ARTISTIC RATIONALE
+ * Expose the structure that guided the player, then have its operator assign a price to leaving.
+ * The player can trade their own heart and brain or keep them. Both replies open the sky.
+ */
 using System;
 
 namespace Echoes
 {
     public enum RuinRetryRecordKind { None, Left, Right, Upper, Lower, HeartPutDown, BrainPutDown }
-    public enum RuinRetryPhase { Inactive, Impact, Review, Choice, Guided, Trace, Listen, Release, Fault, Departure }
-    public enum RuinRetryResolution { None, Guided, Takeover, Remembered }
+    public enum RuinRetryPhase
+    {
+        Inactive, Impact, Gate, Survey, Arrival, Valuation, Bargain, Accepted, Declined
+    }
+    // Keep the historic numeric values readable in checkpoints.
+    public enum RuinRetryResolution { None, Guided, Takeover, Remembered, Traded, Kept }
 
     public sealed partial class Journey
     {
@@ -12,74 +20,47 @@ namespace Echoes
         private const float WallStance = 1.06f;
         private const float ImpactAt = .43f;
         private const float ImpactDuration = 1.31f;
-        private const float ReviewDuration = 2.65f;
-        private const float GuidedTurnAt = 3.65f;
-        private const float GuidedDuration = 6.75f;
-        private const float TraceReadyAt = 1.10f;
-        private const float TraceDuration = 4.42f;
-        private const float SilenceReadyAt = .67f;
-        private const float ListenDuration = 5.45f;
-        private const float HeartTwoBeats = 1.03f;
-        private const float DepartureDuration = 3.35f;
+        public const float RuinGateDuration = 3.2f;
+        public const float RuinSurveyDuration = 10f;
+        public const float RuinArrivalDuration = 3.8f;
+        public const float RuinValuationDuration = 4f;
+        public const float RuinExitDuration = 5f;
+        public const int RuinPhoneTokenRate = 2, RuinComputerTokenRate = 3;
+        private const int ArchiveToll = RuinCapacity * RuinComputerTokenRate + 3;
 
         private int ruinRetryRooms, ruinRetryLastLane;
         private bool ruinRetryWall, retryCollision;
         private RuinRetryRecordKind ruinRetryRecord;
         private RuinRetryPhase retryPhase;
-        private RuinRetryResolution retryDeparture;
-        private float retryFromDepth, retryFromLane, retryFromHeight, retrySilence, retryVoice;
-        private float retryBeatAt = -1;
-        private int retryInputLane;
+        private float retryFromLane, retryFromHeight;
+        private float lookYawVelocity, lookPitchVelocity;
+        private bool surveySawClosedHand;
 
-        public RuinRetryPhase RuinRetryState => InRuins ? retryPhase : RuinRetryPhase.Inactive;
+        public RuinRetryPhase RuinRetryState => Phase == Stage.RuinRetry ? retryPhase : RuinRetryPhase.Inactive;
         public RuinRetryRecordKind RuinRetryRecord => ruinRetryRecord;
         public RuinRetryResolution RuinRetryOutcome { get; private set; }
-        public RuinRetryResolution RuinRetryDisplayOutcome => retryPhase == RuinRetryPhase.Departure &&
-            retryDeparture != RuinRetryResolution.None ? retryDeparture : RuinRetryOutcome;
-        public int RuinRetryRequired => RuinDisciplineCount - 1;
         public int RuinRetryVisited => CountRuinPassages(ruinRetryRooms);
         public int RuinRetryAttempts { get; private set; }
-        public int RuinRetryTraceLane => ruinRetryLastLane < 0 ? -1 : 1;
-        public int RuinRetryLastAttemptLane { get; private set; }
         public float RuinRetryWallDepth { get; private set; }
-        public bool RuinRetryReady => retryPhase == RuinRetryPhase.Trace && Age >= TraceReadyAt;
-        public float RuinRetryTraceLight => retryPhase == RuinRetryPhase.Trace
-            ? EaseRetry(.27f, .84f, Age) * (1 - .76f * EaseRetry(RuinBrains > 0 ? 3.1f : 2.0f, 4.30f, Age)) : 0;
-        public float RuinRetryPulse
-        {
-            get
-            {
-                float beat = retryPhase == RuinRetryPhase.Guided ? Age - GuidedTurnAt :
-                    retryPhase == RuinRetryPhase.Listen && retryBeatAt >= 0 ? Age - retryBeatAt : -1;
-                float doubleBeat = HeartFlash(beat, .08f) + .72f * HeartFlash(beat, .46f);
-                return doubleBeat * (RuinHearts > 0 ? 1 : .76f);
-            }
-        }
+        public float RuinLookYaw { get; private set; }
+        public float RuinLookPitch { get; private set; }
+        public bool RuinDirectPalmLook { get; set; } = true;
+        public int RuinTokenCost => ArchiveToll;
+        public int RuinOfferedTokens => RuinPhones * RuinPhoneTokenRate + RuinComputers * RuinComputerTokenRate;
+        public int RuinTradeQuote => RuinTokenCost - RuinOfferedTokens;
+        public int RuinTradePhones => (RuinTradeQuote % RuinComputerTokenRate) switch { 1 => 2, 2 => 1, _ => 0 };
+        public int RuinTradeComputers => (RuinTradeQuote - RuinTradePhones * RuinPhoneTokenRate) / RuinComputerTokenRate;
+        public bool RuinTradeCommitted => RuinRetryOutcome == RuinRetryResolution.Traded;
+        public int RuinRevealedTokens => retryPhase == RuinRetryPhase.Valuation
+            ? (int)Math.Round(RuinOfferedTokens * EaseRetry(.8f, 2.55f, Age))
+            : retryPhase == RuinRetryPhase.Accepted && Age >= 2.55f ? RuinTokenCost : RuinOfferedTokens;
 
-        public string RuinRetryLeftLabel => retryPhase == RuinRetryPhase.Choice ? "A · 让系统带一段" :
-            retryPhase == RuinRetryPhase.Trace ? "A · 走左侧" :
-            retryPhase == RuinRetryPhase.Fault ? "A · 回到墙前" : "";
-        public string RuinRetryRightLabel => retryPhase == RuinRetryPhase.Choice ? "B · 带着记忆重试" :
-            retryPhase == RuinRetryPhase.Trace ? "B · 走右侧" :
-            retryPhase == RuinRetryPhase.Fault ? "B · 再试一次" :
-            retryPhase == RuinRetryPhase.Guided && Age >= GuidedTurnAt ? "B · 收回引导" : "";
+        public string RuinRetryLeftLabel => retryPhase == RuinRetryPhase.Survey ? "A · 向左看" :
+            retryPhase == RuinRetryPhase.Bargain ? "A · 同意交换" : "";
+        public string RuinRetryRightLabel => retryPhase == RuinRetryPhase.Survey ? "B · 向右看" :
+            retryPhase == RuinRetryPhase.Bargain ? "B · 拒绝交换" : "";
 
-        public string RuinRetryClue
-        {
-            get
-            {
-                switch (retryPhase)
-                {
-                    case RuinRetryPhase.Choice: return "系统已根据你的选择生成路线。是否按这条路线重试？";
-                    case RuinRetryPhase.Trace: return "等旧影走完，选还留着暖色光迹的一侧。";
-                    case RuinRetryPhase.Listen: return retryBeatAt < 0 ? "安静片刻，等机器的节拍退下去。" : "听完两下心跳。";
-                    case RuinRetryPhase.Release: return "张手并轻声约半秒（Z），按自己的节奏开门。";
-                    case RuinRetryPhase.Guided: return Age < GuidedTurnAt ? "沿蓝光前行。接近最后一个弯。" :
-                        "暖色回声出现在侧面。B 收回引导，继续跟随也可以到达出口。";
-                    default: return "";
-                }
-            }
-        }
+        public string RuinRetryClue => Message;
 
         private static int CountRuinPassages(int mask)
         {
@@ -90,13 +71,13 @@ namespace Echoes
 
         private void ResetRuinRetry()
         {
-            ruinRetryRooms = ruinRetryLastLane = RuinRetryAttempts = RuinRetryLastAttemptLane = 0;
+            ruinRetryRooms = ruinRetryLastLane = RuinRetryAttempts = 0;
             ruinRetryWall = retryCollision = false;
             ruinRetryRecord = RuinRetryRecordKind.None;
             retryPhase = RuinRetryPhase.Inactive;
-            retryDeparture = RuinRetryOutcome = RuinRetryResolution.None;
+            RuinRetryOutcome = RuinRetryResolution.None;
             RuinRetryWallDepth = 0;
-            retryBeatAt = -1;
+            ResetRuinLook();
         }
 
         private void RestoreRuinRetry(JourneyCheckpoint checkpoint)
@@ -109,7 +90,7 @@ namespace Echoes
             ruinRetryWall = checkpoint.ruinRetryWall && checkpoint.ruinRetryDepth > WallApproach &&
                 checkpoint.ruinRetryDepth <= 53;
             RuinRetryWallDepth = ruinRetryWall ? checkpoint.ruinRetryDepth : 0;
-            RuinRetryOutcome = ruinRetryWall && (uint)checkpoint.ruinRetryOutcome <= (uint)RuinRetryResolution.Remembered
+            RuinRetryOutcome = (uint)checkpoint.ruinRetryOutcome <= (uint)RuinRetryResolution.Kept
                 ? (RuinRetryResolution)checkpoint.ruinRetryOutcome : RuinRetryResolution.None;
         }
 
@@ -119,14 +100,10 @@ namespace Echoes
             RuinLane = 0;
             Flight.Reset(.025f, RuinHeightLimit);
             Distance = RuinRetryWallDepth - WallStance;
-            if (RuinRetryOutcome != RuinRetryResolution.None)
-            {
-                Distance = RuinRetryWallDepth + 5.85f;
-                SetRuinRetryPhase(RuinRetryPhase.Departure, "回声留在石壁上。");
-                Progress = 1;
-                return true;
-            }
-            ShowRuinRetryChoice();
+            if (RuinRetryOutcome == RuinRetryResolution.Traded || RuinRetryOutcome == RuinRetryResolution.Kept)
+                BeginRuinExit(RuinRetryOutcome == RuinRetryResolution.Traded);
+            else
+                SetRuinRetryPhase(RuinRetryPhase.Gate, "");
             return true;
         }
 
@@ -183,13 +160,9 @@ namespace Echoes
             return true;
         }
 
-        private void ShowRuinRetryChoice() => SetRuinRetryPhase(RuinRetryPhase.Choice,
-            "系统已根据你的选择生成路线。是否按这条路线重试？");
-
         private void SetRuinRetryPhase(RuinRetryPhase phase, string message)
         {
             retryPhase = phase;
-            retryFromDepth = Distance;
             retryFromLane = RuinLane;
             retryFromHeight = Flight.Height;
             Change(Stage.RuinRetry, message);
@@ -197,77 +170,36 @@ namespace Echoes
 
         private void RetryRuinRetry()
         {
-            retryDeparture = RuinRetryResolution.None;
+            if (RuinRetryOutcome == RuinRetryResolution.Traded || RuinRetryOutcome == RuinRetryResolution.Kept ||
+                retryPhase == RuinRetryPhase.Bargain) return;
+            ResetRuinLook();
+            StopRuinSteering();
             RuinLane = 0;
-            RuinSteering = ruinSteeringSpeed = 0;
             Distance = RuinRetryWallDepth - WallStance;
             Flight.Reset(.025f, RuinHeightLimit);
-            ShowRuinRetryChoice();
+            SetRuinRetryPhase(RuinRetryPhase.Gate, "");
         }
 
-        private void TouchRuinRetry(int option)
+        private bool TouchRuinRetry(int option)
         {
-            switch (retryPhase)
-            {
-                case RuinRetryPhase.Choice:
-                    if (option == 0)
-                    {
-                        Notify(JourneyCue.RuinReplay);
-                        SetRuinRetryPhase(RuinRetryPhase.Guided, "允许蓝线引导。沿着它飞过最暗的一段。");
-                    }
-                    else BeginRuinTrace();
-                    break;
-                case RuinRetryPhase.Guided:
-                    if (option == 1 && Age >= GuidedTurnAt)
-                    {
-                        Notify(JourneyCue.Withdraw);
-                        BeginRuinDeparture(RuinRetryResolution.Takeover, "你收回了引导，沿着墙缝里的暖色回声转向。");
-                    }
-                    break;
-                case RuinRetryPhase.Trace:
-                    retryInputLane = option == 0 ? -1 : 1;
-                    if (RuinRetryReady) ResolveRuinTrace();
-                    break;
-                case RuinRetryPhase.Fault:
-                    if (option == 0) RetryRuinRetry();
-                    else BeginRuinTrace();
-                    break;
-            }
-        }
-
-        private void BeginRuinTrace()
-        {
-            if (RuinRetryAttempts < int.MaxValue) RuinRetryAttempts++;
-            retryInputLane = 0;
-            Notify(JourneyCue.RuinReplay);
-            SetRuinRetryPhase(RuinRetryPhase.Trace, "你看见之前的自己再次飞过。找出它留下的暖色光迹。");
+            if (retryPhase != RuinRetryPhase.Bargain) return false;
+            RuinRetryOutcome = option == 0 ? RuinRetryResolution.Traded : RuinRetryResolution.Kept;
+            BeginRuinExit(option == 0);
             Revision++;
+            return true;
         }
 
-        private void ResolveRuinTrace()
+        private void BeginRuinExit(bool accepted)
         {
-            if (retryInputLane != RuinRetryTraceLane)
-            {
-                RuinRetryLastAttemptLane = retryInputLane;
-                FaultRuinRetry("墙面保留了这次选错的折线。旧影的暖色光迹会再亮一次。");
-                return;
-            }
-            retryBeatAt = -1;
-            retrySilence = 0;
-            SetRuinRetryPhase(RuinRetryPhase.Listen, "你找回了自己走过的路线。先安静，听两下心跳。");
+            SetRuinRetryPhase(accepted ? RuinRetryPhase.Accepted : RuinRetryPhase.Declined,
+                accepted ? "交易确认。请留在光环中央。" : "你的大脑和我比不过是玩具");
+            Notify(accepted ? JourneyCue.RuinTradeAccepted : JourneyCue.RuinTradeDeclined);
         }
 
-        private void FaultRuinRetry(string message)
+        private void ResetRuinLook()
         {
-            Notify(JourneyCue.RuinReplay);
-            SetRuinRetryPhase(RuinRetryPhase.Fault, message);
-        }
-
-        private void BeginRuinDeparture(RuinRetryResolution outcome, string message)
-        {
-            retryDeparture = outcome;
-            Notify(JourneyCue.RuinEscape);
-            SetRuinRetryPhase(RuinRetryPhase.Departure, message);
+            RuinLookYaw = RuinLookPitch = lookYawVelocity = lookPitchVelocity = 0;
+            surveySawClosedHand = false;
         }
 
         private void UpdateRuinRetry(float dt)
@@ -277,31 +209,47 @@ namespace Echoes
                 case RuinRetryPhase.Impact:
                     UpdateRuinImpact(dt);
                     break;
-                case RuinRetryPhase.Review:
-                    Progress = Clamp(Age / ReviewDuration);
-                    if (Progress >= 1) ShowRuinRetryChoice();
+                case RuinRetryPhase.Gate:
+                    Progress = Clamp(Age / RuinGateDuration);
+                    float crossing = EaseRetry(.8f, 2.9f, Age);
+                    Distance = RuinRetryWallDepth - WallStance + crossing * 3.18f;
+                    MoveRuinRetryActor(dt, retryFromLane * (1 - EaseRetry(0, .7f, Age)), .025f);
+                    if (Progress >= 1)
+                    {
+                        ResetRuinLook();
+                        SetRuinRetryPhase(RuinRetryPhase.Survey, "");
+                        Notify(JourneyCue.RuinSurvey);
+                    }
                     break;
-                case RuinRetryPhase.Guided:
-                    UpdateRuinGuidance(dt);
+                case RuinRetryPhase.Survey:
+                    UpdateRuinSurvey(dt);
+                    if (Age + .0001f >= RuinSurveyDuration)
+                    {
+                        SetRuinRetryPhase(RuinRetryPhase.Arrival, "");
+                        Notify(JourneyCue.RuinBroker);
+                    }
                     break;
-                case RuinRetryPhase.Trace:
-                    if (Gesture == Hand.Missing) { Age = Math.Max(0, Age - dt); break; }
-                    Progress = Clamp(Age / TraceDuration);
-                    if (RuinRetryReady && retryInputLane != 0) ResolveRuinTrace();
-                    else if (Progress >= 1) FaultRuinRetry("旧影消散了。等另一轮光迹靠近后，再决定往哪一侧走。");
+                case RuinRetryPhase.Arrival:
+                    Progress = Clamp(Age / RuinArrivalDuration);
+                    if (Progress >= 1)
+                    {
+                        SetRuinRetryPhase(RuinRetryPhase.Valuation, "手机和电脑可以换成 token。付清，就能离开。");
+                        Notify(JourneyCue.RuinValuation);
+                    }
                     break;
-                case RuinRetryPhase.Listen:
-                    UpdateRuinListening(dt);
+                case RuinRetryPhase.Valuation:
+                    Progress = Clamp(Age / RuinValuationDuration);
+                    if (Age >= 2.55f)
+                        Message = $"设备可换 {RuinOfferedTokens} token。出口需要 {RuinTokenCost}。";
+                    if (Progress >= 1)
+                    {
+                        SetRuinRetryPhase(RuinRetryPhase.Bargain, "要用你自己的心脏和大脑，换手机和电脑吗？");
+                        Notify(JourneyCue.RuinOffer);
+                    }
                     break;
-                case RuinRetryPhase.Release:
-                    UpdateRuinBreath(dt);
-                    break;
-                case RuinRetryPhase.Fault:
-                    Progress = Clamp(Age / 1.45f);
-                    if (Progress >= 1) BeginRuinTrace();
-                    break;
-                case RuinRetryPhase.Departure:
-                    UpdateRuinDeparture(dt);
+                case RuinRetryPhase.Accepted:
+                case RuinRetryPhase.Declined:
+                    UpdateRuinExit();
                     break;
             }
         }
@@ -311,7 +259,7 @@ namespace Echoes
             Progress = Clamp(Age / ImpactDuration);
             float approach = EaseRetry(0, ImpactAt, Age);
             float recoil = EaseRetry(ImpactAt, .92f, Age);
-            float settle = EaseRetry(.43f, ImpactDuration, Age);
+            float settle = EaseRetry(ImpactAt, ImpactDuration, Age);
             Distance = RuinRetryWallDepth - WallApproach + 1.18f * approach - (WallStance - .47f) * recoil;
             float lift = Math.Max(0, (1 - settle) * retryFromHeight + .08f * (recoil - settle));
             MoveRuinRetryActor(dt, retryFromLane * (1 - .78f * settle), lift + .025f * settle);
@@ -321,83 +269,38 @@ namespace Echoes
                 Notify(JourneyCue.RuinWall);
             }
             if (Progress < 1) return;
-            string memory;
-            switch (ruinRetryRecord)
-            {
-                case RuinRetryRecordKind.HeartPutDown: memory = "墙里重现了刚才那一刻。你留下了心脏，让设备进了背包。"; break;
-                case RuinRetryRecordKind.BrainPutDown: memory = "墙里重现了刚才那一刻。你留下了大脑，让设备进了背包。"; break;
-                case RuinRetryRecordKind.Upper: memory = "墙里回放了你上升进入拱顶层道的转折。"; break;
-                case RuinRetryRecordKind.Lower: memory = "墙里回放了你沿地面钻入低处层道的转折。"; break;
-                case RuinRetryRecordKind.Left: memory = "墙里回放了你上一次选择左侧入口的路线。"; break;
-                case RuinRetryRecordKind.Right: memory = "墙里回放了你上一次选择右侧入口的路线。"; break;
-                default: memory = "墙里回放了一段走过的路线。系统正在用它推测你会往哪里走。"; break;
-            }
-            Notify(JourneyCue.RuinReplay);
-            SetRuinRetryPhase(RuinRetryPhase.Review, memory);
+            SetRuinRetryPhase(RuinRetryPhase.Gate, "");
+            Notify(JourneyCue.RuinDoor);
         }
 
-        private void UpdateRuinGuidance(float dt)
+        private void UpdateRuinSurvey(float dt)
         {
-            Progress = Clamp(Age / GuidedDuration);
-            float lead = EaseRetry(0, 3.22f, Age);
-            Distance = RuinRetryWallDepth - WallStance + .35f * lead;
-            MoveRuinRetryActor(dt, retryFromLane + (-RuinRetryTraceLane * .61f - retryFromLane) * lead,
-                .025f + .21f * lead);
-            if (Age >= GuidedTurnAt && Age - dt < GuidedTurnAt)
-            {
-                Message = RuinRetryClue;
-                Notify(JourneyCue.RuinRetryBeat);
-            }
-            if (Progress >= 1) BeginRuinDeparture(RuinRetryResolution.Guided, "蓝线引你抵达出口。引导在这里结束。");
+            Progress = Clamp(Age / RuinSurveyDuration);
+            if (Gesture != Hand.Open) surveySawClosedHand = true;
+            float response = 1 - (float)Math.Exp(-dt / .19f);
+            float requestedYaw = ruinSteerHeld * 64f;
+            bool palmUp = Gesture == Hand.Open && (RuinDirectPalmLook || surveySawClosedHand);
+            float requestedPitch = PoseVoice >= .16f ? -42f : palmUp ? 33f : 0;
+            lookYawVelocity += (requestedYaw - lookYawVelocity) * response;
+            lookPitchVelocity += (requestedPitch - lookPitchVelocity) * response;
+            RuinLookYaw += lookYawVelocity * dt;
+            if (RuinLookYaw > 180) RuinLookYaw -= 360;
+            else if (RuinLookYaw < -180) RuinLookYaw += 360;
+            RuinLookPitch = Math.Max(-68, Math.Min(74, RuinLookPitch + lookPitchVelocity * dt));
         }
 
-        private void UpdateRuinListening(float dt)
+        private void UpdateRuinExit()
         {
-            if (Gesture == Hand.Missing) { Age = Math.Max(0, Age - dt); return; }
-            Progress = Clamp(Age / ListenDuration);
-            Distance = RuinRetryWallDepth - WallStance - .25f * EaseRetry(0, .72f, Age);
-            MoveRuinRetryActor(dt, retryFromLane + (RuinRetryTraceLane * .47f - retryFromLane) * EaseRetry(0, .62f, Age), .025f);
-            if (retryBeatAt < 0 && Age >= .72f)
-            {
-                retrySilence = Voice <= .12f ? retrySilence + dt : 0;
-                if (retrySilence >= SilenceReadyAt)
-                {
-                    retryBeatAt = Age;
-                    Message = RuinRetryClue;
-                    Notify(JourneyCue.RuinRetryBeat);
-                }
-            }
-            if (retryBeatAt >= 0 && Age - retryBeatAt >= HeartTwoBeats)
-            {
-                retryVoice = 0;
-                SetRuinRetryPhase(RuinRetryPhase.Release, "心跳落稳了。张手并轻声约半秒，让门和这个节拍对上（Z）。");
-            }
-            else if (Progress >= 1) FaultRuinRetry("机器声盖住了心跳。下一次先停声，等急促的回声消退。");
-        }
+            Progress = Clamp(Age / RuinExitDuration);
+            if (retryPhase == RuinRetryPhase.Declined)
+                Message = Age < 1.82f ? "你的大脑和我比不过是玩具" :
+                    Age < 3.64f ? "你的心脏终有停跳的那一天" : "何必如此执着呢";
+            else if (Age >= 2.55f)
+                Message = "余额已补足。出口开放。";
 
-        private void UpdateRuinBreath(float dt)
-        {
-            if (Gesture == Hand.Missing) { Age = Math.Max(0, Age - dt); return; }
-            bool voicing = Gesture == Hand.Open && Voice >= .17f && Voice <= .95f;
-            retryVoice = Math.Max(0, retryVoice + dt * (voicing ? 1 : -.8f));
-            Progress = Clamp(retryVoice / .55f);
-            if (Progress >= 1) BeginRuinDeparture(RuinRetryResolution.Remembered, "墙回响了你的声音。真正的白光从裂隙里亮起来。");
-            else if (Age >= 4.10f) FaultRuinRetry("心跳的余音淡下去了。重试时听完两拍，再张手轻声。");
-        }
-
-        private void UpdateRuinDeparture(float dt)
-        {
-            Progress = Clamp(Age / DepartureDuration);
-            float unlock = EaseRetry(.18f, DepartureDuration, Age);
-            Distance = retryFromDepth + (RuinRetryWallDepth + 5.85f - retryFromDepth) * unlock;
-            float exitLane = retryDeparture == RuinRetryResolution.Guided ? -RuinRetryTraceLane * .36f : RuinRetryTraceLane * .34f;
-            float lane = retryFromLane + (exitLane - retryFromLane) * EaseRetry(0, 1.25f, Age);
-            float altitude = retryFromHeight + (.36f - retryFromHeight) * EaseRetry(.18f, 1.65f, Age);
-            MoveRuinRetryActor(dt, lane, altitude);
-            if (Progress < 1) return;
-            RuinRetryOutcome = retryDeparture;
+            if (Age + .0001f < RuinExitDuration) return;
             RuinResult = RuinPath.Explored;
-            Complete();
+            Enter(2, false, false);
         }
 
         private void MoveRuinRetryActor(float dt, float lane, float height)
@@ -407,7 +310,6 @@ namespace Echoes
             Flight.FollowForestCourse(height, dt);
         }
 
-        private static float HeartFlash(float t, float center) => 1 - EaseRetry(.024f, .22f, Math.Abs(t - center));
         private static float EaseRetry(float from, float to, float time)
         {
             float value = Clamp((time - from) / (to - from));

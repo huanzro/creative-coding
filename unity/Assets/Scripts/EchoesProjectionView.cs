@@ -22,11 +22,11 @@ namespace Echoes
             Paint(viewport, Color.black);
             GUI.BeginGroup(viewport);
             var area = new Rect(0, 0, viewport.width, viewport.height);
-            float bodySize = sideways ? Mathf.Min(area.width * .50f, area.height * .92f)
-                                      : Mathf.Min(area.height * .67f, area.width * .93f);
-            if (frame.forest || frame.ruins) bodySize *= .78f;
-            bodySize *= Mathf.Clamp(characterScale, .35f, 1.40f);
-            bodySize = Mathf.Min(bodySize, Mathf.Min(area.width, area.height) * (sideways ? 1.34f : .88f));
+            float characterSize = (sideways ? Mathf.Min(area.width * .50f, area.height * .92f)
+                                           : Mathf.Min(area.height * .67f, area.width * .93f))
+                * Mathf.Clamp(characterScale, .35f, 1.40f);
+            float sizeLimit = Mathf.Min(area.width, area.height) * (sideways ? 1.34f : .88f);
+            float bodySize = Mathf.Min(characterSize * (frame.forest || frame.ruins ? .78f : 1), sizeLimit);
             float unit = Mathf.Min(area.height / Height, area.width / 880);
             float extent = Mathf.Max(.20f, unit) * Mathf.Clamp(lightReach, .65f, 2.45f);
             var center = FrameProjectionPosition(frame, frame.altitude, area, bodySize, sideways);
@@ -46,6 +46,10 @@ namespace Echoes
             else if (frame.forest && frame.forestDoorAge >= 0)
             {
                 DrawDoorProjection(frame, area, center, bodySize, mirror, sideways, extent);
+            }
+            else if (frame.ruinRetryPhase == RuinRetryPhase.Accepted || frame.ruinRetryPhase == RuinRetryPhase.Declined)
+            {
+                DrawRuinExitProjection(frame, area, center, bodySize, Mathf.Min(characterSize, sizeLimit), mirror, sideways, extent);
             }
             else
             {
@@ -105,6 +109,72 @@ namespace Echoes
             GUI.EndGroup();
         }
 
+        private void DrawRuinExitProjection(SpiritFrame frame, Rect area, Vector2 center, float size, float starSize,
+            bool mirror, bool sideways, float extent)
+        {
+            bool accepted = frame.ruinRetryPhase == RuinRetryPhase.Accepted;
+            float age = frame.ruinRetryAge;
+            Vector2 across = sideways ? Vector2.down : Vector2.right;
+            Vector2 up = sideways ? Vector2.left : Vector2.up;
+            if (mirror) across *= -1;
+            float lift = OpeningStoryboard.Ease(accepted ? 3.52f : 3.16f, Journey.RuinExitDuration, age);
+            float lane = accepted ? 0 : OpeningStoryboard.Window(age, 2.40f, 3.28f, 3.48f, Journey.RuinExitDuration);
+            center = Vector2.Lerp(center, StarProjectionCenter(area, sideways), lift) - across * size * .19f * lane;
+            size = Mathf.Lerp(size, starSize, lift);
+            float effects = accepted ? Mathf.Lerp(.53f, .20f, OpeningStoryboard.Ease(1.08f, 2.65f, age)) : .52f;
+            DrawCharacter(frame, center, center, size, mirror, sideways ? -90 : 0, extent, true, effects);
+            float heartHeight = frame.cast == SpiritRig.RedBirdCast ? -.10f :
+                frame.cast == SpiritRig.BlackSwanCast ? -.065f : .025f;
+            float brainHeight = frame.cast == SpiritRig.RedBirdCast ? .125f :
+                frame.cast == SpiritRig.BlackSwanCast ? .285f : .22f;
+            if (accepted)
+            {
+                DrawRuinExtractedLight(center + up * size * heartHeight, across, up, size, age, 1.08f, 1.98f, PulseRose, true);
+                DrawRuinExtractedLight(center + up * size * brainHeight, across, up, size, age, 1.78f, 2.66f, MemoryViolet, false);
+            }
+            else
+            {
+                float breath = OpeningStoryboard.Window(age, .68f, .98f, 1.36f, 2.26f);
+                Vector2 heart = center + up * size * heartHeight;
+                float halo = size * (.12f + .22f * OpeningStoryboard.Ease(.68f, 2.05f, age));
+                Ripple(heart.x, heart.y, halo, PulseRose, .40f * breath);
+                Orb(heart.x, heart.y, size * .075f, Amber, .25f * breath);
+            }
+        }
+
+        private void DrawRuinExtractedLight(Vector2 center, Vector2 across, Vector2 up, float size, float age,
+            float begin, float lifted, Color tint, bool heart)
+        {
+            float alpha = OpeningStoryboard.Window(age, begin, begin + .19f, lifted + .10f, lifted + .76f);
+            if (alpha < .01f) return;
+            float travel = OpeningStoryboard.Ease(begin, lifted + .44f, age);
+            Vector2 origin = center + across * size * (heart ? -.045f : .045f);
+            Vector2 light = origin + size * (across * (.50f * travel) + up * (.17f * travel + .10f * Mathf.Sin(travel * Mathf.PI)));
+            float radius = size * Mathf.Lerp(.065f, .035f, travel);
+            Vector2 wake = Vector2.Lerp(origin, light, .27f);
+            Stroke(wake, light, Mathf.Max(1.4f, size * .012f), tint, alpha * .64f, glow);
+            Orb(light.x, light.y, radius * 2.5f, tint, alpha * .23f);
+            if (heart)
+            {
+                Vector2 leftLobe = light - across * radius * .25f;
+                Vector2 rightLobe = light + across * radius * .25f;
+                Vector2 tip = light - up * radius * .40f;
+                Orb(leftLobe.x, leftLobe.y, radius * .62f, tint, alpha);
+                Orb(rightLobe.x, rightLobe.y, radius * .62f, tint, alpha);
+                Stroke(leftLobe, tip, radius * .22f, tint, alpha);
+                Stroke(rightLobe, tip, radius * .22f, tint, alpha);
+            }
+            else
+            {
+                for (int lobe = 0; lobe < 4; lobe++)
+                {
+                    float angle = lobe * Mathf.PI * .5f + .6f;
+                    Vector2 fold = light + radius * .25f * (across * Mathf.Cos(angle) + up * Mathf.Sin(angle));
+                    Orb(fold.x, fold.y, radius * .53f, tint, alpha);
+                }
+            }
+        }
+
         private void DrawDoorProjection(SpiritFrame frame, Rect area, Vector2 center, float size,
             bool mirror, bool sideways, float extent)
         {
@@ -128,7 +198,7 @@ namespace Echoes
 
         private static Vector2 FrameProjectionPosition(SpiritFrame frame, float altitude, Rect area, float size, bool sideways)
         {
-            if (frame.chapter == 2) return sideways ? new Vector2(area.width * .5f, area.height * .54f) : area.center;
+            if (frame.chapter == 2) return StarProjectionCenter(area, sideways);
             if (!frame.forest && !frame.ruins) return ProjectionPosition(SpiritFlight.ScreenY(altitude), area, size, sideways);
             float axis = sideways ? area.width : area.height;
             float edge = Mathf.Min(size * .52f + 7, axis * .43f);
@@ -136,6 +206,9 @@ namespace Echoes
             float height = Mathf.Lerp(axis - edge, edge, Mathf.Clamp01(altitude / ceiling));
             return sideways ? new Vector2(height, area.height * .54f) : new Vector2(area.width * .5f, height);
         }
+
+        private static Vector2 StarProjectionCenter(Rect area, bool sideways) =>
+            sideways ? new Vector2(area.width * .5f, area.height * .54f) : area.center;
 
         private static Vector2 ProjectionPosition(float normalizedY, Rect area, float size, bool sideways)
         {

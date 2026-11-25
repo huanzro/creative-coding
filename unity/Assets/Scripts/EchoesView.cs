@@ -414,7 +414,8 @@ namespace Echoes
 
         public void DrawControls(string heading, string message, string left, string right, float volume,
             Action<int> choose, Action<string> select, Action retry, Action restore, Action pause, bool paused,
-            bool characterOnly, bool mazeWalking, bool continuousTouch, bool stars,
+            bool characterOnly, bool mazeWalking, bool continuousTouch, bool stars, bool touchAvailable,
+            bool ruinEnding, bool ruinSurvey,
             Action toggleSettings, Action<GUIStyle, GUIStyle> settings)
         {
             PrepareInterface();
@@ -422,17 +423,25 @@ namespace Echoes
             if (characterOnly && settings == null) { EndFrame(matrix); return; }
             if (settings == null && GUI.Button(new Rect(1065, 27, 186, 36), "游戏设置 · F1", button))
                 toggleSettings();
-            Paint(new Rect(26, 22, 689, 100), new Color(.02f, .05f, .09f, .85f));
-            GUI.Label(new Rect(44, 30, 630, 39), heading, title);
-            GUI.Label(new Rect(44, 74, 650, 41), message, body);
+            if (!ruinEnding)
+            {
+                Paint(new Rect(26, 22, 689, 100), new Color(.02f, .05f, .09f, .85f));
+                GUI.Label(new Rect(44, 30, 630, 39), heading, title);
+                GUI.Label(new Rect(44, 74, 650, 41), message, body);
+            }
             Paint(new Rect(26, 650, 1228, 50), new Color(.02f, .05f, .09f, .86f));
             bool enabled = GUI.enabled;
+            GUI.enabled = enabled && settings == null && touchAvailable;
+            if (!ruinEnding || touchAvailable)
+            {
+                DrawTouchControl(new Rect(42, 658, 164, 34), left, 0, continuousTouch, choose);
+                DrawTouchControl(new Rect(213, 658, 164, 34), right, 1, continuousTouch, choose);
+            }
             GUI.enabled = enabled && settings == null;
-            DrawTouchControl(new Rect(42, 658, 164, 34), left, 0, continuousTouch, choose);
-            DrawTouchControl(new Rect(213, 658, 164, 34), right, 1, continuousTouch, choose);
-            GUI.enabled = enabled && settings == null;
-            GUI.Label(new Rect(393, 651, 310, 25), mazeWalking ? "A/B 转向 · 松开空格走 · 按住停" :
-                stars ? "按住鼠标画光 · Z轻声 · X加速" : "空格握拳 · 松开张手 · Z轻声 · X加速", body);
+            string hint = ruinEnding ? (ruinSurvey ? "松开空格仰视 · Z 发声俯视" : "") :
+                mazeWalking ? "A/B 转向 · 松开空格走 · 按住停" :
+                stars ? "按住鼠标画光 · Z轻声 · X加速" : "空格握拳 · 松开张手 · Z轻声 · X加速";
+            GUI.Label(new Rect(393, 651, 310, 25), hint, body);
             Paint(new Rect(396, 680, 270, 4), new Color(1, 1, 1, .2f));
             Paint(new Rect(396, 680, volume * 270, 4), new Color(.81f, .85f, 1));
             if (GUI.Button(new Rect(687, 658, 76, 34), paused ? "继续" : "暂停", button)) pause();

@@ -16,6 +16,7 @@ namespace Echoes
         private readonly GameObject root = new GameObject("Echoes 3D environments");
         private readonly GameObject lowerWorld = new GameObject("Forest and ruins below the Star Sea");
         private Transform geometryParent;
+        private readonly Transform starBackdrop;
         private readonly System.Random random = new System.Random(1505);
         private readonly List<Mesh> meshes = new List<Mesh>();
         private readonly Material stone, soil, wood, leaves, glow, sky, mist;
@@ -52,13 +53,27 @@ namespace Echoes
             geometryParent = lowerWorld.transform;
             BuildForest();
             BuildRuins();
-            geometryParent = root.transform;
+            starBackdrop = Group("Star Sea background geometry",root.transform);
+            geometryParent = starBackdrop;
             BuildStars();
+            geometryParent = root.transform;
             BuildCourt();
             BuildFlies();
             shape = new WorldMesh(meshes);
             shape.Box(Vector3.zero, Vector3.one * 2, Quaternion.identity, Color.white);
             Put("Sky volume", shape.Finish("Sky volume"), sky, new Vector3(0,15,34), Vector3.one * 218);
+        }
+
+        private void SetRuinStarPreview(bool active,float age)
+        {
+            Vector3 entry = RuinFrameworkOrigin+RuinStarLanding;
+            starBackdrop.localPosition=active ? entry-StarEntryCamera : Vector3.zero;
+            if (active)
+            {
+                float settle=OpeningStoryboard.Ease(3.78f,4.97f,age);
+                Light(starOrbits,Color.Lerp(Color.white,new Color(.25f,.34f,.52f),settle),
+                    Mathf.Lerp(.24f,.07f,settle));
+            }
         }
 
         private static Material MaterialFor(Shader shader, string name, float mode)
@@ -380,6 +395,7 @@ namespace Echoes
 
         public void Dispose()
         {
+            ClearRuinBlueprint();
             forestPredator?.Dispose();
             DisposeRuinTunnel();
             DisposeMachine();

@@ -11,6 +11,11 @@ namespace Echoes
         private void DrawRuinHud(Journey journey)
         {
             PrepareInterface();
+            if (journey.Phase == Stage.RuinRetry)
+            {
+                DrawRuinEnding(journey);
+                return;
+            }
             float x = 982;
             Paint(new Rect(x, 79, 269, 148), InkGlass);
             Paint(new Rect(x, 79, 269, 2), Opacity(GlassBlue, .54f));
@@ -59,7 +64,6 @@ namespace Echoes
             }
 
             if (journey.RuinLootOpen) DrawRuinLoot(journey);
-            else if (journey.Phase == Stage.RuinRetry) DrawRuinRetry(journey);
         }
 
         private void DrawRuinEntranceHint(float y, Journey journey, RuinPortal portal)
@@ -103,18 +107,53 @@ namespace Echoes
             }
         }
 
-        private void DrawRuinRetry(Journey journey)
+        private void DrawRuinEnding(Journey journey)
         {
-            string clue = journey.RuinRetryClue;
-            if (string.IsNullOrEmpty(clue)) return;
-            const float x = 365, width = 550, y = 580;
-            Paint(new Rect(x, y, width, 50), InkGlass);
-            GUI.Label(new Rect(x + 16, y + 8, width - 32, 34), clue, body);
-            if (journey.RuinRetryPulse > 0)
+            RuinRetryPhase phase = journey.RuinRetryState;
+            if (phase == RuinRetryPhase.Survey)
             {
-                float power = Mathf.Clamp01(journey.RuinRetryPulse);
-                Orb(x + width - 21, y + 16, 8 + power * 8, PulseRose, .24f + power * .52f);
+                float remaining = Mathf.Max(0, Journey.RuinSurveyDuration - journey.Age);
+                const float x = 443, y = 530, width = 394;
+                Paint(new Rect(x, y, width, 77), InkGlass);
+                GUI.Label(new Rect(x + 18, y + 7, 270, 27), "观察隧道骨架", body);
+                GUI.Label(new Rect(x + width - 62, y + 7, 50, 27), $"{Mathf.CeilToInt(remaining)} 秒", body);
+                GUI.Label(new Rect(x + 18, y + 34, width - 36, 30), "A/B 左右看  ·  张手向上看  ·  发声向下看", body);
+                Paint(new Rect(x + 20, y + 66, width - 40, 2), Opacity(GlassBlue, .20f));
+                Paint(new Rect(x + 20, y + 66, (width - 40) * remaining / Journey.RuinSurveyDuration, 2), GlassBlue);
+                return;
             }
+            bool showLedger = phase == RuinRetryPhase.Valuation || phase == RuinRetryPhase.Bargain ||
+                phase == RuinRetryPhase.Accepted && journey.Age < 3.9f;
+            if (showLedger) DrawRuinTokenLedger(journey);
+            if (string.IsNullOrEmpty(journey.Message)) return;
+            const float left = 302, widthSubtitle = 676, ySubtitle = 573;
+            Paint(new Rect(left, ySubtitle, widthSubtitle, 62), InkGlass);
+            Paint(new Rect(left, ySubtitle, 2, 62), Opacity(GlassBlue, .86f));
+            GUI.Label(new Rect(left + 18, ySubtitle + 5, 90, 25), "机器人", body);
+            GUI.Label(new Rect(left + 18, ySubtitle + 30, widthSubtitle - 36, 27), journey.Message, body);
+        }
+
+        private void DrawRuinTokenLedger(Journey journey)
+        {
+            const float x = 948, y = 79, width = 303;
+            bool bargaining = journey.RuinRetryState == RuinRetryPhase.Bargain;
+            bool settled = journey.RuinRevealedTokens == journey.RuinTokenCost;
+            float height = bargaining ? 151 : 123;
+            Paint(new Rect(x, y, width, height), InkGlass);
+            Paint(new Rect(x, y, width, 2), settled ? Mint : GlassBlue);
+            GUI.Label(new Rect(x + 14, y + 8, 136, 27), "出口结算", body);
+            GUI.Label(new Rect(x + 171, y + 8, 119, 27),
+                $"{journey.RuinRevealedTokens} / {journey.RuinTokenCost} token", body);
+            Paint(new Rect(x + 15, y + 41, width - 30, 3), Opacity(GlassBlue, .20f));
+            Paint(new Rect(x + 15, y + 41, (width - 30) * journey.RuinRevealedTokens / journey.RuinTokenCost, 3),
+                settled ? Mint : GlassBlue);
+            GUI.Label(new Rect(x + 14, y + 52, width - 28, 24),
+                $"{Journey.RuinPhoneName} ×{journey.RuinPhones}  ·  每部 {Journey.RuinPhoneTokenRate} token", body);
+            GUI.Label(new Rect(x + 14, y + 77, width - 28, 24),
+                $"电脑 ×{journey.RuinComputers}  ·  每台 {Journey.RuinComputerTokenRate} token", body);
+            if (bargaining)
+                GUI.Label(new Rect(x + 14, y + 110, width - 28, 30),
+                    $"补足报价  {journey.RuinTradePhones} 部手机 + {journey.RuinTradeComputers} 台电脑", body);
         }
 
         private void RuinCount(float x, float y, string label, int count, Color color)

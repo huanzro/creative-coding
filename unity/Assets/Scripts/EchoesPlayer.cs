@@ -163,6 +163,10 @@ namespace Echoes
             microphone.Update(now, dt);
             if (microphone.Ready) voice = microphone.Level;
 #endif
+            journey.RuinDirectPalmLook = !preview;
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+            journey.RuinDirectPalmLook |= desktopCamera.Active;
+#endif
             UpdateHand(keyboard, !paused && (inputReady || journey.InStars));
             if (journey.InStars) UpdateIndexTip(keyboard, !paused && !settings, now);
             bool leftHeld = keyboard && Input.GetKey(KeyCode.A);
@@ -229,9 +233,11 @@ namespace Echoes
                 time = journey.Time,
                 light = journey.Light, charge = journey.Charge, voice = journey.Voice, progress = journey.Progress,
                 closed = journey.Gesture == Hand.Fist, complete = journey.Phase == Stage.Complete,
-                waiting = !journey.InStars && (!inputReady || !journey.Started), paused = paused, preview = preview,
+                waiting = !journey.InStars && (!inputReady || !journey.Started && journey.Phase != Stage.RuinRetry),
+                paused = paused, preview = preview,
                 title = journey.IsOpening ? "序幕" : journey.Lesson >= 0 ? "回声庭院 · 试玩" : Titles[journey.Chapter],
-                message = !journey.IsOpening && !journey.InStars && !paused && inputReady && journey.Gesture == Hand.Missing
+                message = !journey.IsOpening && !journey.InStars && journey.Phase != Stage.RuinRetry &&
+                    !paused && inputReady && journey.Gesture == Hand.Missing
                     ? "请把手放回画面，张开手继续。 " + message : message,
                 left = journey.LeftLabel, right = journey.RightLabel, phase = journey.Phase.ToString(), spirit = LocalSpirit,
                 starArtwork = includeArtwork && journey.InStars ? view.StarArtwork : null
@@ -287,11 +293,14 @@ namespace Echoes
             }
             var state = Snapshot();
             string heading = forestDebugPoint.HasValue ? "调试 · " + ForestDebugLabels[(int)forestDebugPoint.Value] : state.title;
+            bool ruinEnding = journey.Phase == Stage.RuinRetry;
+            bool ruinSurvey = journey.RuinRetryState == RuinRetryPhase.Survey;
             view.DrawControls(heading, state.message, state.left, state.right, state.voice,
                 option => Choose(option.ToString()), Select, () => Retry(""), () => Restore(""),
                 () => Pause(paused ? "0" : "1"), paused, characterOnly, journey.ForestMazeWalkArea,
-                journey.InForest || journey.InRuins && journey.Phase == Stage.RuinExplore && !journey.RuinLootOpen,
-                journey.InStars,
+                journey.InForest || ruinSurvey || journey.InRuins && journey.Phase == Stage.RuinExplore && !journey.RuinLootOpen,
+                journey.InStars, !ruinEnding || ruinSurvey || journey.RuinRetryState == RuinRetryPhase.Bargain,
+                ruinEnding, ruinSurvey,
                 ToggleSettings, settings ? DrawSettings : (Action<GUIStyle, GUIStyle>)null);
         }
 

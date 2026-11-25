@@ -6,13 +6,15 @@ namespace Echoes
     internal sealed class TravelSound : IDisposable
     {
         private const int Rate = 24000;
-        private readonly AudioSource source, wind, machinery;
+        private readonly AudioSource source, wind, machinery, dialogue;
         private readonly AudioClip[] cues = new AudioClip[Enum.GetValues(typeof(JourneyCue)).Length];
         private readonly AudioClip[] machineScenes = new AudioClip[4];
         private readonly AudioClip[] rescues = new AudioClip[2];
         private AudioClip forestMachineLoop, archiveLoop;
         private int heard;
         private int sceneStamp;
+        private RuinRetryPhase dialoguePhase;
+        private bool dialoguePaused;
 
         public TravelSound(GameObject owner)
         {
@@ -27,12 +29,16 @@ namespace Echoes
             machinery.loop=true;
             machinery.playOnAwake=false;
             machinery.volume=0;
+            dialogue=owner.AddComponent<AudioSource>();
+            dialogue.playOnAwake=false;
+            dialogue.volume=.82f;
         }
 
         public void Follow(Journey journey, bool paused)
         {
             FollowWind(journey, paused);
             FollowMachine(journey, paused);
+            FollowDialogue(journey, paused);
             if (paused || journey.IsOpening)
             {
                 if(source.isPlaying) source.Stop();
@@ -76,12 +82,20 @@ namespace Echoes
             switch (journey.RuinRetryState)
             {
                 case RuinRetryPhase.Impact:
-                case RuinRetryPhase.Choice:
+                case RuinRetryPhase.Gate:
                     target *= .30f;
                     break;
-                case RuinRetryPhase.Listen:
-                case RuinRetryPhase.Release:
-                    target *= .13f;
+                case RuinRetryPhase.Survey:
+                case RuinRetryPhase.Arrival:
+                    target *= .68f;
+                    break;
+                case RuinRetryPhase.Valuation:
+                case RuinRetryPhase.Bargain:
+                    target *= .26f;
+                    break;
+                case RuinRetryPhase.Accepted:
+                case RuinRetryPhase.Declined:
+                    target *= .32f * (1 - OpeningStoryboard.Ease(2.7f, Journey.RuinExitDuration, journey.Age));
                     break;
             }
             if (journey.Phase==Stage.ForestTransition) target*=1-OpeningStoryboard.Ease(.59f,1,journey.Progress);
@@ -107,6 +121,36 @@ namespace Echoes
             sceneStamp=journey.CueId;
             if (machineScenes[scene]==null) machineScenes[scene]=ComposeMachineScene(scene);
             source.PlayOneShot(machineScenes[scene], .85f);
+        }
+
+        private void FollowDialogue(Journey journey, bool paused)
+        {
+            var phase = journey.RuinRetryState;
+            if (dialoguePhase != phase)
+            {
+                dialoguePhase = phase;
+                dialogue.Stop();
+                dialoguePaused = false;
+                string line = phase == RuinRetryPhase.Valuation ? "valuation" :
+                    phase == RuinRetryPhase.Bargain ? "offer" :
+                    phase == RuinRetryPhase.Declined ? "refusal" : null;
+                dialogue.clip = line == null ? null : Resources.Load<AudioClip>("RuinBroker/" + line);
+                if (dialogue.clip != null && journey.Age < dialogue.clip.length)
+                {
+                    dialogue.time = journey.Age;
+                    dialogue.Play();
+                }
+            }
+            if (paused && dialogue.isPlaying)
+            {
+                dialogue.Pause();
+                dialoguePaused = true;
+            }
+            else if (!paused && dialoguePaused)
+            {
+                dialogue.UnPause();
+                dialoguePaused = false;
+            }
         }
 
         private static AudioClip ComposeMachineLoop()
@@ -283,6 +327,9 @@ namespace Echoes
             if (cue == JourneyCue.RuinHeartbeat) return ComposeHeart();
             if (cue == JourneyCue.RuinRetryBeat) return ComposeHeart(true);
             if (cue == JourneyCue.RuinWall) return ComposeWall();
+            if (cue == JourneyCue.RuinSurvey || cue == JourneyCue.RuinBroker ||
+                cue == JourneyCue.RuinTradeAccepted || cue == JourneyCue.RuinTradeDeclined)
+                return ComposeBrokerTransition(cue);
             bool misread=cue==JourneyCue.Misread || cue==JourneyCue.ForestScarlet;
             bool gust=cue==JourneyCue.Gust || cue==JourneyCue.ForestCaptured;
             double seconds=cue==JourneyCue.Seal || cue==JourneyCue.RuinEscape ? 1.6 : gust?.66:.64;
@@ -307,6 +354,31 @@ namespace Echoes
             var clip=AudioClip.Create("Echoes "+cue,data.Length,1,Rate,false);
             clip.SetData(data,0);
             return clip;
+        }
+
+        private static AudioClip ComposeBrokerTransition(JourneyCue cue)
+        {
+            bool arrival = cue == JourneyCue.RuinBroker;
+            bool reveal = cue == JourneyCue.RuinSurvey;
+            bool accepted = cue == JourneyCue.RuinTradeAccepted;
+            float seconds = arrival ? Journey.RuinArrivalDuration : reveal ? 3.2f : Journey.RuinExitDuration;
+            var samples = new float[(int)(seconds * Rate)];
+            var random = new System.Random(205 + (int)cue);
+            double breath = 0;
+            for (int i = 0; i < samples.Length; i++)
+            {
+                double t = i / (double)Rate;
+                breath += .04 * (random.NextDouble() * 2 - 1 - breath);
+                double edge = Math.Min(1, t * 5) * Math.Min(1, (seconds - t) * 2.3);
+                double fundamental = arrival ? 43 : reveal ? 73.4 : accepted ? 98 : 65.4;
+                double bed = .08 * Tone(t, fundamental) + .052 * Tone(t, fundamental * 1.5) + .07 * breath;
+                double bloom = arrival ? Math.Sin(Math.PI * t / seconds) :
+                    reveal ? .8 * Math.Exp(-t * .83) : Math.Max(0, (t - 2.6) / 2.4);
+                double shimmer = .064 * Tone(t, accepted ? 784 : 659.25) + .038 * Tone(t, accepted ? 1174 : 987.8);
+                double arrivalLatch = arrival ? Decay(t, 3.05, 6.1) * .12 * Tone(t, 142) : 0;
+                samples[i] = (float)(edge * (bed * (arrival ? .9 : .48) + bloom * shimmer + arrivalLatch));
+            }
+            return MachineClip("Archive " + cue, samples);
         }
 
         private static AudioClip ComposeHeart(bool retry = false)

@@ -107,7 +107,7 @@ for ($i = 0; $i -lt 8; $i++) { $expandedGame.Step(.02, 0) }
 AssertRuinLoot ($expandedGame.RuinCanTake -and $expandedGame.RuinSearchTarget -eq $topBitPhone) 'The last new stash is reachable as an ordinary interaction.'
 [void]$expandedGame.Touch(1)
 $highCheckpoint = $expandedGame.Checkpoint
-AssertRuinLoot ($topBitPhone.Collected -and $expandedGame.RuinPhones -eq 1 -and $highCheckpoint.version -eq 10 -and
+AssertRuinLoot ($topBitPhone.Collected -and $expandedGame.RuinPhones -eq 1 -and $highCheckpoint.version -eq 11 -and
     $highCheckpoint.ruinFinds -eq 0 -and $highCheckpoint.ruinFindsExtra -eq [long]::MinValue) 'Taking ID 127 must set only the top bit of the expanded mask.'
 
 $expandedFinds = @(RuinFixtureObjects $expandedGame)

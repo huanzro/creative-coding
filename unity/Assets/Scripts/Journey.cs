@@ -20,7 +20,8 @@ namespace Echoes
         None, Observe, Assist, Withdraw, Plant, Gust, Gate, Misread, Correct, Star, Seal,
         ForestAmber, ForestScarlet, ForestCaptured, ForestRescued, ForestRestart,
         ForestRescueLight, ForestDoor, RuinHeartbeat, RuinCollect, RuinDoor, RuinTravel, RuinEscape,
-        RuinWall, RuinReplay, RuinRetryBeat
+        RuinWall, RuinReplay, RuinRetryBeat, RuinSurvey, RuinBroker, RuinValuation,
+        RuinOffer, RuinTradeAccepted, RuinTradeDeclined
     }
     public enum RuinPath { Unfinished, Repaired, Assisted, Arcade, Explored }
 
@@ -321,16 +322,13 @@ namespace Echoes
                 Enter(Chapter + 1, false, false);
                 return true;
             }
+            if (Phase == Stage.RuinRetry) return TouchRuinRetry(option);
             if (!Started || IsRuinSequence || IsForestSequence && !CanSteerMaze) return false;
             LastTouch = PoseTime;
             TouchOption = option;
             if (Lesson >= 0) PracticeTouch(option);
             else if (Chapter == 0) ForestTouch(option);
-            else if (Chapter == 1)
-            {
-                if (Phase == Stage.RuinRetry) TouchRuinRetry(option);
-                else if (!TryRuinLootTouch(option)) RuinTouch(option);
-            }
+            else if (Chapter == 1 && !TryRuinLootTouch(option)) RuinTouch(option);
             return true;
         }
 

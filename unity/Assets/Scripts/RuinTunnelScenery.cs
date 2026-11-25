@@ -14,6 +14,11 @@ namespace Echoes
         private readonly List<RuinGateView> tunnelGates = new List<RuinGateView>();
         private readonly Dictionary<RuinDirection, RuinGateParts> gateParts = new Dictionary<RuinDirection, RuinGateParts>();
         private MeshRenderer[] axonSignals;
+        private readonly List<MeshRenderer> thresholdMeshes = new List<MeshRenderer>();
+        private readonly MaterialPropertyBlock thresholdBlock = new MaterialPropertyBlock();
+        private static readonly int ThresholdMesh = Shader.PropertyToID("_RuinThresholdMesh");
+        private static readonly int ThresholdOpen = Shader.PropertyToID("_EchoesThresholdOpen");
+        private static readonly int ThresholdPlane = Shader.PropertyToID("_EchoesThresholdPlane");
         private Mesh[] chamberEmblems;
         private int visibleRoom = -1, visibleStyle = -1;
 
@@ -32,6 +37,8 @@ namespace Echoes
 
         public void DrawRuinTunnel(Journey journey, bool active, float time, Vector3 viewer)
         {
+            bool throughDoor=active && journey.RuinRetryState==RuinRetryPhase.Gate && journey.Age>=.33f;
+            Shader.SetGlobalFloat(ThresholdOpen,throughDoor?1:0);
             if (!active)
             {
                 if (tunnelRoot != null) tunnelRoot.gameObject.SetActive(false);
@@ -72,6 +79,23 @@ namespace Echoes
             DrawRuinExhibits(journey,archiveTime,viewer);
             DrawRuinArtifacts(journey, archiveTime);
             DrawRuinRetry(journey, time);
+            if (throughDoor) ClearOldGalleryBehindDoor(journey);
+        }
+
+        private void ClearOldGalleryBehindDoor(Journey journey)
+        {
+            RuinFrameworkPlacement(journey,false,out Vector3 origin,out Quaternion rotation);
+            Vector3 forward=rotation*Vector3.forward;
+            Shader.SetGlobalVector(ThresholdPlane,new Vector4(forward.x,forward.y,forward.z,
+                Vector3.Dot(forward,origin-forward*4.71f)));
+            thresholdMeshes.Clear();
+            tunnelRoot.GetComponentsInChildren(false,thresholdMeshes);
+            foreach (MeshRenderer renderer in thresholdMeshes)
+            {
+                renderer.GetPropertyBlock(thresholdBlock);
+                thresholdBlock.SetFloat(ThresholdMesh,1);
+                renderer.SetPropertyBlock(thresholdBlock);
+            }
         }
 
         private void BuildRuinTunnel()

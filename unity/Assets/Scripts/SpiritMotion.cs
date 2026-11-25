@@ -62,6 +62,8 @@ namespace Echoes
             new Vector3(.14f, .96f, -.21f), .23f, .46f, 17);
         private static readonly SpiritArm Brace = new SpiritArm(new Vector3(.76f, -.58f, -.36f),
             new Vector3(.38f, -.72f, -.72f), .45f, 0, 27);
+        private static readonly SpiritArm GuardHeart = new SpiritArm(new Vector3(.42f, -.68f, -.43f),
+            new Vector3(-.74f, .49f, -.47f), .27f, .17f, 8);
         private static readonly SpiritArm MawUpperPalm = new SpiritArm(new Vector3(.54f,.43f,-.68f),
             new Vector3(.16f,.71f,-.69f),.09f,.32f,-14);
         private static readonly SpiritArm MawLowerPalm = new SpiritArm(new Vector3(.58f,-.43f,-.69f),
@@ -269,45 +271,126 @@ namespace Echoes
                     pose.ribbon -= .49f*shock;
                     pose.expression += .82f*shock;
                     break;
-                case RuinRetryPhase.Review:
-                case RuinRetryPhase.Choice:
-                    float read = OpeningStoryboard.Ease(.14f,.78f,t);
-                    pose.look += frame.ruinRetryTraceLane * Mathf.Sin(t*.82f) * 26 * read;
-                    pose.nod -= 19*read;
-                    pose.left = SpiritArm.Blend(pose.left, Rest, .72f);
-                    pose.right = SpiritArm.Blend(pose.right, Measure, .59f*read);
-                    pose.ribbon *= .30f;
-                    break;
-                case RuinRetryPhase.Trace:
-                case RuinRetryPhase.Fault:
-                    float leanIn = OpeningStoryboard.Ease(.16f,.60f,t);
-                    pose.right = SpiritArm.Blend(pose.right, TouchLight, .74f*leanIn);
-                    pose.nod += 15*leanIn;
-                    pose.pitch += 9*leanIn;
-                    break;
-                case RuinRetryPhase.Listen:
-                case RuinRetryPhase.Release:
-                    float listening = OpeningStoryboard.Ease(0,.42f,t);
-                    float pulse = frame.ruinRetryPulse;
-                    pose.right = SpiritArm.Blend(pose.right, Listen, .87f*listening);
-                    pose.left = SpiritArm.Blend(pose.left, Hold, .57f*listening);
-                    if (frame.ruinRetryPhase == RuinRetryPhase.Release)
-                        pose.right = SpiritArm.Blend(pose.right, Offer, listening);
-                    pose.look -= listening * 21;
-                    pose.nod += listening * 12;
-                    pose.glow = Mathf.Max(pose.glow, .26f+.43f*pulse);
-                    break;
-                case RuinRetryPhase.Guided:
-                case RuinRetryPhase.Departure:
-                    float travel = OpeningStoryboard.Ease(0,.7f,t);
-                    pose.left = SpiritArm.Blend(pose.left, Wing, travel*.8f);
-                    pose.right = SpiritArm.Blend(pose.right, Reach, travel*.8f);
-                    pose.lift += .045f*Mathf.Sin(t*4)*travel;
-                    pose.pitch += 13*travel;
-                    pose.extension += .36f*travel;
-                    pose.ribbon += .28f*travel;
+                default:
+                    ActRuinChamber(ref pose, frame);
                     break;
             }
+        }
+
+        private static void ActRuinChamber(ref SpiritPose pose, SpiritFrame frame)
+        {
+            float age = frame.ruinRetryAge;
+            pose.left = Rest;
+            pose.right = Rest;
+            pose.glow = .23f;
+            pose.nod = 0;
+            pose.look = 0;
+            pose.step = 0;
+            pose.lift = Mathf.Clamp(pose.lift, .003f, .012f);
+            pose.pitch = pose.lean = pose.tuck = pose.ribbon = pose.expression = 0;
+            pose.yaw = 180;
+            switch (frame.ruinRetryPhase)
+            {
+                case RuinRetryPhase.Gate:
+                    float checking = OpeningStoryboard.Window(age, .04f, .71f, 1.04f, 1.56f);
+                    float crossing = OpeningStoryboard.Window(age, .80f, 1.55f, 2.41f, 3.16f);
+                    float gateStride = Mathf.Sin((age - .8f) * 10);
+                    pose.look = 19 * checking;
+                    pose.nod = -11 * checking;
+                    pose.pitch = 6 * crossing;
+                    pose.glow += .29f * checking;
+                    pose.left = SpiritArm.Blend(Rest, Reach, crossing * Mathf.Max(.14f, 1 - gateStride) * .43f);
+                    pose.right = SpiritArm.Blend(Rest, Brace, crossing * Mathf.Max(.14f, 1 + gateStride) * .41f);
+                    pose.step = .68f * gateStride * crossing;
+                    pose.lift += .045f * Mathf.Abs(gateStride) * crossing;
+                    break;
+                case RuinRetryPhase.Survey:
+                    // The head tracks the panoramic camera without translating the actor.
+                    float yaw = Mathf.Sin(frame.ruinLookYaw * Mathf.Deg2Rad);
+                    pose.yaw += 18 * yaw;
+                    pose.look = 32 * yaw;
+                    pose.nod = Mathf.Clamp(-frame.ruinLookPitch * .38f, -28, 22);
+                    pose.nod -= 17 * OpeningStoryboard.Window(age, 0, .50f, 1.07f, 2.25f);
+                    break;
+                case RuinRetryPhase.Arrival:
+                    float surprise = OpeningStoryboard.Window(age, .31f, 1.0f, 1.80f, 3.65f);
+                    float settle = OpeningStoryboard.Window(age, 2.30f, 2.65f, 2.88f, 3.53f);
+                    pose.nod = -39 * surprise + 6 * settle;
+                    pose.pitch = -8 * surprise;
+                    pose.left = SpiritArm.Blend(Rest, Brace, surprise * .45f);
+                    pose.right = SpiritArm.Blend(Rest, CoverHead, surprise * .45f);
+                    pose.settle = .36f * settle;
+                    pose.expression = .68f * surprise;
+                    break;
+                case RuinRetryPhase.Valuation:
+                    float palm = OpeningStoryboard.Window(age, .20f, .83f, 1.38f, 2.26f);
+                    float recognition = OpeningStoryboard.Ease(2.13f, 3.06f, age);
+                    pose.right = SpiritArm.Blend(Rest, Offer, palm * .63f);
+                    pose.nod = 14 * palm - 11 * recognition;
+                    pose.pitch = 6 * palm;
+                    pose.lean = -4 * palm;
+                    pose.look = 16 * palm;
+                    pose.expression = .29f * recognition;
+                    break;
+                case RuinRetryPhase.Bargain:
+                    float weigh = OpeningStoryboard.Ease(.1f, .75f, age);
+                    pose.left = SpiritArm.Blend(Rest, GuardHeart, .66f * weigh);
+                    pose.nod = 11 * weigh;
+                    pose.tilt = 7 * weigh;
+                    break;
+                case RuinRetryPhase.Accepted:
+                case RuinRetryPhase.Declined:
+                    ActRuinExit(ref pose, age, frame.ruinRetryPhase == RuinRetryPhase.Accepted);
+                    break;
+            }
+        }
+
+        private static void ActRuinExit(ref SpiritPose pose, float age, bool accepted)
+        {
+            if (accepted)
+            {
+                float consent = OpeningStoryboard.Window(age, 0, .39f, .76f, 1.10f);
+                float heart = OpeningStoryboard.Window(age, .83f, 1.16f, 1.32f, 1.75f);
+                float brain = OpeningStoryboard.Window(age, 1.60f, 1.95f, 2.24f, 2.68f);
+                float recover = OpeningStoryboard.Window(age, 1.52f, 2.36f, 2.67f, 3.28f);
+                pose.right = SpiritArm.Blend(Rest, Offer, .52f * consent);
+                pose.right = SpiritArm.Blend(pose.right, Brace, .79f * heart);
+                pose.left = SpiritArm.Blend(Rest, GuardHeart, .82f * heart + .22f * recover);
+                pose.pitch = -13 * heart - 8 * brain + 9 * recover;
+                pose.nod = 10 * consent - 17 * brain + 25 * recover;
+                pose.lean = -9 * heart + 6 * brain;
+                pose.lift -= .09f * recover;
+                pose.tuck = .42f * recover;
+                pose.settle = .22f * recover;
+                pose.expression = Mathf.Max(heart, brain) * .79f;
+                pose.glow = Mathf.Lerp(.31f, .06f, OpeningStoryboard.Ease(1.04f, 2.67f, age));
+            }
+            else
+            {
+                float shake = OpeningStoryboard.Window(age, 0, .47f, 1.0f, 1.58f);
+                float resolve = OpeningStoryboard.Window(age, .38f, 1.11f, 2.62f, 3.42f);
+                pose.left = SpiritArm.Blend(Rest, GuardHeart, .86f * resolve);
+                pose.right = SpiritArm.Blend(Rest, Brace, .34f * resolve);
+                pose.look = Mathf.Sin(age * 13) * 19 * shake - 17 * resolve;
+                pose.nod = -13 * resolve;
+                pose.glow = .31f + .23f * resolve;
+            }
+
+            float start = accepted ? 3.05f : 2.53f;
+            float takeoff = OpeningStoryboard.Ease(accepted ? 3.80f : 3.18f, 4.53f, age);
+            float strides = OpeningStoryboard.Window(age, start, start + .30f, 3.96f, 4.52f);
+            float stride = Mathf.Sin((age - start) * 11.4f) * strides;
+            float sidestep = accepted ? 0 : OpeningStoryboard.Window(age, 2.38f, 2.94f, 3.42f, 4.19f);
+            pose.yaw -= 52 * sidestep;
+            pose.lean += 14 * sidestep;
+            pose.step += .78f * stride;
+            pose.lift += .046f * Mathf.Abs(stride);
+            pose.pitch += 13 * takeoff;
+            pose.nod -= 9 * takeoff;
+            pose.left = SpiritArm.Blend(pose.left, Wing, takeoff * .90f);
+            pose.right = SpiritArm.Blend(pose.right, Reach, takeoff * .82f);
+            pose.ribbon += .42f * takeoff;
+            pose.extension += .47f * takeoff;
         }
 
         private static void ActForest(ref SpiritPose pose, SpiritFrame frame, float closed,
