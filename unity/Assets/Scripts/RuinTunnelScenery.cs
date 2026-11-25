@@ -228,7 +228,10 @@ namespace Echoes
                     qWide + Vector3.forward * .83f, qWide - Vector3.forward * .13f, dark);
                 if (!left || i % 3 != 0)
                     RuinBar(trim, p * 1.082f - Vector3.forward * .108f, q * 1.082f - Vector3.forward * .108f,
-                        upper || lower ? .052f : .047f, .047f, Color.white);
+                        upper ? .086f : lower ? .052f : .047f, .047f, Color.white);
+                if (upper)
+                    RuinBar(trim, p * .97f - Vector3.forward * .215f, q * .97f - Vector3.forward * .215f,
+                        .043f, .042f, WorldMesh.Shade(Color.white,.70f));
                 if (right && (i & 1) == 0)
                 {
                     Vector3 knuckle = (pWide + qWide) * .56f;
@@ -303,7 +306,7 @@ namespace Echoes
         {
             switch (direction)
             {
-                case RuinDirection.Upper: return new Vector2(2.00f, 1.66f);
+                case RuinDirection.Upper: return new Vector2(2.22f, 1.84f);
                 case RuinDirection.Lower: return new Vector2(2.08f, 1.37f);
                 case RuinDirection.Exit: return new Vector2(1.66f, 1.86f);
                 default: return new Vector2(1.14f, 1.23f);
@@ -341,15 +344,16 @@ namespace Echoes
             view.RightDoor.localPosition = new Vector3(doorShift, -opened * .08f, .145f);
             view.LeftDoor.localRotation = Quaternion.Euler(0, opened * -70, opened * -6);
             view.RightDoor.localRotation = Quaternion.Euler(0, opened * 70, opened * 6);
-            Color hue = top ? new Color(.61f, .62f, 1) : bottom ? new Color(.35f, .83f, .86f) :
+            Color hue = top ? new Color(.64f, .72f, 1) : bottom ? new Color(.35f, .83f, .86f) :
                 gate.Direction == RuinDirection.Left ? new Color(.41f,.93f,.75f) : new Color(.97f,.62f,.34f);
             hue = Color.Lerp(hue, RuinGalleryAccentFor(journey.RuinRoomStyle,journey.RuinRoomId), .15f + (gate.FrameStyle % 5) * .04f);
-            bool ready = gate == journey.RuinEntrance || gate == journey.RuinApproach && journey.RuinCanChoosePassage;
+            RuinPortal approach = top ? journey.RuinUpperApproach : journey.RuinApproach;
+            bool ready = gate == journey.RuinEntrance || gate == approach && journey.IsRuinEntranceInRange(gate);
             float pulse = .13f * Mathf.Sin(time * 2.6f + gate.Id * 1.71f);
             float light = reveal ? (ready ? 1.15f : .82f) : .19f;
-            Light(view.Rim, hue, light + pulse);
+            Light(view.Rim, hue, light + pulse + (top ? .24f : 0));
             Light(view.Signal, hue, reveal ? (ready ? 1.32f : .94f) + pulse : .38f);
-            if (view.RiseHint != null) Light(view.RiseHint, hue, reveal ? (ready ? 1.04f : .76f) : .22f);
+            if (view.RiseHint != null) Light(view.RiseHint, hue, reveal ? (ready ? 1.31f : 1.02f) : .22f);
         }
 
         private Transform BuildFindYourself(Transform parent = null, bool stand = true)
@@ -422,8 +426,9 @@ namespace Echoes
                 if (item.Kind == RuinObjectKind.Chest)
                 {
                     Vector3 at = frame.Point(item.Lane * 2.45f, height - .29f);
-                    bool displaying = journey.RuinLootDisplaySource == item || item.Collected && journey.RuinChestRemaining(item) == 0;
-                    archiveObjects.UpdateChest(chests++, item.ChestStyle, at, time, item.Reveal, displaying, heading - item.Lane * 10);
+                    bool stocked = journey.RuinChestRemaining(item) > 0;
+                    bool displaying = journey.RuinLootDisplaySource == item || !stocked;
+                    archiveObjects.UpdateChest(chests++, item.ChestStyle, at, time, item.Reveal, displaying, stocked, heading - item.Lane * 10);
                     continue;
                 }
                 DrawRuinNiche(niches++, item, frame, journey, time, gap);

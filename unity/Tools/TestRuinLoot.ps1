@@ -163,4 +163,44 @@ AssertRuinLoot ($maxReachGame.RuinCanTake -and $maxReachGame.RuinSearchTarget -e
 [void]$maxReachGame.Touch(1)
 AssertRuinLoot ($maxReachGame.RuinLootSource -eq $maxReachChest) 'B opens the reachable chest with the right capture slider at maximum.'
 
-Write-Output 'Passed chest stock and reachability, explicit trades, locked capacity, expanded collectible bits and trades, revisit, and legacy and expanded save restore.'
+$entryGame = [Echoes.Journey]::new(414)
+$entryGame.SelectChapter(1)
+$entryGame.SetHand([Echoes.Hand]::Open)
+$entryChest = $entryGame.RuinObjects | Where-Object Kind -eq 'Chest'
+$allChests = @(RuinFixtureObjects $entryGame | Where-Object Kind -eq 'Chest')
+AssertRuinLoot ($allChests.Count -eq [Echoes.Journey]::RuinChestCount -and
+    @($allChests | Select-Object -ExpandProperty ChestStyle -Unique).Count -eq 16 -and
+    @($allChests | Where-Object { $_.Altitude -gt .14 }).Count -eq 0) 'Every room has an independently saved chest reachable from floor height.'
+AssertRuinLoot ($entryChest.Id -eq 3 -and $entryChest.Lane -eq 0 -and $entryChest.Depth -lt 5.1) 'The first chest is an early centered landmark.'
+for ($i=0; $i -lt 160 -and $entryGame.Distance -lt ($entryChest.Depth - .18); $i++) { $entryGame.Step(.02, .68) }
+for ($i=0; $i -lt 22; $i++) { $entryGame.Step(.02, 0) }
+AssertRuinLoot ($entryGame.Flight.Height -lt .12 -and $entryGame.RuinCanTake -and $entryGame.RuinSearchTarget -eq $entryChest) 'Ordinary forward motion and a stop reach the first chest without a flight adjustment.'
+[void]$entryGame.Touch(1)
+AssertRuinLoot ($entryGame.RuinLootSource -eq $entryChest -and
+    $entryGame.RuinLootDevices[0].Kind -eq 'Phone' -and $entryGame.RuinLootDevices[0].Label -ceq 'ipone18p' -and
+    @($entryGame.RuinLootDevices | Where-Object { $_.Kind -eq 'Phone' -and $_.Label -cne 'ipone18p' }).Count -eq 0) 'The entry chest opens normally and each displayed phone uses the exact requested name.'
+[void]$entryGame.Touch(1)
+AssertRuinLoot ($entryGame.RuinPhones -eq 1 -and $entryGame.Message -cmatch 'ipone18p') 'A phone pickup reports the same name.'
+
+$lastChest = $null
+foreach ($seed in 140..180) {
+    $lastGame = [Echoes.Journey]::new([int]$seed)
+    $lastGame.SelectChapter(1)
+    [void](InvokeRuinFixture $lastGame 'EnterRuinRoom' @(10, $false))
+    $candidate = $lastGame.RuinObjects | Where-Object Kind -eq 'Chest'
+    if ($lastGame.RuinChestItemCount($candidate) -eq 4) { $lastChest = $candidate; break }
+}
+AssertRuinLoot ($null -ne $lastChest -and $lastChest.ChestStyle -eq 15) 'An expanded stock fixture exercises bit 63.'
+$lastGame.SetHand([Echoes.Hand]::Open)
+AssertRuinLoot (InvokeRuinFixture $lastGame 'OfferRuinLoot' @($lastChest)) 'The sixteenth chest opens.'
+1..3 | ForEach-Object { [void]$lastGame.Touch(0) }
+[void]$lastGame.Touch(1)
+$lastSave = $lastGame.Checkpoint
+AssertRuinLoot ($lastSave.ruinChestLootTaken -eq [long]::MinValue -and $lastGame.RuinInventory -eq 1) 'The last chest slot uses the top bit without aliasing earlier stock.'
+$lastReload = [Echoes.Journey]::new(999)
+AssertRuinLoot ($lastReload.Restore($lastSave)) 'A checkpoint with the top stock bit restores.'
+$lastRestored = $lastReload.RuinObjects | Where-Object Kind -eq 'Chest'
+AssertRuinLoot ($lastReload.RuinChestRemaining($lastRestored) -eq 3 -and $lastReload.RuinInventory -eq 1 -and
+    $lastReload.RuinChests -eq 1) 'Expanded chest stock and discovery survive reload.'
+
+Write-Output 'Passed sixteen chests, the entry path and ipone18p labels, top-bit stock and reload, explicit trades, locked capacity, and older saves.'

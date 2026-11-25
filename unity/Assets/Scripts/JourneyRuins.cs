@@ -19,6 +19,7 @@ namespace Echoes
     public sealed partial class Journey
     {
         public const int RuinCapacity = 15;
+        public const string RuinPhoneName = "ipone18p";
         public const int RuinDisciplineCount = 9;
         public const float RuinHeightLimit = 1.65f;
         public const float RuinEntryAltitude = .072f;
@@ -32,7 +33,7 @@ namespace Echoes
         private const float RuinVoiceDeadZone = .12f;
         private const float RuinFastSpeed = 4.2f;
         private const float RuinSearchSpeed = .19f;
-        private static readonly string[] RuinObjectLabels = { "心脏", "大脑", "手机", "电脑", "宝箱" };
+        private static readonly string[] RuinObjectLabels = { "心脏", "大脑", RuinPhoneName, "电脑", "宝箱" };
 
         private RuinRoom[] ruinRooms;
         private int ruinSeed, ruinVisited, ruinRoomId, ruinLoops, ruinSteerHeld;
@@ -107,9 +108,11 @@ namespace Echoes
             RuinForwardSpeed <= RuinSearchSpeed && FindRuinPortal(RuinDirection.Right) == null;
         public string RuinTakeLabel => RuinSearchTarget?.Kind == RuinObjectKind.Chest ? "B · 打开宝箱" : "B · 拾取藏品";
         public RuinPortal RuinApproach { get; private set; }
+        public RuinPortal RuinUpperApproach => Phase == Stage.RuinExplore ? FindRuinUpperPreview() : null;
         public RuinPortal RuinEntrance { get; private set; }
-        public bool RuinCanChoosePassage => Phase == Stage.RuinExplore && !RuinLootOpen &&
-            RuinApproach != null && InRuinPortalRange(RuinApproach);
+        public bool RuinCanChoosePassage => IsRuinEntranceInRange(RuinApproach);
+        public bool IsRuinEntranceInRange(RuinPortal portal) => portal != null && Phase == Stage.RuinExplore &&
+            !RuinLootOpen && InRuinPortalRange(portal);
         public float RuinDoorOpening => RuinEntrance != null && RuinEntrance.OpenAge >= 0
             ? Clamp(RuinEntrance.OpenAge / .30f) * (1 - Clamp((RuinEntrance.OpenAge - .36f) / .55f)) : 0;
         public int RuinHearts { get; private set; }
@@ -218,10 +221,28 @@ namespace Echoes
             float lateral = Math.Abs(RuinLane - portal.Lane);
             if (portal.Direction == RuinDirection.Upper)
                 return lateral <= 1.12f * reach &&
-                    (preview > 1 || Flight.Height >= Math.Max(.35f, portal.Altitude - .71f * reach));
+                    (preview > 1 || Flight.Height >= Math.Max(.36f, portal.Altitude - .82f * reach));
             if (portal.Direction == RuinDirection.Lower)
                 return lateral <= 1.12f * reach && Flight.Height <= portal.Altitude + .63f * reach;
-            return lateral <= Math.Min(1.90f, 1.22f * reach) && Math.Abs(Flight.Height - portal.Altitude) <= .63f * reach;
+            // Side entrances receive the current turn direction across the full playable flight height.
+            return lateral <= Math.Min(1.90f, 1.22f * reach);
+        }
+
+        private RuinPortal FindRuinUpperPreview()
+        {
+            RuinPortal nearest = null;
+            float best = float.PositiveInfinity;
+            foreach (var portal in RuinPortals)
+            {
+                if (portal.Direction != RuinDirection.Upper || portal.Hidden) continue;
+                float ahead = portal.Depth - Distance;
+                if (ahead < -1.4f || ahead > 10f) continue;
+                float score = Math.Abs(ahead);
+                if (score >= best) continue;
+                nearest = portal;
+                best = score;
+            }
+            return nearest;
         }
 
         private RuinPortal FindRuinPortal(RuinDirection direction)
@@ -414,7 +435,7 @@ namespace Echoes
                     if (!chest || RuinChestRemaining(item) == 0) continue;
                 }
                 float clue = Math.Abs(depth) + lateral * .42f;
-                if (!chest && !item.Collected && clue < nearestClue)
+                if (!item.Collected && clue < nearestClue)
                 {
                     RuinNearbyClue = item;
                     nearestClue = clue;

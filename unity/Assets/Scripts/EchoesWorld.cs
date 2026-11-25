@@ -358,22 +358,44 @@ namespace Echoes
             float cameraHeight=Mathf.Min(actorHeight+1.5f,6.58f);
             float focusHeight=Mathf.Lerp(1.65f,actorHeight*.70f+.60f,.76f);
             float mouthFraming=0;
-            bool upperMouth=false;
+            RuinPortal framedMouth=null;
             float centreWeight=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.08f,1,Mathf.Abs(lane)));
             foreach(var portal in journey.RuinPortalsFor(room))
             {
                 bool upper=portal.Direction==RuinDirection.Upper;
                 if (!upper && portal.Direction!=RuinDirection.Lower || portal.Hidden && marker!=portal) continue;
                 float ahead=RuinTrack.Offset(portal.Depth,depth,length);
-                float window=OpeningStoryboard.Window(ahead,-2.4f,.2f,3.9f,7.8f)*centreWeight;
+                float window=upper
+                    ? OpeningStoryboard.Window(ahead,-1.3f,1.65f,5.0f,9.8f)*(.32f+.68f*centreWeight)
+                    : OpeningStoryboard.Window(ahead,-2.4f,.2f,3.9f,7.8f)*centreWeight;
                 if(window<=mouthFraming) continue;
-                upperMouth=upper;
+                framedMouth=portal;
                 mouthFraming=window;
             }
-            cameraHeight=Mathf.Lerp(cameraHeight,Mathf.Min(cameraHeight,upperMouth ? 4.75f : 5.1f),mouthFraming);
-            focusHeight=Mathf.Lerp(focusHeight,upperMouth ? 5.62f : 1.25f,mouthFraming*(upperMouth ? .56f : .52f));
+            bool upperMouth=framedMouth?.Direction==RuinDirection.Upper;
+            if(upperMouth)
+            {
+                float rising=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.12f,.68f,altitude));
+                bool nearChest=room==journey.RuinRoomId &&
+                    (journey.RuinLootOpen || journey.RuinSearchTarget?.Kind==RuinObjectKind.Chest);
+                // At ground level step back to show both the vault and the objects on the road.
+                float pullback=(1-rising)*mouthFraming*(nearChest ? 2.25f : 1.65f);
+                behind=RuinTrack.Frame(room,length,depth-RuinTrack.DepthForMetres(room,length,4.9f+pullback));
+                mouthFraming*=Mathf.Lerp(nearChest ? .43f : .54f,1,rising);
+                cameraHeight=Mathf.Lerp(cameraHeight,Mathf.Min(cameraHeight+.29f,4.9f),mouthFraming);
+            }
+            else
+                cameraHeight=Mathf.Lerp(cameraHeight,Mathf.Min(cameraHeight,5.1f),mouthFraming);
+            focusHeight=Mathf.Lerp(focusHeight,upperMouth ? 4.2f : 1.25f,mouthFraming*.52f);
             at=offset+behind.Point(lane*2.23f-.16f,cameraHeight);
             focus=offset+next.Point(lane*1.43f,focusHeight);
+            if(upperMouth)
+            {
+                // Aim toward the actual vault on curved galleries without losing the actor.
+                var gate=RuinTrack.Frame(room,length,framedMouth.Depth);
+                Vector2 profile=WorldSet.RuinGallerySection(journey.RuinRoomStyleFor(room),Mathf.PI*.5f);
+                focus=Vector3.Lerp(focus,offset+gate.Point(profile.x,profile.y-1.06f),mouthFraming*.55f);
+            }
         }
 
         private static Vector3 ForestActor(Journey journey,SpiritFrame frame)

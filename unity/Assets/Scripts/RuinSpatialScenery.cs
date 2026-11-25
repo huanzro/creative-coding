@@ -51,9 +51,10 @@ namespace Echoes
         }
         internal static RuinTrackConnection RuinConnection(Journey journey,RuinPortal portal)
         {
-            Vector2 section=RuinGallerySection(journey.RuinRoomStyle,RuinTrack.PortalAngle(portal.Direction));
+            int style=journey.RuinRoomStyle;
+            Vector2 section=RuinGallerySection(style,RuinTrack.PortalAngle(portal.Direction));
             return new RuinTrackConnection(journey.RuinRoomId,journey.RuinRoomLength,portal,section,
-                portal.TargetRoom,journey.RuinRoomLengthFor(portal.TargetRoom));
+                portal.TargetRoom,journey.RuinRoomLengthFor(portal.TargetRoom),angle=>RuinGallerySection(style,angle));
         }
 
         internal static RuinRouteFrame RuinPassageStart(Journey journey)
@@ -294,7 +295,7 @@ namespace Echoes
 
         private static Vector2 RuinWorldAperture(RuinDirection direction) => RuinGateRadius(direction)*RuinGateScale(direction);
 
-        private const float RuinUpperCutDepth=2.19f, RuinLowerCutDepth=1.77f;
+        private const float RuinUpperCutDepth=2.43f, RuinLowerCutDepth=1.77f;
 
         private static float RuinLowerFloorOpening(IReadOnlyList<RuinPortal> openings,float length,float depth)
         {
@@ -375,28 +376,58 @@ namespace Echoes
 
         private void BuildRuinApproachLights(Transform parent,int room,int style,float length,RuinPortal portal,Color accent)
         {
+            if(portal.Direction==RuinDirection.Upper)
+            {
+                BuildRuinVaultWayfinding(parent,room,style,length,portal,accent);
+                return;
+            }
             var inlay=new WorldMesh(ruinSpatialMeshes);
-            bool upper=portal.Direction==RuinDirection.Upper;
-            Color hue=Color.Lerp(upper ? new Color(.56f,.60f,1) : new Color(.35f,.84f,.86f),accent,.24f);
-            Vector2 center=RuinGallerySection(style,RuinTrack.PortalAngle(portal.Direction));
+            Color hue=Color.Lerp(new Color(.35f,.84f,.86f),accent,.24f);
             float width=RuinWorldAperture(portal.Direction).x;
             for(int side=-1;side<=1;side+=2)
+            for(int mark=0;mark<3;mark++)
             {
-                for(int mark=0;mark<3;mark++)
+                var frame=RuinTrack.Frame(room,length,portal.Depth-3.35f+mark*.67f);
+                Vector3 point=frame.Point(side*(width+.52f-mark*.38f),.052f);
+                Vector3 tip=point+frame.Forward*.21f;
+                Vector3 axis=frame.Right*.23f;
+                RuinBar(inlay,point-axis,tip,.065f,.042f,WorldMesh.Shade(hue,.49f+mark*.15f));
+                RuinBar(inlay,tip,point+axis,.065f,.042f,WorldMesh.Shade(hue,.49f+mark*.15f));
+            }
+            var renderer=RuinPiece("Descend through the floor",inlay.Finish("Shaft approach marks"),glow,parent)
+                .GetComponent<MeshRenderer>();
+            Light(renderer,Color.white,.80f);
+        }
+
+        private void BuildRuinVaultWayfinding(Transform parent,int room,int style,float length,RuinPortal portal,Color accent)
+        {
+            var guide=new WorldMesh(ruinSpatialMeshes);
+            Color hue=Color.Lerp(new Color(.59f,.67f,1f),accent,.13f);
+            Vector2 vault=RuinGallerySection(style,Mathf.PI*.5f);
+            for(int side=-1;side<=1;side+=2)
+            {
+                // Readable from the road: pick up the trail near eye level and follow it up to the mouth.
+                var foundation=RuinTrack.Frame(room,length,portal.Depth-4.3f);
+                var previous=foundation.Point(vault.x+side*2.97f,.36f);
+                for(int band=0;band<5;band++)
                 {
-                    var frame=RuinTrack.Frame(room,length,portal.Depth-3.35f+mark*.67f);
-                    float x=center.x+side*(width+.52f-mark*.38f);
-                    float y=upper ? center.y-2.75f+mark*.46f : .052f;
-                    Vector3 point=frame.Point(x,y);
-                    Vector3 tip=point+frame.Forward*.21f+(upper ? Vector3.up*.21f : Vector3.zero);
-                    Vector3 axis=frame.Right*.23f;
-                    RuinBar(inlay,point-axis,tip,.065f,.042f,WorldMesh.Shade(hue,.49f+mark*.15f));
-                    RuinBar(inlay,tip,point+axis,.065f,.042f,WorldMesh.Shade(hue,.49f+mark*.15f));
+                    var frame=RuinTrack.Frame(room,length,portal.Depth-3.72f+band*.70f);
+                    float x=vault.x+side*(2.97f-band*.19f);
+                    float y=Mathf.Lerp(1.04f,vault.y-1.36f,band/4f);
+                    Vector3 foot=frame.Point(x,y);
+                    Vector3 tip=foot+Vector3.up*.37f+frame.Forward*.36f;
+                    Vector3 wing=frame.Right*.34f;
+                    Color step=WorldMesh.Shade(hue,.72f+band*.07f);
+                    RuinBar(guide,Vector3.Lerp(previous,foot,.16f),Vector3.Lerp(previous,foot,.83f),
+                        .042f,.042f,WorldMesh.Shade(step,.61f));
+                    RuinBar(guide,foot-wing,tip,.085f,.068f,step);
+                    RuinBar(guide,tip,foot+wing,.085f,.068f,step);
+                    previous=foot;
                 }
             }
-            var renderer=RuinPiece(upper ? "Rise toward the vault" : "Descend through the floor",
-                inlay.Finish("Shaft approach marks"),glow,parent).GetComponent<MeshRenderer>();
-            Light(renderer,Color.white,.80f);
+            var renderer=RuinPiece("Blue-violet vault approach",guide.Finish("Climbing lights"),glow,parent)
+                .GetComponent<MeshRenderer>();
+            Light(renderer,Color.white,1.12f);
         }
 
         private RuinConnectorView BuildRuinConnector(Transform parent,RuinTrackConnection path,RuinDirection direction,

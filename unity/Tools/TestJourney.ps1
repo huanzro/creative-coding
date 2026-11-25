@@ -187,7 +187,7 @@ Assert ($game.RuinDiscipline -eq 0 -and $game.RuinDisciplinesSeen -eq 1) 'The en
 $galleryOrder = @{}
 $galleryOrder[0] = 0
 foreach ($nextRoom in 1,11,12,3,13,14,5,8,10) {
-    $through = $game.RuinPortals | Where-Object TargetRoom -eq $nextRoom
+    $through = $game.RuinPortals | Where-Object TargetRoom -eq $nextRoom | Select-Object -First 1
     FollowRuin $game $through -AllowWall
     if ($game.Phase -eq 'RuinRetry') { break }
     Assert ($game.RuinRoomId -eq $nextRoom) 'The branch opens its own tunnel.'
@@ -556,6 +556,27 @@ $rightRoute.Step(.02, 0)
 Assert ($rightRoute.Progress -gt 0 -and $rightRoute.Progress -lt .005) 'A stationary turn eases into movement.'
 CrossRuin $rightRoute 0
 
+foreach ($direction in 'Left','Right') {
+    $airborne = [Echoes.Journey]::new(92)
+    $airborne.SelectChapter(1)
+    $sideGate = $airborne.RuinPortals | Where-Object Direction -eq $direction | Select-Object -First 1
+    FlyRuin $airborne ($sideGate.Depth - .82) 0 0
+    Pose $airborne Fist .21 0
+    $airborne.Flight.Reset(1.42, [Echoes.Journey]::RuinHeightLimit)
+    $airborne.Step(.02, .12)
+    Assert ($airborne.Phase -eq 'RuinExplore') 'A high actor needs the matching held input to enter a side mouth.'
+    $turnLeft = $direction -eq 'Left'
+    if ($turnLeft) { $airborne.SetHand([Echoes.Hand]::Open) }
+    $airborne.SetRuinSteering($turnLeft, !$turnLeft)
+    $airborne.Step(.02, .12)
+    $airborne.SetRuinSteering($false, $false)
+    Assert ($airborne.Phase -eq 'RuinTransfer' -and $airborne.RuinEntrance -eq $sideGate -and
+        $airborne.RuinPassageStartAltitude -gt 1.2 -and
+        $(if ($turnLeft) { $airborne.RuinPassageStartVerticalSpeed -gt .20 } else { $airborne.RuinPassageStartVerticalSpeed -lt -.01 })) 'A held side input captures from high flight and keeps the direction of the vertical momentum.'
+    CrossRuin $airborne
+    Assert ($airborne.RuinRoomId -eq $sideGate.TargetRoom) 'The airborne side passage reaches the matching room.'
+}
+
 $visit = [Echoes.Journey]::new(92)
 $visit.SelectChapter(1)
 foreach ($destination in 2,12,2) {
@@ -565,7 +586,7 @@ Assert ($visit.RuinRoomId -eq 2 -and $visit.RuinDiscipline -eq 1 -and $visit.Rui
 
 $ceilingRoute=[Echoes.Journey]::new(92)
 $ceilingRoute.SelectChapter(1)
-$top = $ceilingRoute.RuinPortals | Where-Object Direction -eq Upper
+$top = $ceilingRoute.RuinPortals | Where-Object { $_.Direction -eq 'Upper' -and $_.TargetRoom -eq 3 } | Select-Object -First 1
 FlyRuin $ceilingRoute ($top.Depth - 2.5) 0 0
 Pose $ceilingRoute Fist .22 0
 Assert ($ceilingRoute.Phase -eq 'RuinExplore') 'A fist while near the upper passage does not select it.'
@@ -578,6 +599,17 @@ Assert ($ceilingRoute.Phase -eq 'RuinTransfer' -and $ceilingRoute.RuinEntrance -
     $ceilingRoute.RuinPassageStartAltitude -ge .45) 'Real hand releases enter the upper passage automatically without pressing B.'
 CrossRuin $ceilingRoute
 Assert ($ceilingRoute.RuinLayer -eq 1) 'A ceiling branch leads to an independent upper floor.'
+
+$earlyUpper = [Echoes.Journey]::new(92)
+$earlyUpper.SelectChapter(1)
+$earlyGate = $earlyUpper.RuinPortals | Where-Object Id -eq 80
+Assert ($earlyGate -and $earlyGate.Direction -eq 'Upper' -and $earlyGate.Depth -lt 9 -and !$earlyGate.Hidden) 'The first hall has a visible upper route before the main junctions.'
+FlyRuin $earlyUpper ($earlyGate.Depth - 1.75) 0 0
+Pose $earlyUpper Fist .21 0
+Pose $earlyUpper Open 1.18 0
+Assert ($earlyUpper.Phase -eq 'RuinTransfer' -and $earlyUpper.RuinEntrance -eq $earlyGate) 'A natural hand release enters the new early upper route.'
+CrossRuin $earlyUpper
+Assert ($earlyUpper.RuinRoomId -eq 8 -and $earlyUpper.RuinLayer -eq 2) 'The new early upper route reaches an independent higher floor.'
 
 $floorRoute = [Echoes.Journey]::new(92)
 $floorRoute.SelectChapter(1)
@@ -654,7 +686,7 @@ for ($room=0; $room -lt 16; $room++) {
     }
 }
 Assert (($kinds.Values | Measure-Object -Sum).Sum -eq 112) 'Seven side caches in each of 16 galleries yield 112 loose finds.'
-Assert ($directions.Count -eq 4 -and $depths.Count -eq 7 -and $styles.Count -eq 10) 'The atlas has four voluntary entry directions, seven elevations and ten distinct chests.'
+Assert ($directions.Count -eq 4 -and $depths.Count -eq 7 -and $styles.Count -eq [Echoes.Journey]::RuinChestCount) 'The atlas has four voluntary entry directions, seven elevations and sixteen distinct chests.'
 Assert ($kinds.Phone -gt $kinds.Heart -and $kinds.Phone -gt $kinds.Brain -and $kinds.Computer -gt $kinds.Heart -and $kinds.Computer -gt $kinds.Brain) 'Both technological finds individually appear more frequently.'
 foreach ($start in 0..15) {
     $reached = [System.Collections.Generic.HashSet[int]]::new()
@@ -676,11 +708,11 @@ FlyRuin $atlas $chest.Depth $chest.Altitude $chest.Lane
 Step $atlas .28 0
 Assert ($atlas.RuinCanTake -and !$atlas.RuinLootOpen -and $atlas.RuinChests -eq 0) 'Stopping next to a chest leaves it closed until the player chooses.'
 [void]$atlas.Touch(1)
-Assert ($atlas.RuinLootSource -eq $chest -and $atlas.RuinChests -eq 1) 'B still opens the ten-style chest and its choice panel.'
+Assert ($atlas.RuinLootSource -eq $chest -and $atlas.RuinChests -eq 1) 'B opens the chest and its choice panel.'
 
 $atlasSave.ruinFinds = -1
 $atlasSave.ruinRoom = 15
-Assert ($atlas.Restore($atlasSave) -and $atlas.RuinInventory -eq 15 -and $atlas.RuinChests -eq 10) 'Restoring a crowded inventory still caps artifacts at 15, independently of the chests.'
+Assert ($atlas.Restore($atlasSave) -and $atlas.RuinInventory -eq 15 -and $atlas.RuinChests -eq [Echoes.Journey]::RuinChestCount) 'Restoring a crowded inventory still caps artifacts at 15, independently of the chests.'
 $overflow = $atlas.RuinObjects | Where-Object { !$_.Collected -and $_.Kind -ne 'Chest' } | Select-Object -First 1
 FlyRuin $atlas $overflow.Depth $overflow.Altitude $overflow.Lane
 Step $atlas .28 0

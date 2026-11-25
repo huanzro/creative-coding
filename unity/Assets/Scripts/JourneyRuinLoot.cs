@@ -26,10 +26,7 @@ namespace Echoes
     public sealed partial class Journey
     {
         private const int SlotsPerRuinChest = 4;
-        private static readonly string[] PhoneNames = {
-            "星轨折屏手机", "珐琅旋盖手机", "棱镜透明手机", "金檐滑盖手机", "青金护框手机",
-            "螺纹旋屏手机", "飞轮三镜手机", "双页墨屏手机", "花瓣折叠手机", "流砂触屏手机"
-        };
+        public const int RuinChestCount = RuinAtlas.RoomCount;
         private static readonly string[] ComputerNames = {
             "星图薄型电脑", "雕刻掌上电脑", "晶棱投影电脑", "赤铜三轴电脑", "雪石双屏电脑",
             "螺旋铰链电脑", "飞轮键盘电脑", "双页书脊电脑", "莲纹便携电脑", "沙漏支架电脑"
@@ -87,10 +84,11 @@ namespace Echoes
         private RuinLootChoice RuinChestDevice(RuinObject chest, int slot)
         {
             uint seed = RuinLootSeed(chest.ChestStyle * SlotsPerRuinChest + 25 + slot);
-            var kind = (seed & 1u) != 0 ? RuinObjectKind.Phone : RuinObjectKind.Computer;
-            int variant = (chest.ChestStyle + slot * 3) % PhoneNames.Length;
+            bool welcomePhone = chest.ChestStyle == RuinAtlas.WelcomeChestStyle && slot == 0;
+            var kind = welcomePhone || (seed & 1u) != 0 ? RuinObjectKind.Phone : RuinObjectKind.Computer;
+            int variant = (chest.ChestStyle + slot * 3) % ComputerNames.Length;
             return new RuinLootChoice(RuinLootAction.Take, kind, slot, variant,
-                kind == RuinObjectKind.Phone ? PhoneNames[variant] : ComputerNames[variant]);
+                kind == RuinObjectKind.Phone ? RuinPhoneName : ComputerNames[variant]);
         }
 
         private static ulong RuinDeviceBit(RuinObject chest, int slot) => 1UL << (chest.ChestStyle * SlotsPerRuinChest + slot);
@@ -153,8 +151,8 @@ namespace Echoes
                     if ((ruinChestLootTaken & RuinDeviceBit(source, slot)) == 0)
                         ruinLootDevices.Add(RuinChestDevice(source, slot));
             }
-            else ruinLootDevices.Add(new RuinLootChoice(RuinLootAction.Take, source.Kind, 0, source.Id % PhoneNames.Length,
-                "拾取" + RuinObjectLabels[(int)source.Kind]));
+            else ruinLootDevices.Add(new RuinLootChoice(RuinLootAction.Take, source.Kind, 0, source.Id % ComputerNames.Length,
+                RuinObjectLabels[(int)source.Kind]));
 
             ruinLootChoices.AddRange(ruinLootDevices);
             ruinLootChoices.Add(new RuinLootChoice(RuinLootAction.Leave, RuinObjectKind.Chest, -1, 0,

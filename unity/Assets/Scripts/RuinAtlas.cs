@@ -88,8 +88,10 @@ namespace Echoes
         internal const int RoomCount = 16;
         internal const int PassageSlots = 5;
         internal const int ObjectSlots = 4;
+        internal const int WelcomeChestStyle = 10;
         private const int ExtraFindsPerRoom = 4;
         private const int FirstExtraFind = RoomCount * ObjectSlots;
+        private const int FirstNewVault = RoomCount * PassageSlots;
         internal const int ExitRoom = 9;
 
         private static readonly RuinObjectKind[] AdditionalFinds =
@@ -99,12 +101,12 @@ namespace Echoes
         private static readonly float[] AdditionalFindFractions = { .109f, .335f, .560f, .825f };
         private static readonly (string name, int layer, int style, int length, int chest)[] Rooms =
         {
-            ("文明长廊", 0, 0, 48, -1), ("铭文断层", 0, 2, 40, 0),
-            ("机械年轮", 0, 4, 44, -1), ("穹顶档案", 1, 1, 46, 1),
-            ("镜像回廊", 0, 3, 50, -1), ("回声索引", -1, 2, 43, 2),
-            ("沉底书库", -2, 4, 42, -1), ("计算回廊", -1, 1, 49, 3),
-            ("天窗交汇", 2, 3, 45, 4), ("往日边缘", -2, 0, 51, -1),
-            ("自我碑阵", 3, 1, 40, -1), ("琥珀夹层", -1, 5, 27, 5),
+            ("文明长廊", 0, 0, 48, WelcomeChestStyle), ("铭文断层", 0, 2, 40, 0),
+            ("机械年轮", 0, 4, 44, 11), ("穹顶档案", 1, 1, 46, 1),
+            ("镜像回廊", 0, 3, 50, 12), ("回声索引", -1, 2, 43, 2),
+            ("沉底书库", -2, 4, 42, 13), ("计算回廊", -1, 1, 49, 3),
+            ("天窗交汇", 2, 3, 45, 4), ("往日边缘", -2, 0, 51, 14),
+            ("自我碑阵", 3, 1, 40, 15), ("琥珀夹层", -1, 5, 27, 5),
             ("静音工坊", 0, 5, 30, 6), ("逆读藏室", -1, 5, 29, 7),
             ("沉钟暗室", -3, 5, 31, 8), ("未归档之处", -3, 5, 32, 9)
         };
@@ -141,6 +143,13 @@ namespace Echoes
             RuinDirection.Lower, RuinDirection.Right, RuinDirection.Right, RuinDirection.Left
         };
 
+        // New vaults reach a physically higher gallery. Keep the former portal IDs and
+        // the original shuffle stream, since both gate progress and loot depend on them.
+        private static readonly int[] LiftDestinations =
+        {
+            8, 3, 8, 8, -1, 1, -1, -1, -1, 4, -1, 0, -1, 10, -1, 7
+        };
+
         internal static RuinRoom[] Build(int seed)
         {
             var random = new Random(seed);
@@ -158,12 +167,13 @@ namespace Echoes
                     connections[i] = connections[j];
                     connections[j] = swap;
                 }
-                var portals = new RuinPortal[connections.Length];
-                for (int slot = 0; slot < portals.Length; slot++)
+                int lift = LiftDestinations[roomId];
+                var portals = new RuinPortal[connections.Length + (lift >= 0 ? 1 : 0)];
+                for (int slot = 0; slot < connections.Length; slot++)
                 {
                     var (dir, gate, hidden, destination) = connections[slot];
                     bool end = dir == RuinDirection.Forward;
-                    float depth = end ? room.length : 13 + (room.length - 19) * slot / (float)(portals.Length - 1) + Offset(random, .85f);
+                    float depth = end ? room.length : 13 + (room.length - 19) * slot / (float)(connections.Length - 1) + Offset(random, .85f);
                     float height = dir == RuinDirection.Upper ? 1.23f + Offset(random, .07f) :
                         dir == RuinDirection.Lower ? .045f :
                         dir == RuinDirection.Exit ? .19f :
@@ -185,8 +195,12 @@ namespace Echoes
                     portals[slot] = new RuinPortal(id, depth, height, lane, dir, gate, hidden,
                         destination, (roomId * 7 + slot * 3 + (seed & 7)) % 10);
                 }
-                int originalCount = room.chest < 0 ? 3 : 4;
-                var objects = new RuinObject[originalCount + ExtraFindsPerRoom];
+                if (lift >= 0)
+                {
+                    portals[connections.Length] = new RuinPortal(FirstNewVault + roomId, 7.25f, .97f, 0,
+                        RuinDirection.Upper, RuinGate.Open, false, lift, (roomId * 3 + (seed & 7) + 4) % 10);
+                }
+                var objects = new RuinObject[ObjectSlots + ExtraFindsPerRoom];
                 int lastSide = 0;
                 for (int i = 0; i < 3; i++)
                 {
@@ -204,15 +218,20 @@ namespace Echoes
                     float shelf = Math.Max(.16f, Math.Min(.42f, .12f + height * .28f));
                     objects[i] = new RuinObject(roomId * ObjectSlots + i, stop, shelf, side, kind, -1);
                 }
-                if (room.chest >= 0)
+                float chestDepth = room.chest == WelcomeChestStyle ? 4.60f : room.length * .48f;
+                int chestLane = room.chest == WelcomeChestStyle ? 0 : roomId % 4 == 0 ? -1 : 1;
+                if (room.chest < WelcomeChestStyle)
                 {
-                    float stop = room.length * .72f + Offset(random, 1);
-                    float shelf = room.style == 5 ? .06f : .32f + (float)random.NextDouble() * .70f;
-                    int side = room.style == 5 ? 0 : random.Next(-1, 2);
-                    stop = KeepRuinChestReachable(stop, side, room.length, portals);
-                    objects[3] = new RuinObject(roomId * ObjectSlots + 3, stop, shelf, side, RuinObjectKind.Chest, room.chest);
+                    // Retain the ten original random draws so older seeds keep their devices and room layout.
+                    chestDepth = room.length * .72f + Offset(random, 1);
+                    if (room.style != 5) random.NextDouble();
+                    chestLane = room.style == 5 ? 0 : random.Next(-1, 2);
                 }
-                PlaceRuinCaches(seed, roomId, room.length, portals, objects, originalCount);
+                chestDepth = KeepRuinChestReachable(chestDepth, chestLane, room.length, portals);
+                float chestHeight = chestLane == 0 ? .04f : .10f;
+                objects[3] = new RuinObject(roomId * ObjectSlots + 3, chestDepth, chestHeight, chestLane,
+                    RuinObjectKind.Chest, room.chest);
+                PlaceRuinCaches(seed, roomId, room.length, portals, objects);
                 atlas[roomId] = new RuinRoom(room.name, room.layer, room.style, room.length, portals, objects);
             }
             return atlas;
@@ -255,7 +274,7 @@ namespace Echoes
         }
 
         private static void PlaceRuinCaches(int seed, int room, float length,
-            RuinPortal[] portals, RuinObject[] objects, int originalCount)
+            RuinPortal[] portals, RuinObject[] objects)
         {
             for (int i = 0; i < 3; i++)
             {
@@ -269,7 +288,7 @@ namespace Echoes
             int firstSide = -objects[0].Lane;
             for (int i = 0; i < ExtraFindsPerRoom; i++)
             {
-                int slot = originalCount + i;
+                int slot = ObjectSlots + i;
                 int side = (i & 1) == 0 ? firstSide : -firstSide;
                 float anchor = length * AdditionalFindFractions[i] + Offset(extraRandom, .82f);
                 float stop = FindRuinCacheDepth(anchor, length, side, portals, objects, slot);
