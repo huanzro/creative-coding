@@ -41,6 +41,13 @@ namespace Echoes
     }
 
     [Serializable]
+    public struct RuinFindView
+    {
+        public RuinObjectKind kind;
+        public float lane, height, depth, visibility;
+    }
+
+    [Serializable]
     public struct SpiritFrame
     {
         public int chapter, touch, cast, lesson;
@@ -56,6 +63,9 @@ namespace Echoes
         public float forestEventAge, forestFall, forestDoorAge;
         public float forestContactLane, forestContactDepth, forestContactHeight;
         public ForestFlyView[] forestFlies;
+        public bool ruins;
+        public float ruinLane, ruinSteering, ruinHeartAge, ruinTransfer, ruinUnlock;
+        public RuinFindView[] ruinFinds;
         public bool closed;
 
         public static SpiritFrame Read(Journey journey, int cast = 0) => new SpiritFrame {
@@ -83,10 +93,34 @@ namespace Echoes
             forestContactDepth = journey.ForestContactDepth - journey.Distance,
             forestContactHeight = journey.ForestContactAltitude - journey.Flight.Height,
             forestFlies = NearbyFlies(journey),
+            ruins = journey.InRuins,
+            ruinLane = journey.RuinLane, ruinSteering = journey.RuinSteering,
+            ruinHeartAge = journey.RuinHeartAge,
+            ruinTransfer = journey.Phase == Stage.RuinTransfer ? journey.Progress : -1,
+            ruinUnlock = journey.RuinGateCharge,
+            ruinFinds = NearbyRuinFinds(journey),
             releaseAge = Age(journey.PoseTime, journey.LastRelease, 2.2f),
             turnAge = Age(journey.PoseTime, journey.LastSpin, 1.35f),
             touchAge = Age(journey.PoseTime, journey.LastTouch, .95f)
         };
+
+        private static RuinFindView[] NearbyRuinFinds(Journey journey)
+        {
+            if (!journey.InRuins || journey.Phase == Stage.RuinTransfer) return null;
+            List<RuinFindView> nearby = null;
+            foreach (RuinObject item in journey.RuinObjects)
+            {
+                if (item.Collected || item.Reveal <= .025f) continue;
+                float depth = item.Depth - journey.Distance;
+                float lane = item.Lane - journey.RuinLane;
+                float height = item.Altitude - journey.Flight.Height;
+                float visible = item.Reveal * ForestFlyView.Approach(depth, lane, height, 5.2f);
+                if (visible <= .025f) continue;
+                if (nearby == null) nearby = new List<RuinFindView>(3);
+                nearby.Add(new RuinFindView { kind = item.Kind, lane = lane, height = height, depth = depth, visibility = visible });
+            }
+            return nearby?.ToArray();
+        }
 
         private static ForestFlyView[] NearbyFlies(Journey journey)
         {

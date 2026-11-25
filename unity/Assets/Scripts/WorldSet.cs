@@ -365,6 +365,7 @@ namespace Echoes
 
         public void Dispose()
         {
+            DisposeRuinTunnel();
             DisposeMachine();
             DisposeMaze();
             UnityEngine.Object.Destroy(root);

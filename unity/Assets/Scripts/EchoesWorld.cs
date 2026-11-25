@@ -12,7 +12,7 @@ namespace Echoes
         private readonly CommandBuffer performer;
         private readonly RenderTexture scene, graded;
         private readonly Material lens;
-        private int lastWorld = -1;
+        private int lastWorld = -1, lastRuinRoom = -1;
         private Stage lastPhase;
         private int lastCloseShot;
         private bool lastOpening, rendered;
@@ -92,7 +92,10 @@ namespace Echoes
             if (set==null) return;
             bool opening=frame.openingTime>=0;
             bool forest=!opening && journey.InForest;
+            bool ruins=!opening && journey.InRuins;
             Vector3 forestActor=forest ? ForestActor(journey,frame) : Vector3.zero;
+            Vector3 ruinActor=ruins ? RuinActor(journey,frame) : Vector3.zero;
+            Vector3 spatialActor=forest ? forestActor : ruinActor;
             float dt=Mathf.Min(.04f,UnityEngine.Time.unscaledDeltaTime);
             if (opening)
             {
@@ -104,13 +107,15 @@ namespace Echoes
             {
                 Vector3 wanted,focus;
                 if (forest) ForestShot(journey,frame,forestActor,out wanted,out focus);
+                else if (ruins) RuinShot(journey,ruinActor,out wanted,out focus);
                 else PlayCamera(journey,frame,speed,out wanted,out focus);
                 int closeShot = !forest ? 0 : journey.Phase==Stage.ForestDoor && journey.Progress>=.47f ? 1 :
                     journey.ForestTrap==ForestTrapKind.Cable && journey.Progress>=.59f ? 2 : 0;
                 bool cut=lastWorld!=journey.World || (lastOpening && !journey.EnteredFromOpening) ||
                     (!lastOpening && frame.time < lastTravelTime) ||
                     (forest && !lastOpening && Mathf.Abs(journey.Distance-lastDistance)>7.5f) ||
-                    (lastPhase==Stage.ForestDoor && journey.Phase!=Stage.ForestDoor);
+                    (lastPhase==Stage.ForestDoor && journey.Phase!=Stage.ForestDoor) ||
+                    (ruins && (lastRuinRoom!=journey.RuinRoomId || lastPhase==Stage.RuinTransfer && journey.Phase==Stage.Complete));
                 bool matchCut=closeShot!=0 && closeShot!=lastCloseShot;
                 lastCloseShot=closeShot;
                 if (cut)
@@ -121,17 +126,20 @@ namespace Echoes
                 }
                 else
                 {
-                    float track=!forest ? .48f : journey.Phase==Stage.ForestDoor || journey.ForestTrap==ForestTrapKind.Cable ? .082f : .17f;
+                    float track=ruins ? .16f : !forest ? .48f :
+                        journey.Phase==Stage.ForestDoor || journey.ForestTrap==ForestTrapKind.Cable ? .082f : .17f;
                     position=matchCut ? wanted : Vector3.SmoothDamp(position,wanted,ref velocity,track,90,dt);
                     sight=matchCut ? focus : Vector3.SmoothDamp(sight,focus,ref sightVelocity,track,90,dt);
                     if(matchCut) velocity=sightVelocity=Vector3.zero;
                 }
-                camera.fieldOfView=Mathf.Lerp(camera.fieldOfView,49-3*frame.voice,dt*4);
+                float fov=ruins ? 55-3*frame.voice : 49-3*frame.voice;
+                camera.fieldOfView=Mathf.Lerp(camera.fieldOfView,fov,dt*4);
             }
             sectionAge+=dt;
             lastWorld=journey.World;
             lastOpening=opening;
             lastPhase=journey.Phase;
+            lastRuinRoom=ruins ? journey.RuinRoomId : -1;
             lastTravelTime=frame.time;
             lastDistance=journey.Distance;
             camera.transform.SetPositionAndRotation(position,Quaternion.LookRotation(sight-position));
@@ -143,26 +151,28 @@ namespace Echoes
             set.DrawMaze(journey,forest,time);
             set.DrawMachine(journey,forest,time,forestActor);
             set.ForestScenery(journey,forest,time,forestActor,frame.glide,split);
+            set.DrawRuinTunnel(journey,ruins,time);
             Vector3 shotActor = opening ? OpeningStoryboard.Sample(time).Actor :
                 new Vector3(.5f,SpiritFlight.ScreenY(frame.altitude),1);
             Vector2 screen = new Vector2(shotActor.x,shotActor.y);
             float body=162*shotActor.z;
-            Vector3 viewport=forest ? camera.WorldToViewportPoint(forestActor) : Vector3.zero;
-            float depth=forest ? Mathf.Max(.2f,viewport.z) : ActorDepth(screen,body,journey,opening);
-            if(forest)
+            bool spatial=forest || ruins;
+            Vector3 viewport=spatial ? camera.WorldToViewportPoint(spatialActor) : Vector3.zero;
+            float depth=spatial ? Mathf.Max(.2f,viewport.z) : ActorDepth(screen,body,journey,opening);
+            if(spatial)
             {
                 screen=new Vector2(viewport.x,1-viewport.y);
-                float modelScale=.41f;
-                if (journey.Phase == Stage.ForestDoor && journey.ForestDoor == 0)
+                float modelScale=ruins ? .43f : .41f;
+                if (forest && journey.Phase == Stage.ForestDoor && journey.ForestDoor == 0)
                     modelScale *= Mathf.Lerp(1,.08f,OpeningStoryboard.Ease(.62f,.86f,journey.Progress));
                 body=modelScale*720*(5.6f*Mathf.Tan(15.25f*Mathf.Deg2Rad))/
                     (SpiritRig.HeightScale*depth*Mathf.Tan(camera.fieldOfView*.5f*Mathf.Deg2Rad));
             }
             ActorScreen=screen;
             ActorBody=body;
-            Vector3 actorAt=forest ? forestActor : camera.ViewportToWorldPoint(new Vector3(screen.x,1-screen.y,depth));
+            Vector3 actorAt=spatial ? spatialActor : camera.ViewportToWorldPoint(new Vector3(screen.x,1-screen.y,depth));
             float floor=forest ? WorldSet.ForestPoint(journey,frame.forestLane,journey.Distance,0).y-.54f :
-                position.y<-.8f ? WorldSet.CaveFloor : WorldSet.Ground(actorAt.x,actorAt.z);
+                ruins ? WorldSet.RuinY : position.y<-.8f ? WorldSet.CaveFloor : WorldSet.Ground(actorAt.x,actorAt.z);
             float weight=Mathf.Clamp01(1-(actorAt.y-floor-.72f)*.76f);
             Shader.SetGlobalVector(Footfall,new Vector4(actorAt.x,floor,actorAt.z,weight*(split?.25f:.58f)));
             if (opening)
@@ -177,7 +187,7 @@ namespace Echoes
             else set.Flies(Vector3.zero,0,Vector3.zero,0,time);
 
             performer.Clear();
-            if (!split) spirit.DrawInWorld(camera,screen,body,depth,key,performer,forest);
+            if (!split) spirit.DrawInWorld(camera,screen,body,depth,key,performer,spatial);
 
             camera.Render();
             if (lens!=null)
@@ -187,12 +197,44 @@ namespace Echoes
                     fade=Mathf.Lerp(fade,.07f,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.76f,1,journey.Progress)));
                 if (forest && (journey.Phase==Stage.ForestFalling || journey.Phase==Stage.ForestDoor))
                     fade *= 1-.93f*OpeningStoryboard.Ease(.79f,1,journey.Progress);
+                if (ruins && journey.Phase==Stage.RuinTransfer)
+                    fade *= 1-.94f*OpeningStoryboard.Ease(.60f,1,journey.Progress);
                 lens.SetVector("_Lens",new Vector4(fade,opening?1:.25f,0,0));
                 RenderTexture before=RenderTexture.active;
                 Graphics.Blit(scene,graded,lens);
                 RenderTexture.active=before;
             }
             rendered=scene.IsCreated();
+        }
+
+        private static Vector3 RuinActor(Journey journey,SpiritFrame frame)
+        {
+            Vector3 actor=WorldSet.RuinPoint(journey.RuinLane,journey.Distance,frame.altitude);
+            RuinPortal portal=journey.RuinEntrance;
+            if (journey.Phase==Stage.Complete && portal!=null && portal.Direction==RuinDirection.Exit)
+                return WorldSet.RuinPoint(portal.Lane*.48f,portal.Depth+6.55f,.21f);
+            if (journey.Phase!=Stage.RuinTransfer || portal==null) return actor;
+            float t=journey.Progress;
+            Vector3 mouth=WorldSet.RuinPoint(portal.Lane,portal.Depth,portal.Altitude);
+            float move=OpeningStoryboard.Ease(0,.56f,t);
+            float cross=OpeningStoryboard.Ease(.35f,1,t);
+            Vector3 passage=new Vector3(portal.Direction==RuinDirection.Left ? -.68f : portal.Direction==RuinDirection.Right ? .68f : 0,
+                portal.Direction==RuinDirection.Upper ? 1.01f : portal.Direction==RuinDirection.Lower ? -.74f : 0,3.13f);
+            return Vector3.Lerp(actor,mouth,move)+passage*cross;
+        }
+
+        private static void RuinShot(Journey journey,Vector3 actor,out Vector3 at,out Vector3 focus)
+        {
+            bool transfer=journey.Phase==Stage.RuinTransfer;
+            float cameraY=Mathf.Min(actor.y+1.50f,WorldSet.RuinY+6.56f);
+            float elevation=Mathf.Lerp(WorldSet.RuinY+1.65f,actor.y*.68f+(WorldSet.RuinY+1.9f)*.32f,.70f);
+            at=new Vector3(actor.x*.91f-.16f,cameraY,actor.z-4.9f);
+            focus=new Vector3(actor.x*.70f,elevation,actor.z+9.6f);
+            if (!transfer) return;
+            float approach=OpeningStoryboard.Ease(.12f,.80f,journey.Progress);
+            float chase=Mathf.Lerp(-4.9f,-2.25f,approach);
+            at=Vector3.Lerp(at,actor+new Vector3(.10f,.45f,chase),approach);
+            focus=Vector3.Lerp(focus,actor+new Vector3(0,.18f,2.2f),approach);
         }
 
         private static Vector3 ForestActor(Journey journey,SpiritFrame frame)
@@ -330,6 +372,16 @@ namespace Echoes
             }
             if (!opening && frame.closed) lit*= .77f;
             float mist=Mathf.Lerp(.032f,.049f,cave)-heaven*.025f;
+            if (!opening && journey.InRuins)
+            {
+                Color layerLight=WorldSet.RuinLight(journey.RuinRoomStyle);
+                air=Color.Lerp(new Color(.018f,.024f,.049f),layerLight,.106f);
+                dome=Color.Lerp(new Color(.012f,.011f,.030f),layerLight,.125f);
+                fill=Color.Lerp(new Color(.38f,.44f,.58f),layerLight,.23f);
+                key=new Vector3(-.37f,.58f,-.70f).normalized;
+                lit=.395f;
+                mist=journey.RuinRoomStyle==5 ? .023f : .032f;
+            }
             float red=opening?OpeningStoryboard.Contact(time,true):journey.FireflyResponse==FireflyKind.Scarlet?journey.FireflyPulse:0;
             float amber=opening?OpeningStoryboard.Contact(time,false):journey.Light*.38f;
             Vector3 pool=position+camera.transform.forward*4.76f;

@@ -189,7 +189,37 @@ namespace Echoes
                 pose.nod += 8*demonstrate-11*offer;
             }
             if (frame.forest) ActForest(ref pose, frame, closed, reachUp, glide, turn, spinBody);
+            else if (frame.ruins) ActRuins(ref pose, frame, closed, glide, turn);
             return pose;
+        }
+
+        private static void ActRuins(ref SpiritPose pose, SpiritFrame frame, float closed, float glide, float turn)
+        {
+            float steer = frame.ruinSteering;
+            float rest = 1 - Mathf.SmoothStep(0, 1, Mathf.InverseLerp(.016f, .16f, frame.altitude));
+            float openGate = Mathf.SmoothStep(0, 1, frame.ruinUnlock) * (1 - closed);
+            pose.yaw = 180 + (pose.yaw - 360 * Mathf.SmoothStep(0, 1, turn)) * .38f + 21 * steer;
+            pose.lean = pose.lean * (1 - .72f * rest) - steer * 14;
+            pose.lift *= 1 - .9f * rest;
+            pose.step = Mathf.Lerp(pose.step, Mathf.Sin(pose.time * 12) * Mathf.Abs(steer) * .39f, rest);
+            pose.look += 22 * steer;
+            pose.left = SpiritArm.Blend(pose.left, Rest, .80f * rest * (1 - closed));
+            pose.right = SpiritArm.Blend(pose.right, Wing, glide * .36f);
+            pose.right = SpiritArm.Blend(pose.right, Push, openGate);
+
+            if (frame.ruinHeartAge < 0) return;
+            float jolt = OpeningStoryboard.Window(frame.ruinHeartAge, 0, .085f, .17f, .55f);
+            float recover = OpeningStoryboard.Window(frame.ruinHeartAge, .23f, .52f, .64f, 1.38f);
+            pose.left = SpiritArm.Blend(pose.left, CoverHead, .82f * jolt);
+            pose.right = SpiritArm.Blend(pose.right, Brace, jolt);
+            pose.left = SpiritArm.Blend(pose.left, Hold, .81f * recover);
+            pose.pitch -= 21 * jolt;
+            pose.lean -= 16 * jolt;
+            pose.lift += .19f * jolt;
+            pose.tuck += .38f * jolt;
+            pose.nod += 12 * recover - 16 * jolt;
+            pose.expression += .9f * jolt;
+            pose.ribbon += .65f * jolt;
         }
 
         private static void ActForest(ref SpiritPose pose, SpiritFrame frame, float closed,

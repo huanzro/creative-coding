@@ -9,6 +9,7 @@ namespace Echoes
         private readonly AudioSource source, wind, machinery;
         private readonly AudioClip[] cues = new AudioClip[Enum.GetValues(typeof(JourneyCue)).Length];
         private readonly AudioClip[] machineScenes = new AudioClip[4];
+        private AudioClip forestMachineLoop, archiveLoop;
         private int heard;
         private int sceneStamp;
 
@@ -41,7 +42,7 @@ namespace Echoes
             heard=journey.CueId;
             int index=(int)journey.Cue;
             if(cues[index]==null) cues[index]=Compose(journey.Cue);
-            source.panStereo=journey.InForest ? journey.ForestLane * .42f :
+            source.panStereo=journey.InRuins ? journey.RuinLane * .31f : journey.InForest ? journey.ForestLane * .42f :
                 journey.Cue==JourneyCue.Observe?-.31f:journey.Cue==JourneyCue.Assist?.29f:0;
             source.PlayOneShot(cues[index]);
         }
@@ -50,12 +51,21 @@ namespace Echoes
         {
             float distance=journey.InForest && journey.Branch==ForestBranch.Right && !paused ? journey.Distance : 0;
             float target=OpeningStoryboard.Ease(117,163,distance)*.19f;
+            if (journey.InRuins && !paused)
+                target=(.10f + .028f * Math.Abs(journey.RuinLayer)) * (journey.Phase == Stage.RuinTransfer ? .66f : 1);
             if (journey.Phase==Stage.ForestTransition) target*=1-OpeningStoryboard.Ease(.59f,1,journey.Progress);
             machinery.volume=Mathf.MoveTowards(machinery.volume,target,Time.unscaledDeltaTime*.38f);
-            if (target>0 && !machinery.isPlaying)
+            if (target>0)
             {
-                if (machinery.clip==null) machinery.clip=ComposeMachineLoop();
-                machinery.Play();
+                AudioClip bed = journey.InRuins ? archiveLoop ?? (archiveLoop=ComposeArchiveLoop()) :
+                    forestMachineLoop ?? (forestMachineLoop=ComposeMachineLoop());
+                if (machinery.clip != bed)
+                {
+                    machinery.Stop();
+                    machinery.clip=bed;
+                }
+                if (!machinery.isPlaying) machinery.Play();
+                machinery.pitch = journey.InRuins ? 1 + .048f * journey.RuinLayer : 1;
             }
             if (target<=0 && machinery.volume<=0 && machinery.isPlaying) machinery.Stop();
             if (paused) return;
@@ -77,6 +87,20 @@ namespace Echoes
                 samples[i]=(float)((Tone(t,44)+.49*Tone(t,66)+.23*Tone(t,132))*(.105+.045*Tone(t,.5)));
             }
             return MachineClip("Buried machine",samples);
+        }
+
+        private static AudioClip ComposeArchiveLoop()
+        {
+            const int length = Rate * 8;
+            var samples = new float[length];
+            for (int index = 0; index < length; index++)
+            {
+                double t = index / (double)Rate;
+                double drift = .64 + .19 * Tone(t, .25) + .17 * Tone(t, .375);
+                samples[index] = (float)(drift * (.14 * Tone(t, 64) + .069 * Tone(t, 96) +
+                    .031 * Tone(t, 144.125) * Tone(t, 1.25) + .014 * Tone(t, 216) * Tone(t, .50)));
+            }
+            return MachineClip("Civilization archive", samples);
         }
 
         private static AudioClip ComposeMachineScene(int scene)
@@ -161,12 +185,14 @@ namespace Echoes
 
         private static AudioClip Compose(JourneyCue cue)
         {
+            if (cue == JourneyCue.RuinHeartbeat) return ComposeHeart();
             bool misread=cue==JourneyCue.Misread || cue==JourneyCue.ForestScarlet;
             bool gust=cue==JourneyCue.Gust || cue==JourneyCue.ForestCaptured;
-            double seconds=cue==JourneyCue.Seal?1.6:gust?.66:.64;
+            double seconds=cue==JourneyCue.Seal || cue==JourneyCue.RuinEscape ? 1.6 : gust?.66:.64;
             double pitch=cue==JourneyCue.Withdraw?329.6:cue==JourneyCue.Assist?392:cue==JourneyCue.Observe?659.25:
                 cue==JourneyCue.ForestAmber?783.99:cue==JourneyCue.ForestRescued?587.33:
-                cue==JourneyCue.Correct?493.88:misread?293.66:cue==JourneyCue.Gate?440:523.25;
+                cue==JourneyCue.RuinCollect?698.46:cue==JourneyCue.RuinDoor?369.99:cue==JourneyCue.RuinTravel?311.13:
+                cue==JourneyCue.RuinEscape?659.25:cue==JourneyCue.Correct?493.88:misread?293.66:cue==JourneyCue.Gate?440:523.25;
             var data=new float[(int)(seconds*Rate)];
             var random=new System.Random(38+(int)cue);
             double noise=0;
@@ -186,6 +212,25 @@ namespace Echoes
             return clip;
         }
 
+        private static AudioClip ComposeHeart()
+        {
+            var data = new float[Rate];
+            for (int i = 0; i < data.Length; i++)
+            {
+                double t = i / (double)Rate;
+                double impulse = HeartStroke(t - .024) + .67 * HeartStroke(t - .201);
+                data[i] = (float)impulse;
+            }
+            return MachineClip("First heart close-up", data);
+        }
+
+        private static double HeartStroke(double t)
+        {
+            if (t < 0) return 0;
+            return Math.Min(1, t * 130) * Math.Exp(-t * 26) *
+                (.42 * Tone(t, 61) + .105 * Tone(t, 131) + .062 * Tone(t, 282) * Math.Exp(-t * 27));
+        }
+
         private static double Tone(double t,double hz) => Math.Sin(t*hz*2*Math.PI);
 
         public void Dispose()
@@ -198,9 +243,10 @@ namespace Echoes
             }
             if(machinery!=null)
             {
-                if(machinery.clip!=null) UnityEngine.Object.Destroy(machinery.clip);
                 UnityEngine.Object.Destroy(machinery);
             }
+            if(forestMachineLoop!=null) UnityEngine.Object.Destroy(forestMachineLoop);
+            if(archiveLoop!=null) UnityEngine.Object.Destroy(archiveLoop);
             foreach(var clip in machineScenes)
                 if(clip!=null) UnityEngine.Object.Destroy(clip);
             foreach(var clip in cues)

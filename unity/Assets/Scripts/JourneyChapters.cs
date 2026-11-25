@@ -4,11 +4,9 @@ namespace Echoes
 {
     public sealed partial class Journey
     {
-        private static readonly float[] Reflections = { 1.03f, 1.53f, 1.12f };
         private static readonly float[] StarAltitudes = { .18f, .57f, .27f };
-        private int reflectionIndex;
-        private float echoDelay, echoTolerance, quietFor, starReadyAt;
-        private bool repairReady, usedSecondBeat, bridgeHelpUsed;
+        private float starReadyAt;
+        private bool bridgeHelpUsed;
         public int Plants { get; private set; }
         public int ForestRoute { get; private set; }
         public RuinPath RuinResult { get; private set; }
@@ -16,10 +14,10 @@ namespace Echoes
         public int StarBits { get; private set; }
         public int Withdrawals { get; private set; }
         public int Mistakes { get; private set; }
-        public int ReflectionIndex => reflectionIndex;
-        public bool FastEcho => echoTolerance < .35f;
-        public float Beat => Phase == Stage.RuinRelease ? echoDelay : Reflections[Math.Min(reflectionIndex, 2)];
-        public float TimingWindow => Phase == Stage.RuinRelease ? echoTolerance : .41f;
+        public int ReflectionIndex => 0;
+        public bool FastEcho => false;
+        public float Beat => 1.38f;
+        public float TimingWindow => .53f;
         public float CurrentStarHeight => StarAltitudes[Math.Min(StarCount, 2)];
         public bool RiskySuggestion => StarCount == 1 && (Mistakes & 2) == 0;
         public StarPath PathAt(int index) =>
@@ -29,19 +27,9 @@ namespace Echoes
         {
             gentleTime = loudTime = openTime = 0;
             bridgeHelpUsed = false;
-            reflectionIndex = 0;
-            repairReady = usedSecondBeat = false;
-            quietFor = 0;
-            echoDelay = 1.38f;
-            echoTolerance = .53f;
             if (Lesson >= 0) PracticePrompt();
             else if (Chapter == 0) StartForest();
-            else if (Chapter == 1)
-            {
-                if (RuinResult != RuinPath.Unfinished)
-                    Change(Stage.RuinCrossing, "门后的桥已对齐。");
-                else Change(Stage.RuinGather, "第一闸。握拳把光留住，直到门边的琥珀纹亮起。");
-            }
+            else if (Chapter == 1) StartRuins();
             else StartStar();
         }
 
@@ -99,184 +87,6 @@ namespace Echoes
                 Walk(dt, 1.2f);
                 Progress = Clamp(Age / 1.36f);
                 if (Progress >= 1) StartOpening();
-            }
-        }
-
-        private void RuinTouch(int option)
-        {
-            if (option == 0)
-            {
-                Observe();
-                switch (Phase)
-                {
-                    case Stage.RuinMisread:
-                        BeginRepair();
-                        break;
-                    case Stage.RuinSide:
-                        Message = "观察亮环的缺口。第二束比其他两束晚一拍，光线碰到缺口时张手。";
-                        break;
-                    case Stage.RuinRepair:
-                        Message = "你的动作是张手，系统记成了握拳。让它先听到安静，再握拳、张手纠正。";
-                        break;
-                    default:
-                        Message = "第一闸看手势和声音，第二闸看松手的节拍。B 可以借过当前这一步。";
-                        break;
-                }
-                return;
-            }
-            if (Phase == Stage.RuinCrossing || Phase == Stage.RuinSide ||
-                !Authorize("已显示系统建议。再按 B，只代过当前这一步。")) return;
-            Notify(JourneyCue.Assist);
-            switch (Phase)
-            {
-                case Stage.RuinGather:
-                case Stage.RuinVoice:
-                    BeginRelease(false);
-                    break;
-                case Stage.RuinRelease:
-                    BeginMisread();
-                    break;
-                case Stage.RuinMisread:
-                case Stage.RuinRepair:
-                    CrossRuin(RuinPath.Assisted);
-                    break;
-            }
-        }
-
-        private void BeginRelease(bool fast)
-        {
-            echoDelay = fast ? 1.03f : 1.40f;
-            echoTolerance = fast ? .29f : .53f;
-            usedSecondBeat = false;
-            Change(Stage.RuinRelease, fast
-                ? "第一闸通过。走窄窗，等第二闸的短回声落到标记，再张手。"
-                : "第一闸通过。等第二闸的光条走到标记，再张手。");
-        }
-
-        private void CheckRelease()
-        {
-            if (Math.Abs(Age - echoDelay) <= echoTolerance)
-            {
-                BeginMisread();
-                return;
-            }
-            MissRelease();
-        }
-
-        private void MissRelease()
-        {
-            if (!usedSecondBeat)
-            {
-                usedSecondBeat = true;
-                echoDelay = 1.45f;
-                echoTolerance = .66f;
-                Age = Progress = 0;
-                Message = "第一闸还亮着。第二闸给你一拍宽窗，重新握拳，在光条标记处张手。";
-                return;
-            }
-            Change(Stage.RuinRelease, "第二闸重新响起。握稳，等光到标记再松手。");
-        }
-
-        private void BeginMisread()
-        {
-            Change(Stage.RuinMisread, "你张开了手，门却记成握拳。A 回看并修正。再握稳会走进误读打开的回廊。");
-            Notify(JourneyCue.Misread);
-            Signal(FireflyKind.Scarlet);
-        }
-
-        private void BeginRepair()
-        {
-            quietFor = 0;
-            repairReady = false;
-            Change(Stage.RuinRepair, "青影是张手，红影是系统记下的握拳。先安静片刻，再握拳、张手重做。");
-            HintReady = true;
-        }
-
-        private void CheckReflection()
-        {
-            if (Math.Abs(Age - Beat) > .41f || Held < .32f)
-            {
-                Age = Progress = 0;
-                Message = "这一束尚未对齐，前面的光仍在。重新握拳，等光到缺口再张手。";
-                return;
-            }
-            reflectionIndex++;
-            Signal(FireflyKind.Amber);
-            if (reflectionIndex >= Reflections.Length) CrossRuin(RuinPath.Arcade);
-            else
-            {
-                Notify(JourneyCue.Gate);
-                Age = Progress = 0;
-                Message = reflectionIndex == 1 ? "第一束已进石槽。第二束会晚一拍。" : "还剩最后一束。它回到了较短的节拍。";
-            }
-        }
-
-        private void CrossRuin(RuinPath result)
-        {
-            RuinResult = result;
-            Notify(result == RuinPath.Assisted ? JourneyCue.Assist : JourneyCue.Correct);
-            Signal(FireflyKind.Amber);
-            Revision++;
-            Change(Stage.RuinCrossing, result == RuinPath.Arcade
-                ? "三束反光合在一起，回廊留下另一份记录。绕回主桥。"
-                : "门记下了这次选择。石板在脚下合拢，准备越桥。");
-        }
-
-        private void UpdateRuins(float dt)
-        {
-            switch (Phase)
-            {
-                case Stage.RuinGather:
-                    Progress = Clamp(Held / .55f);
-                    if (Progress >= 1)
-                        Change(Stage.RuinVoice, "握稳，等琥珀音窗亮起再发声。Z 走宽窗，X 走窄窗。");
-                    break;
-                case Stage.RuinVoice:
-                    Progress = Clamp(Age / 2.28f);
-                    if (Gesture != Hand.Fist || Age >= 2.28f)
-                        Change(Stage.RuinGather, "琥珀音窗合上了。握稳再等下一次，已经学会的动作会保留。");
-                    else if (Age >= .35f && Voice >= .14f && Voice <= .95f)
-                    {
-                        Notify(JourneyCue.Gate);
-                        BeginRelease(Voice >= .56f);
-                    }
-                    break;
-                case Stage.RuinRelease:
-                    Progress = Clamp(Age / (echoDelay + echoTolerance + .53f));
-                    if (Age > echoDelay + echoTolerance + .28f && Gesture == Hand.Fist) MissRelease();
-                    break;
-                case Stage.RuinMisread:
-                    Progress = Clamp(Held / .65f);
-                    if (Progress >= 1)
-                    {
-                        reflectionIndex = 0;
-                        Change(Stage.RuinSide, "旁门打开了。重新握拳，等第一束光到缺口再张手。");
-                        Held = Charge = 0;
-                        Walk(dt, 1);
-                    }
-                    break;
-                case Stage.RuinRepair:
-                    if (!repairReady)
-                    {
-                        quietFor = Voice <= .1f ? quietFor + dt : 0;
-                        Progress = Clamp(quietFor / .67f);
-                        if (Progress >= 1)
-                        {
-                            repairReady = true;
-                            Message = "静音已被系统听见。握拳半秒，张手纠正上一拍。";
-                        }
-                    }
-                    break;
-                case Stage.RuinSide:
-                    Progress = Clamp(Age / (Beat + TimingWindow + .48f));
-                    if (Age > Beat + TimingWindow + .48f) Age = 0;
-                    Walk(dt, .85f);
-                    break;
-                case Stage.RuinCrossing:
-                    Walk(dt, 3.25f);
-                    Progress = Clamp(Age / 4.4f);
-                    if (Progress >= 1) Complete();
-                    break;
             }
         }
 
