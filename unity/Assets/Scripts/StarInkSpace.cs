@@ -21,6 +21,7 @@ namespace Echoes
         public float time, depth;
         public StarInkMark[] marks;
         public bool pointing;
+        public int penMark = -1;
         public Vector3 cursor, hand;
         public Vector2 portraitHand;
     }
@@ -30,6 +31,7 @@ namespace Echoes
         public const float PerformerDepth = 5.8f, FieldOfView = 49f;
         public const float Aspect = 16f / 9;
         private const int MaxMarks = 24, MaxSamples = 300;
+        private const float FingerDeadband = .0013f;
         private readonly List<StarInkMark> marks = new List<StarInkMark>(MaxMarks);
         private StarInkFrame frame = new StarInkFrame();
         private StarInkMark pen;
@@ -66,14 +68,14 @@ namespace Echoes
             frame.pointing = input.Valid;
             if (!input.Valid)
             {
-                pen = null;
+                changed |= FinishStroke();
             }
             else
             {
                 Vector2 sample = new Vector2(input.X, input.Y);
                 float dt = Mathf.Clamp(frame.time - prevTime, 0, .09f);
                 if (pen != null && (sample - previousTip).sqrMagnitude > .33f * .33f)
-                    pen = null;
+                    changed |= FinishStroke();
                 if (pen == null)
                 {
                     filtered = sample;
@@ -85,15 +87,20 @@ namespace Echoes
                 }
                 else if (dt > 0)
                 {
-                    float rate = Mathf.Lerp(12, 27, Mathf.Clamp01((sample - filtered).magnitude * 5));
-                    filtered = Vector2.Lerp(filtered, sample, 1 - Mathf.Exp(-dt * rate));
+                    Vector2 delta = sample - filtered;
+                    float gap = delta.magnitude;
+                    if (gap > FingerDeadband)
+                    {
+                        float rate = Mathf.Lerp(20, 52, Mathf.Clamp01(gap * 16));
+                        float follow = (1 - Mathf.Exp(-dt * rate)) * (1 - FingerDeadband / gap);
+                        filtered += delta * follow;
+                    }
                     Vector3 point = PointInSky(filtered, frame.depth);
                     Vector3 last = pen.points[pen.points.Count - 1];
                     float distance = (point - last).sqrMagnitude;
                     if (distance >= .026f * .026f || distance > .006f * .006f && frame.time - penTime > .09f)
                     {
-                        if (pen.points.Count >= MaxSamples) pen.points.RemoveRange(0, 20);
-                        pen.points.Add(point);
+                        AppendPoint(pen.points, point);
                         penTime = frame.time;
                         changed = true;
                     }
@@ -112,7 +119,31 @@ namespace Echoes
                 RefreshMarks();
                 changed = true;
             }
+            frame.penMark = pen == null ? -1 : marks.IndexOf(pen);
             if (changed) Revision++;
+        }
+
+        private bool FinishStroke()
+        {
+            if (pen == null) return false;
+            var points = pen.points;
+            bool added = (frame.cursor - points[points.Count - 1]).sqrMagnitude > .0025f * .0025f;
+            if (added) AppendPoint(points, frame.cursor);
+            pen = null;
+            return added;
+        }
+
+        private static void AppendPoint(List<Vector3> points, Vector3 point)
+        {
+            if (points.Count == MaxSamples)
+            {
+                // Keep the start and recent detail when a long stroke uses its sample budget.
+                int early = MaxSamples / 2;
+                int kept = 0;
+                for (int i = 0; i < early; i += 2) points[kept++] = points[i];
+                points.RemoveRange(kept, early - kept);
+            }
+            points.Add(point);
         }
 
         private static Vector3 PointInSky(Vector2 screen, float depth)
@@ -342,7 +373,9 @@ namespace Echoes
                     StarInkMark mark = frame.marks[i];
                     var art = StarTrailArt.Find(mark.motif);
                     if (art != null) AddPattern(mark, art, frame, portrait, eye, halo, i == newest);
-                    else if (mark.points?.Count > 1) AddGesture(mark, frame.depth, portrait, eye, halo);
+                    else if (mark.points?.Count > 0)
+                        AddGesture(mark.points, frame.depth, portrait, eye, halo,
+                            frame.pointing && i == frame.penMark ? frame.cursor : (Vector3?)null);
                 }
             }
             if (frame.pointing)
@@ -411,28 +444,33 @@ namespace Echoes
             AddRibbon(screen, eye, halo * .70f, visible * .69f, art, 0);
         }
 
-        private void AddGesture(StarInkMark mark, float depth, StarInkSpace.PortraitProjection portrait, Vector3 eye, float halo)
+        private void AddGesture(List<Vector3> points, float depth, StarInkSpace.PortraitProjection portrait, Vector3 eye,
+            float halo, Vector3? cursor)
         {
             bool screen = portrait != null;
-            List<Vector3> points = mark.points;
+            Vector3 end = points[points.Count - 1];
+            bool live = cursor.HasValue && (cursor.Value - end).sqrMagnitude > .0005f * .0005f;
+            if (live) end = cursor.Value;
+            int count = points.Count + (live ? 1 : 0);
             int first = 0;
             while (first < points.Count && points[first].z < depth + .45f) first++;
-            if (first + 1 >= points.Count) return;
+            if (first + 1 >= count) return;
             samples.Clear();
             samples.Add(points[first]);
-            for (int i = first + 1; i < points.Count - 1; i++)
+            for (int i = first + 1; i < count - 1; i++)
             {
                 Vector3 control = points[i];
                 Vector3 a = (points[i - 1] + control) * .5f;
-                Vector3 b = (control + points[i + 1]) * .5f;
+                Vector3 next = i + 1 == count - 1 ? end : points[i + 1];
+                Vector3 b = (control + next) * .5f;
                 for (int j = 0; j <= 2; j++)
                 {
                     float t = j / 3f;
                     samples.Add(Vector3.Lerp(Vector3.Lerp(a, control, t), Vector3.Lerp(control, b, t), t));
                 }
-                if (i == points.Count - 2) samples.Add(b);
+                if (i == count - 2) samples.Add(b);
             }
-            samples.Add(points[points.Count - 1]);
+            samples.Add(end);
             if (screen)
                 for (int i = 0; i < samples.Count; i++) samples[i] = portrait.Gesture(samples[i], depth);
             AddRibbon(screen, eye, halo, .84f, null, 1);

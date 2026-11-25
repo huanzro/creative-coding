@@ -1,7 +1,7 @@
 /* Only the browser can grant device permissions. Unity owns the journey and
    sends render state back for the HTML controls and the second display. */
 import { GestureGate, handOpenness } from './browser/core.js';
-import { IndexTipTracker, withIndexTip } from './StreamingAssets/EchoesCamera/index-tip.mjs';
+import { HandFrameClock, IndexTipTracker, withIndexTip } from './StreamingAssets/EchoesCamera/index-tip.mjs';
 import { MicrophoneInput } from './browser/audio-input.js';
 import { VolumeEnvelope, volumeSettings } from './browser/volume-core.js';
 import { comfortCalibration } from './browser/interaction-controls.js';
@@ -17,6 +17,7 @@ const room = projectionId || [...crypto.getRandomValues(new Uint32Array(3))].joi
 const channel = 'BroadcastChannel' in window ? new BroadcastChannel('echoes-unity-' + room) : null;
 const gesture = new GestureGate();
 const indexTracker = new IndexTipTracker();
+const indexFrameClock = new HandFrameClock();
 const volume = new VolumeEnvelope();
 const source = new MicrophoneInput(stopAudio);
 const video = ui('input-video');
@@ -100,6 +101,7 @@ function stopCamera() {
   ui('calibrate-hand').disabled = true;
   gesture.reset();
   indexTracker.reset();
+  indexFrameClock.reset();
   send('BrowserHand', 'unknown');
   send('BrowserCameraReady', 0);
   text('camera', '开启摄像头');
@@ -113,7 +115,7 @@ async function toggleCamera() {
   try {
     if (!navigator.mediaDevices) throw new Error('请通过 HTTPS 或 localhost 打开。');
     const media = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }, audio: false
+      video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 }, facingMode: 'user' }, audio: false
     });
     if (generation !== cameraGeneration) { media.getTracks().forEach(track => track.stop()); return; }
     stream = media;
@@ -153,10 +155,11 @@ async function toggleCamera() {
 }
 
 function track(now) {
-  if (!stream || !detector || now - lastInference < 70) return;
-  lastInference = now;
+  const drawing = state?.chapter === 2;
+  if (!stream || !detector || (!drawing && now - lastInference < 70)) return;
   if (video.readyState < 2 || video.currentTime === lastVideoTime) {
-    if (now - lastHandFrame > 300) {
+    if (now - lastHandFrame > 300 && now - lastInference >= 100) {
+      lastInference = now;
       gesture.reset();
       indexTracker.reset();
       send('BrowserHand', 'unknown');
@@ -166,6 +169,8 @@ function track(now) {
   }
   lastVideoTime = video.currentTime;
   lastHandFrame = now;
+  if (drawing && !indexFrameClock.take(lastVideoTime * 1000)) return;
+  lastInference = now;
   try {
     const points = detector.detectForVideo(video, now).landmarks[0];
     const aspect = video.videoWidth / video.videoHeight;

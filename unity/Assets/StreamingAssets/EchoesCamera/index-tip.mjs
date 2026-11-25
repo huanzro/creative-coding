@@ -1,4 +1,18 @@
 const unit = value => Math.max(0, Math.min(1, value));
+export const handSampleInterval = 1000 / 30;
+
+export class HandFrameClock {
+  reset() { this.next = undefined; }
+
+  take(captureTime) {
+    if (!Number.isFinite(captureTime)) return false;
+    if (this.next === undefined) this.next = captureTime;
+    if (captureTime + 2 < this.next) return false;
+    // Keep the capture cadence when a single frame is a little early or late.
+    this.next = Math.max(this.next + handSampleInterval, captureTime + handSampleInterval * .5);
+    return true;
+  }
+}
 
 function finger(points, start, aspect) {
   const offsets = [0, 1, 2].map(i => {
@@ -16,9 +30,13 @@ function finger(points, start, aspect) {
   };
 }
 
+function hasLandmarks(points, aspect) {
+  return points?.length === 21 && Number.isFinite(aspect) && aspect > 0 &&
+    points.every(p => p && Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z));
+}
+
 export function indexTip(points, aspect, continuing = false) {
-  if (!points || points.length !== 21 || !Number.isFinite(aspect) || aspect <= 0 ||
-      points.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z))) return null;
+  if (!hasLandmarks(points, aspect)) return null;
   const index = finger(points, 5, aspect);
   if (index.hinge < (continuing ? .48 : .61) || index.tip < (continuing ? .40 : .51) ||
       index.reach < (continuing ? .82 : .87)) return null;
@@ -36,18 +54,43 @@ export function indexTip(points, aspect, continuing = false) {
   return { x: unit(1 - x), y: unit(y) };
 }
 
+function penLifted(points, aspect) {
+  if (!hasLandmarks(points, aspect)) return false;
+  const index = finger(points, 5, aspect);
+  const middle = finger(points, 9, aspect);
+  return index.reach < .70 || (middle.reach > .92 && middle.hinge > .69 && middle.tip > .56);
+}
+
 export class IndexTipTracker {
-  reset() { this.since = undefined; this.active = false; }
+  reset() {
+    this.since = undefined;
+    this.lastAt = undefined;
+    this.lastTip = null;
+    this.interrupted = false;
+  }
 
   update(points, aspect, now) {
-    const tip = indexTip(points, aspect, this.active);
+    if (now - this.lastAt > 100) this.reset();
+    let tip = indexTip(points, aspect, Boolean(this.lastTip));
     if (!tip) {
+      if (this.lastTip && !penLifted(points, aspect)) {
+        this.interrupted = true;
+        return this.lastTip;
+      }
       this.reset();
       return null;
     }
+    if (this.interrupted && Math.hypot(tip.x - this.lastTip.x, tip.y - this.lastTip.y) > .18) {
+      this.reset();
+      tip = indexTip(points, aspect);
+      if (!tip) return null;
+    }
+    this.lastAt = now;
     if (this.since === undefined) this.since = now;
-    this.active = this.active || now - this.since >= 45;
-    return this.active ? tip : null;
+    if (now - this.since < 28) return null;
+    this.interrupted = false;
+    this.lastTip = tip;
+    return tip;
   }
 }
 

@@ -1,5 +1,5 @@
 import { handOpenness } from './core.js';
-import { IndexTipTracker, withIndexTip } from './index-tip.mjs';
+import { HandFrameClock, IndexTipTracker, handSampleInterval, withIndexTip } from './index-tip.mjs';
 
 const video = document.getElementById('preview');
 const previewFrame = document.getElementById('preview-frame');
@@ -7,7 +7,6 @@ const status = document.getElementById('status');
 const button = document.getElementById('camera');
 const previewButton = document.getElementById('popout');
 const indexTracker = new IndexTipTracker();
-const frameInterval = 48;
 const confirmPoseAfter = 38;
 const handLostAfter = 320;
 const openThreshold = 1.58, closedThreshold = 1.38;
@@ -174,15 +173,14 @@ function identify(source, aspect, now) {
 }
 
 async function trackFrames(reader, current) {
-  let nextFrameAt = 0;
+  const clock = new HandFrameClock();
   try {
     while (generation === current) {
       const { value: frame, done } = await reader.read();
       if (done) break;
       try {
         const now = performance.now();
-        if (generation !== current || now < nextFrameAt) continue;
-        nextFrameAt = now + frameInterval;
+        if (generation !== current || !clock.take(frame.timestamp == null ? now : frame.timestamp / 1000)) continue;
         const bitmap = await createImageBitmap(frame);
         try {
           if (generation === current) identify(bitmap, bitmap.width / bitmap.height, now);
@@ -218,7 +216,7 @@ async function start() {
   void report('loading');
   try {
     const next = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }, audio: false
+      video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 }, facingMode: 'user' }, audio: false
     });
     if (generation !== current) { next.getTracks().forEach(track => track.stop()); return; }
     stream = next;
@@ -239,7 +237,7 @@ async function start() {
       void trackFrames(frameReader, current);
     } else {
       videoTime = -1;
-      timer = setInterval(trackPreview, frameInterval);
+      timer = setInterval(trackPreview, handSampleInterval);
     }
     button.textContent = '关闭摄像头';
   } catch (error) {
