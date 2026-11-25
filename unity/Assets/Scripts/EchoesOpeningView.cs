@@ -16,6 +16,7 @@ namespace Echoes
 
         public void UpdateWorld(Journey journey, SpiritFrame frame, bool split, bool previewWorld = false)
         {
+            if (journey.InStars) UpdateStarCanvas(journey);
             if (frame.openingTime < 0 && !frame.forest && !frame.ruins && !UseWorld && !previewWorld) return;
             if (world == null) world = new EchoesWorld();
             Vector2 amber = Vector2.zero, red = Vector2.zero;

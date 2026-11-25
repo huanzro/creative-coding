@@ -14,6 +14,8 @@ namespace Echoes
         public const int Layer = 30;
         public const float SinkZ = 14, CaveFloor = -16.15f, StarY = 31;
         private readonly GameObject root = new GameObject("Echoes 3D environments");
+        private readonly GameObject lowerWorld = new GameObject("Forest and ruins below the Star Sea");
+        private Transform geometryParent;
         private readonly System.Random random = new System.Random(1505);
         private readonly List<Mesh> meshes = new List<Mesh>();
         private readonly Material stone, soil, wood, leaves, glow, sky, mist;
@@ -22,9 +24,6 @@ namespace Echoes
         private readonly Transform[] plantRays = new Transform[2], bridge = new Transform[9];
         private readonly MeshRenderer[] plantLamps = new MeshRenderer[2], gates = new MeshRenderer[3];
         private readonly MeshRenderer[] restLamps = new MeshRenderer[4];
-        private readonly Transform[] stars = new Transform[3];
-        private readonly MeshRenderer[] starLamps = new MeshRenderer[3];
-        private readonly Transform[] links = new Transform[3];
         private static readonly Color Warm = new Color(1,.63f,.22f), Jade = new Color(.26f,.90f,.76f),
             Red = new Color(1,.25f,.16f), Pale = new Color(.70f,.83f,1), IrisBlue=new Color(.61f,.51f,1);
         private static readonly int Tint = Shader.PropertyToID("_Tint");
@@ -33,6 +32,8 @@ namespace Echoes
         public WorldSet(Shader surfaces, Shader skyShader, Shader mistShader)
         {
             root.hideFlags = HideFlags.HideAndDontSave;
+            lowerWorld.hideFlags = HideFlags.HideAndDontSave;
+            lowerWorld.transform.SetParent(root.transform, false);
             stone = MaterialFor(surfaces, "Granular stone", 0);
             wood = MaterialFor(surfaces, "Wet bark", 1);
             leaves = MaterialFor(surfaces, "Veined foliage", 2);
@@ -46,8 +47,10 @@ namespace Echoes
             var shape = new WorldMesh(meshes);
             shape.Rock(Vector3.zero, Vector3.one, Color.white, .33f, 5, 8, .065f);
             beaconMesh = shape.Finish("Faceted seed");
+            geometryParent = lowerWorld.transform;
             BuildForest();
             BuildRuins();
+            geometryParent = root.transform;
             BuildStars();
             BuildCourt();
             BuildFlies();
@@ -95,7 +98,7 @@ namespace Echoes
         {
             var node = new GameObject(name) { layer = Layer, hideFlags = HideFlags.HideAndDontSave };
             Transform transform = node.transform;
-            transform.SetParent(root.transform, false);
+            transform.SetParent(geometryParent, false);
             transform.localPosition = at;
             transform.localScale = scale;
             node.AddComponent<MeshFilter>().sharedMesh = mesh;

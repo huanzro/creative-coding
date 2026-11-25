@@ -94,11 +94,18 @@ namespace Echoes
                         visibility -= .40f * Mathf.Sin(Mathf.Clamp01(frame.ruinTransfer) * Mathf.PI);
                     DrawRuinFinds(frame, center, bodySize, mirror, sideways);
                 }
-                if (!frame.forest || frame.forestDescent < 0)
+                if (frame.chapter == 2 && StarTrailArt.Find(frame.starMotif) is StarTrailArt trail)
+                {
+                    Vector2 local = trail.NormalizedPoint(frame.starProgress) - Vector2.one * .5f;
+                    center += PortraitOffset(local, mirror, sideways ? -90 : 0) * Mathf.Min(area.width, area.height) * .24f;
+                    source = center;
+                }
+                if (frame.chapter != 2 && (!frame.forest || frame.forestDescent < 0))
                     DrawFlightTrail(frame, palette[Mathf.Clamp(frame.chapter, 0, 2)], 1, extent, area, bodySize, sideways);
                 DrawCharacter(frame, center, source, bodySize, mirror, sideways ? -90 : 0, extent, true, visibility,
                     predator.Visible ? 1 : visibility);
                 if (frame.forest) DrawForestSwarm(frame, center, bodySize, mirror, sideways ? -90 : 0, visibility, true);
+                else if (frame.chapter == 2) DrawPortraitStar(frame, center, bodySize, mirror, sideways, extent);
                 else if (!frame.ruins) DrawLiveHandoff(frame, center, bodySize, mirror, sideways ? -90 : 0, extent, visibility);
             }
             GUI.EndGroup();
@@ -106,6 +113,7 @@ namespace Echoes
 
         private static Vector2 FrameProjectionPosition(SpiritFrame frame, float altitude, Rect area, float size, bool sideways)
         {
+            if (frame.chapter == 2) return sideways ? new Vector2(area.width * .5f, area.height * .54f) : area.center;
             if (!frame.forest && !frame.ruins) return ProjectionPosition(SpiritFlight.ScreenY(altitude), area, size, sideways);
             float axis = sideways ? area.width : area.height;
             float edge = Mathf.Min(size * .52f + 7, axis * .43f);

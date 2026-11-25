@@ -11,9 +11,9 @@ namespace Echoes
     {
         Tutorial, Prologue, ForestRoute, ForestPlant, ForestWind, ForestCrossing,
         RuinGather, RuinVoice, RuinRelease, RuinMisread, RuinRepair, RuinSide, RuinCrossing,
-        StarsRoute, StarsDelegated, StarsSeal, Complete,
+        StarsRoute, StarsDelegated, StarsDrawing, Complete,
         ForestExplore, ForestPlanting, ForestTrapped, ForestTransition,
-        ForestFalling, ForestDoor, ForestLoop, RuinExplore, RuinTransfer, RuinRetry
+        ForestFalling, ForestDoor, ForestLoop, RuinExplore, RuinTransfer, RuinRetry, StarsRest, StarsWorkshop
     }
     public enum JourneyCue
     {
@@ -28,7 +28,10 @@ namespace Echoes
     [Serializable]
     public struct JourneyCheckpoint
     {
-        public int version, chapter, lesson, plants, forestRoute, ruin, starPaths, withdrawals, mistakes;
+        public int version, chapter, lesson, plants, forestRoute, ruin, starPaths, withdrawals;
+        public int starMotifs, starHelpStarts, starHelpEnds, starLeft, starRight, starMotif;
+        public float starProgress, starMachineStart, starMachineEnd;
+        public bool starHelpUsed;
         public int forestSeed, forestReserve, forestLane, forestBranch, forestSites, forestDepth;
         public int ruinSeed, ruinRoom, ruinVisited;
         public long ruinFinds, ruinOpenLow, ruinOpenHigh;
@@ -84,7 +87,7 @@ namespace Echoes
 
         private float hintUntil, cueAt, storyPulse;
         private FireflyKind storyFly;
-        private float heldProgress, gentleTime, loudTime, openTime;
+        private float gentleTime, loudTime, openTime;
         private float jumpHeightScale = DefaultJumpHeightScale;
         private bool arrivedByOpening;
 
@@ -120,7 +123,7 @@ namespace Echoes
                 ResetForestHistory();
                 ResetRuinHistory();
                 RuinResult = RuinPath.Unfinished;
-                StarCount = StarBits = Withdrawals = Mistakes = 0;
+                ResetStarHistory();
             }
             Chapter = chapter;
             Lesson = practice ? 0 : -1;
@@ -170,10 +173,13 @@ namespace Echoes
         public bool EnteredFromOpening => arrivedByOpening;
 
         public JourneyCheckpoint Checkpoint => new JourneyCheckpoint {
-            version = 7, chapter = Chapter, lesson = Lesson, plants = Plants, forestRoute = ForestRoute,
+            version = 8, chapter = Chapter, lesson = Lesson, plants = Plants, forestRoute = ForestRoute,
             forestSeed = forestSeed, forestReserve = savedForestLights, forestLane = savedForestLane,
             forestBranch = (int)savedForestBranch, forestSites = savedForestPlants, forestDepth = savedForestDepth,
-            ruin = (int)RuinResult, starPaths = StarBits, withdrawals = Withdrawals, mistakes = Mistakes,
+            ruin = (int)RuinResult, starPaths = StarBits, withdrawals = Withdrawals,
+            starMotifs = starMotifs, starHelpStarts = starHelpStarts, starHelpEnds = starHelpEnds,
+            starLeft = StarLeft, starRight = StarRight, starMotif = StarMotif, starProgress = StarProgress,
+            starMachineStart = StarMachineStart, starMachineEnd = StarMachineEnd, starHelpUsed = starHelpUsed,
             ruinSeed = ruinSeed, ruinRoom = ruinRoomId, ruinVisited = ruinVisited, ruinFinds = (long)ruinFinds,
             ruinOpenLow = (long)ruinOpenLow, ruinOpenHigh = (long)ruinOpenHigh, ruinHeartSeen = ruinHeartSeen,
             ruinChestLootTaken = (long)ruinChestLootTaken, ruinReleasedMemories = (long)ruinReleasedMemories,
@@ -187,13 +193,13 @@ namespace Echoes
 
         public bool Restore(JourneyCheckpoint checkpoint)
         {
-            if (checkpoint.version < 2 || checkpoint.version > 7 || checkpoint.chapter < 0 || checkpoint.chapter > 2 ||
+            if (checkpoint.version < 2 || checkpoint.version > 8 || checkpoint.chapter < 0 || checkpoint.chapter > 2 ||
                 checkpoint.lesson < -1 || checkpoint.lesson > 2 || (checkpoint.lesson >= 0 && checkpoint.chapter != 0) ||
                 checkpoint.plants < 0 || checkpoint.plants > (checkpoint.version == 2 ? 2 : 3) ||
                 checkpoint.forestRoute < 0 || checkpoint.forestRoute > (checkpoint.version >= 4 ? 3 : 2) ||
                 checkpoint.forestReserve < 0 || checkpoint.forestReserve > 64 || Math.Abs((long)checkpoint.forestLane) > 1 ||
                 checkpoint.ruin < 0 || checkpoint.ruin > (checkpoint.version >= 5 ? 4 : 3) ||
-                (checkpoint.starPaths & ~63) != 0) return false;
+                (checkpoint.starPaths & ~63) != 0 || !ValidStarCheckpoint(checkpoint)) return false;
             if (checkpoint.version >= 4 && !IsForestCheckpointValid(checkpoint)) return false;
             if (checkpoint.version >= 5 &&
                 ((uint)checkpoint.ruinRoom >= RuinAtlas.RoomCount || (checkpoint.ruinVisited & ~65535) != 0)) return false;
@@ -202,10 +208,6 @@ namespace Echoes
             Plants = checkpoint.plants;
             ForestRoute = checkpoint.forestRoute;
             RuinResult = (RuinPath)checkpoint.ruin;
-            StarBits = checkpoint.starPaths;
-            while (StarCount < 3 && PathAt(StarCount) != StarPath.Unfinished) StarCount++;
-            Withdrawals = checkpoint.withdrawals & 7;
-            Mistakes = checkpoint.mistakes & 7;
             if (checkpoint.version >= 4)
             {
                 forestSeed = checkpoint.forestSeed;
@@ -247,14 +249,16 @@ namespace Echoes
             {
                 ruinLoops = Math.Max(0, Math.Min(999, checkpoint.ruinLoops));
             }
-            StartSection();
-            if (checkpoint.complete && Lesson < 0 && Chapter != 0) Complete();
+            if (InStars) RestoreStars(checkpoint);
+            else StartSection();
+            if (checkpoint.complete && InRuins) Complete();
             return true;
         }
 
         public void Retry()
         {
             if (IsOpening) { OpeningTime = 0; return; }
+            if (InStars) { RetryStar(); return; }
             if (Phase == Stage.RuinRetry) { RetryRuinRetry(); return; }
             if (Phase == Stage.Complete || IsForestSequence || IsRuinSequence) return;
             ResetResponses();
@@ -264,7 +268,7 @@ namespace Echoes
         private void Change(Stage phase, string message)
         {
             Phase = phase;
-            Age = Progress = heldProgress = 0;
+            Age = Progress = 0;
             HintReady = false;
             Message = message;
         }
@@ -301,22 +305,16 @@ namespace Echoes
         public bool Touch(int option)
         {
             if ((option != 0 && option != 1) || IsOpening) return false;
+            if (InStars)
+            {
+                if (!StarsTouch(option)) return false;
+                LastTouch = PoseTime;
+                TouchOption = option;
+                return true;
+            }
             if (Phase == Stage.Complete)
             {
-                if (Chapter < 2) Enter(Chapter + 1, false, false);
-                else
-                {
-                    if (option == 0)
-                    {
-                        Observe();
-                        Message = "暖黄是自己飞过的路，青色是借来的那一步，折线保留了撤回或纠正。";
-                    }
-                    else
-                    {
-                        Signal(FireflyKind.Amber);
-                        Notify(JourneyCue.Seal);
-                    }
-                }
+                Enter(Chapter + 1, false, false);
                 return true;
             }
             if (!Started || IsRuinSequence || IsForestSequence && !CanSteerMaze) return false;
@@ -329,7 +327,6 @@ namespace Echoes
                 if (Phase == Stage.RuinRetry) TouchRuinRetry(option);
                 else if (!TryRuinLootTouch(option)) RuinTouch(option);
             }
-            else StarsTouch(option);
             return true;
         }
 
@@ -341,7 +338,8 @@ namespace Echoes
             var previous = Gesture;
             Gesture = next;
             if (next == Hand.Open) Started = true;
-            if (previous == Hand.Fist && next == Hand.Open && (cameraGesture || Held >= .13f) && Phase != Stage.Complete &&
+            if (InStars) SetStarHand(previous, next);
+            else if (previous == Hand.Fist && next == Hand.Open && (cameraGesture || Held >= .13f) && Phase != Stage.Complete &&
                 !IsForestSequence && !IsRuinSequence)
                 Release();
             Held = Charge = 0;
@@ -364,13 +362,6 @@ namespace Echoes
                 case Stage.Tutorial:
                     if (Lesson == 0 && openTime >= .38f && Held >= .46f) NextLesson();
                     break;
-                case Stage.StarsSeal:
-                    if (Held >= .4f)
-                    {
-                        Notify(JourneyCue.Seal);
-                        Complete();
-                    }
-                    break;
             }
         }
 
@@ -392,12 +383,21 @@ namespace Echoes
                 if (!IsRuinSequence && Phase != Stage.RuinRetry && !RuinLootOpen && !HoldAtRuinGate() && advanceJourney && Gesture != Hand.Missing)
                     Flight.StepForest(dt, Gesture, RuinHeightLimit);
             }
-            else if (!InForest) Flight.Step(dt, Gesture);
-            else if (!IsForestSequence && Section != ForestSection.Shaft && advanceJourney && Gesture != Hand.Missing)
+            else if (Lesson >= 0) Flight.Step(dt, Gesture);
+            else if (InForest && !IsForestSequence && Section != ForestSection.Shaft && advanceJourney && Gesture != Hand.Missing)
                 Flight.StepForest(dt, Gesture, ForestHeightLimit, ForestFlightFloor);
             storyPulse = Math.Max(0, storyPulse - dt);
             Light = Math.Max(0, Light - dt * .85f);
             if (!advanceJourney || Phase == Stage.Complete) return;
+            if (InStars)
+            {
+                Time += dt;
+                Age += dt;
+                if (Gesture == Hand.Fist) Held += dt;
+                Voice = Gesture == Hand.Open ? PoseVoice : 0;
+                UpdateStars(dt);
+                return;
+            }
             if (IsForestSequence)
             {
                 Time += dt;
@@ -437,8 +437,7 @@ namespace Echoes
             }
             if (Lesson >= 0) UpdatePractice(dt);
             else if (Chapter == 0) UpdateForest(dt);
-            else if (Chapter == 1) UpdateRuins(dt);
-            else UpdateStars(dt);
+            else UpdateRuins(dt);
         }
 
         private void Walk(float dt, float speed) => Distance += dt * speed * (1 + Voice * .73f);
@@ -447,8 +446,7 @@ namespace Echoes
         {
             string[] endings = {
                 "根光照亮了两处停歇点。触摸 A 或 B，沿光进遗迹。",
-                "你找到了离开遗迹的通道。触摸 A 或 B，去星海。",
-                "这是你和系统一起走过的星图。按试玩，开始一段新的旅程。"
+                "你找到了离开遗迹的通道。触摸 A 或 B，去星海。"
             };
             Change(Stage.Complete, endings[Chapter]);
             Progress = 1;
@@ -457,7 +455,7 @@ namespace Echoes
 
         private static float Clamp(float value) => Math.Max(0, Math.Min(1, value));
 
-        public string LeftLabel => Phase == Stage.Complete ? (Chapter < 2 ? "A · 下一章" : "A · 回看路线") :
+        public string LeftLabel => InStars ? "A · 抽取光迹" : Phase == Stage.Complete ? "A · 下一章" :
             RuinLootOpen ? "A · 切换" : Phase == Stage.RuinRetry ? RuinRetryLeftLabel : RuinCanChoosePassage ? "A · 留在本层" :
             ForestMazeWalkArea ? "A · 左转" : InForest || InRuins ? "A · 向左" : Phase == Stage.Tutorial && Lesson == 2 ? "A · 看落点" : "A · 看一眼";
 
@@ -465,15 +463,14 @@ namespace Echoes
         {
             get
             {
-                if (Phase == Stage.Complete) return Chapter < 2 ? "B · 下一章" : "B · 听回响";
+                if (InStars) return "B · 抽取光迹";
+                if (Phase == Stage.Complete) return "B · 下一章";
                 if (RuinLootOpen) return "B · 确认";
                 if (Phase == Stage.RuinRetry) return RuinRetryRightLabel;
                 if (RuinCanTake) return RuinTakeLabel;
                 if (RuinCanChoosePassage) return RuinGuide != null && !RuinGuide.Opened ? "完成门前动作" : "B · 进入岔口";
                 if (ForestMazeWalkArea) return "B · 右转";
                 if (InForest || InRuins) return "B · 向右";
-                if (Phase == Stage.StarsDelegated) return "B · 收回授权";
-                if (Phase == Stage.StarsSeal) return "B · 留给自己";
                 return "B · 借一步";
             }
         }

@@ -6,9 +6,9 @@ namespace Echoes
     {
         private readonly MeshRenderer[] courtSeals = new MeshRenderer[3];
         private Transform sideDoor, starCompass;
+        private MeshRenderer starOrbits;
         private readonly MeshRenderer[] flies = new MeshRenderer[2];
         private readonly Transform[] flyWings = new Transform[4];
-        private readonly MeshRenderer[] linksLight = new MeshRenderer[3];
         private readonly MeshRenderer[] mirrors = new MeshRenderer[3];
         private readonly Transform[] reflections = new Transform[3];
 
@@ -180,20 +180,11 @@ namespace Echoes
                 new Color(.61f,.77f,.95f),.07f,14,28,.017f);
             Put("Suspended basalt islands",islands,stone);
             Put("Scattered stars at different depths",sparks,glow);
-            Put("Orbital filaments",halos,glow);
+            starOrbits = Put("Orbital filaments",halos.Finish("Distant filaments"),glow,Vector3.zero,Vector3.one)
+                .GetComponent<MeshRenderer>();
             Put("Moon body",moon,stone);
             starCompass = Lamp("Constellation anchor",new Vector3(0,StarY+.5f,18),.125f,Pale,.4f).transform;
 
-            var line=Geometry();
-            line.Tube(new[]{Vector3.zero,Vector3.forward},new[]{.018f,.015f},6,Color.white);
-            Mesh cord=line.Finish("Constellation light segment");
-            for(int i=0;i<3;i++)
-            {
-                starLamps[i]=Lamp("Constellation star "+i,new Vector3((i-1)*2.2f,StarY+1+Mathf.Sin(i),22+i*3f),.155f,Warm,.4f);
-                stars[i]=starLamps[i].transform;
-                links[i]=Put("Constellation connection "+i,cord,glow,Vector3.zero,Vector3.one);
-                linksLight[i]=links[i].GetComponent<MeshRenderer>();
-            }
         }
 
         private void LightVolume(Vector3 start,Vector3 end,float from,float to,Color color,string name)
@@ -259,6 +250,13 @@ namespace Echoes
         public void Respond(Journey journey, float opening)
         {
             float time = opening >= 0 ? opening : journey.PoseTime;
+            bool starSea = opening < 0 && journey.InStars;
+            if (lowerWorld.activeSelf == starSea)
+            {
+                lowerWorld.SetActive(!starSea);
+                starCompass.gameObject.SetActive(!starSea);
+                Light(starOrbits, starSea ? new Color(.25f,.34f,.52f) : Color.white, starSea ? .07f : .24f);
+            }
             for(int i=0;i<courtSeals.Length;i++)
             {
                 bool marked=journey.Lesson>i || (journey.Lesson==2 && journey.Cue==JourneyCue.Assist && i==2);
@@ -312,21 +310,6 @@ namespace Echoes
                     Mathf.Lerp(.50f,3.1f,1-Mathf.Clamp01(beat/.87f)));
             }
 
-            for (int i=0;i<stars.Length;i++)
-            {
-                bool visible=opening<0 && journey.Chapter==2;
-                stars[i].gameObject.SetActive(visible);
-                StarPath path=journey.PathAt(i);
-                Color color=path==StarPath.Corrected?new Color(.89f,.54f,.97f):path==StarPath.Delegated?Jade:Warm;
-                Light(starLamps[i],color,path!=StarPath.Unfinished?1.8f:.34f+.16f*Mathf.Sin(time*4+i));
-                links[i].gameObject.SetActive(visible && path!=StarPath.Unfinished);
-                Vector3 from=i==0?starCompass.position:stars[i-1].position;
-                Vector3 axis=stars[i].position-from;
-                links[i].position=from;
-                links[i].rotation=Quaternion.LookRotation(axis);
-                links[i].localScale=new Vector3(1,1,axis.magnitude);
-                Light(linksLight[i],color,.96f);
-            }
         }
     }
 }

@@ -146,7 +146,7 @@ namespace Echoes
                     }
                     if(matchCut) velocity=sightVelocity=Vector3.zero;
                 }
-                float fov=ruins ? 55-3*frame.voice : 49-3*frame.voice;
+                float fov=ruins ? 55-3*frame.voice : journey.InStars ? 49 : 49-3*frame.voice;
                 if (ruins && journey.RuinRetryState != RuinRetryPhase.Inactive)
                     fov = journey.RuinRetryState == RuinRetryPhase.Impact
                         ? 55 - 7 * OpeningStoryboard.Window(journey.Age,.19f,.40f,.45f,1.16f)
@@ -177,6 +177,11 @@ namespace Echoes
                 new Vector3(.5f,SpiritFlight.ScreenY(frame.altitude),1);
             Vector2 screen = new Vector2(shotActor.x,shotActor.y);
             float body=162*shotActor.z;
+            if (!opening && journey.InStars)
+            {
+                screen = Vector2.Scale(StarTrailArt.Actor(journey), new Vector2(1f / 1280, 1f / 720));
+                body = 122;
+            }
             bool spatial=forest || ruins;
             Vector3 viewport=spatial ? camera.WorldToViewportPoint(spatialActor) : Vector3.zero;
             float depth=spatial ? Mathf.Max(.2f,viewport.z) : ActorDepth(screen,body,journey,opening);
@@ -617,9 +622,10 @@ namespace Echoes
             }
             else
             {
-                float z=8.6f+6.2f*j.StarCount+Mathf.Min(6,travel*.24f);
-                at=new Vector3(-1.7f+j.StarCount*1.0f+drift,WorldSet.StarY+1.3f+frame.altitude*1.66f,z);
-                focus=new Vector3(2.15f,WorldSet.StarY+2.61f,z+18.7f);
+                float z=9.3f+Mathf.Min(14,travel*.42f);
+                float orbit=Mathf.Sin(travel*.11f)*1.18f;
+                at=new Vector3(-1.7f+orbit+drift,WorldSet.StarY+3.3f,z);
+                focus=new Vector3(2.15f+orbit*.34f,WorldSet.StarY+7.1f,z+18.7f);
             }
         }
 

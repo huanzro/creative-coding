@@ -187,7 +187,7 @@ namespace Echoes
 
         private Frame Snapshot()
         {
-            string message = journey.Message;
+            string message = journey.InStars ? journey.StarInstruction : journey.Message;
             if (journey.ForestMazeWalkArea && journey.Phase == Stage.ForestExplore && string.IsNullOrEmpty(message))
                 message = Journey.MazeWalkHint;
             return new Frame {
@@ -199,7 +199,7 @@ namespace Echoes
                 closed = journey.Gesture == Hand.Fist, complete = journey.Phase == Stage.Complete,
                 waiting = !inputReady || !journey.Started, paused = paused, preview = preview,
                 title = journey.IsOpening ? "序幕" : journey.Lesson >= 0 ? "回声庭院 · 试玩" : Titles[journey.Chapter],
-                message = !journey.IsOpening && !paused && inputReady && journey.Gesture == Hand.Missing
+                message = !journey.IsOpening && !journey.InStars && !paused && inputReady && journey.Gesture == Hand.Missing
                     ? "请把手放回画面，张开手继续。 " + message : message,
                 left = journey.LeftLabel, right = journey.RightLabel, phase = journey.Phase.ToString(), spirit = LocalSpirit
             };
@@ -253,6 +253,7 @@ namespace Echoes
             view.DrawControls(state.title, state.message, state.left, state.right, state.voice,
                 option => Choose(option.ToString()), Select, () => Retry(""), () => Restore(""),
                 () => Pause(paused ? "0" : "1"), paused, characterOnly, journey.ForestMazeWalkArea, journey.InForest,
+                journey.InStars, !journey.InStars || journey.StarCanChoose,
                 ToggleSettings, settings ? DrawSettings : (Action<GUIStyle, GUIStyle>)null);
         }
 

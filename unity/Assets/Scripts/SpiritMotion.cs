@@ -70,6 +70,11 @@ namespace Echoes
             float time = frame.motionTime;
             float draw = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(.105f, .30f, voice));
             float flight = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(.37f, .72f, voice));
+            if (frame.chapter == 2)
+            {
+                draw = Mathf.SmoothStep(0, 1, Mathf.Clamp01(frame.starFlow * 2.5f));
+                flight = frame.starFlow * .62f;
+            }
             float touch = Envelope(frame.touchAge, .14f, .27f, .95f);
             float cast = Envelope(frame.releaseAge, .12f, .20f, .70f);
             float fly = flight * (1 - closed) * (1 - touch);
@@ -103,18 +108,7 @@ namespace Echoes
                     ApplyTouch(ref pose, frame.touch, touch, Measure, Offer, -28, 33, 3);
                     break;
                 case 2:
-                    pose.left = SpiritArm.Blend(Rest, Reach, tracked);
-                    pose.right = SpiritArm.Blend(Rest, High, .85f * tracked);
-                    pose.left = SpiritArm.Blend(pose.left, Hold, closed);
-                    pose.right = SpiritArm.Blend(pose.right, Hold, closed);
-                    pose.left = SpiritArm.Blend(pose.left, Measure, draw * (1 - closed));
-                    pose.right = SpiritArm.Blend(pose.right, High, cast);
-                    pose.nod = 12 * closed - 16 * draw;
-                    pose.pitch -= 9 * flight;
-                    pose.lift += .10f * flight;
-                    pose.left = SpiritArm.Blend(pose.left, High, fly * .85f);
-                    pose.right = SpiritArm.Blend(pose.right, High, fly);
-                    ApplyTouch(ref pose, frame.touch, touch, Measure, High, -21, 37, -12);
+                    SampleStarWriting(ref pose, frame, tracked, closed, draw, touch);
                     break;
                 default:
                     pose.left = SpiritArm.Blend(Rest, Reach, tracked);
@@ -191,6 +185,28 @@ namespace Echoes
             if (frame.forest) ActForest(ref pose, frame, closed, reachUp, glide, turn, spinBody);
             else if (frame.ruins) ActRuins(ref pose, frame, closed, glide, turn);
             return pose;
+        }
+
+        private static void SampleStarWriting(ref SpiritPose pose, SpiritFrame frame, float tracked, float closed, float draw, float touch)
+        {
+            var trail = StarTrailArt.Find(frame.starMotif);
+            Vector2 tangent = trail == null ? Vector2.zero : trail.Direction(frame.starProgress);
+            float attention = trail == null ? 0 : tracked * (1 - closed);
+            float upward = Mathf.Clamp01(.42f - tangent.y * .54f);
+            SpiritArm inkHand = SpiritArm.Blend(TouchLight, High, upward * .63f);
+            pose.right = SpiritArm.Blend(Rest, inkHand, attention * (.69f + .31f * draw));
+            pose.right = SpiritArm.Blend(pose.right, Hold, closed * .80f);
+            pose.left = SpiritArm.Blend(Rest, frame.starDelegated ? Offer : Wing, attention * (.34f + .46f * draw));
+            pose.left = SpiritArm.Blend(pose.left, Hold, closed * .59f);
+            pose.yaw += tangent.x * attention * (15 + 27 * draw);
+            pose.lean -= tangent.x * draw * 13;
+            pose.look += attention * (14 + 20 * tangent.x);
+            pose.nod += 11 * closed + tangent.y * (9 + 11 * draw);
+            pose.pitch += tangent.y * draw * 16;
+            pose.lift += .044f * draw;
+            pose.extension = draw * .63f;
+            pose.right.wristFlex += tangent.y * 18 * attention;
+            ApplyTouch(ref pose, frame.touch, touch * .72f, Measure, TouchLight, -19, 22, -8);
         }
 
         private static void ActRuins(ref SpiritPose pose, SpiritFrame frame, float closed, float glide, float turn)

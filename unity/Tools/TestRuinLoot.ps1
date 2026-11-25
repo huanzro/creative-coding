@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 if (-not ('Echoes.Journey' -as [type])) {
-    $lootSources = 'Journey.cs', 'JourneyChapters.cs', 'JourneyForest.cs', 'ForestMaze.cs', 'JourneyMaze.cs',
+    $lootSources = 'Journey.cs', 'JourneyChapters.cs', 'JourneyStars.cs', 'JourneyForest.cs', 'ForestMaze.cs', 'JourneyMaze.cs',
         'JourneyRuins.cs', 'RuinAtlas.cs', 'JourneyRuinLoot.cs', 'JourneyRuinRetry.cs', 'OpeningTiming.cs',
         'SpiritFlight.cs', 'FireflyCourse.cs' | ForEach-Object { Join-Path $PSScriptRoot "../Assets/Scripts/$_" }
     Add-Type -Path $lootSources

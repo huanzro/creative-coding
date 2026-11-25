@@ -28,7 +28,7 @@ namespace Echoes
                 Paint(new Rect(1014, 198, 218 * Mathf.Clamp01(j.ForestPlantCharge), 3), Amber);
         }
 
-        private void DrawChapterFeedback(Journey j, Color color)
+        private void DrawChapterFeedback(Journey j)
         {
             PrepareInterface();
             switch (j.Phase)
@@ -50,14 +50,6 @@ namespace Echoes
                 case Stage.RuinSide:
                 case Stage.RuinCrossing:
                     DrawRuinClues(j);
-                    break;
-                case Stage.StarsRoute:
-                case Stage.StarsDelegated:
-                case Stage.StarsSeal:
-                    DrawStarsClues(j);
-                    break;
-                case Stage.Complete:
-                    DrawMemory(j, color);
                     break;
             }
         }
@@ -172,72 +164,6 @@ namespace Echoes
             Paint(new Rect(bar.x+low*bar.width,bar.y-4,(high-low)*bar.width,14),Opacity(tint,.64f));
             SoftLight(bar.x+Mathf.Clamp01(j.Age/duration)*bar.width,bar.center.y,11,tint,.9f);
             Paint(new Rect(bar.x+Mathf.Clamp01(j.Age/duration)*bar.width-1.5f,bar.y-5,3,17),Color.white);
-        }
-
-        private void DrawStarsClues(Journey j)
-        {
-            if (j.Phase==Stage.StarsSeal)
-            {
-                DrawMemory(j,Iris);
-                Meter(new Rect(484,599,312,5),j.Progress,Amber,"留给自己的最后一拍");
-                return;
-            }
-            Vector2 start=new Vector2(640,CharacterY(j.Flight.Height));
-            Vector2 warm=new Vector2(826,CharacterY(j.CurrentStarHeight));
-            Vector2 other=new Vector2(466,CharacterY(Mathf.Clamp01(j.CurrentStarHeight+.13f)));
-            float rough=Mathf.Repeat(j.PoseTime/1.25f,1);
-            float twice=(rough<.25f||rough>.36f&&rough<.53f)?1:.16f;
-            DrawFirefly(warm,j.PoseTime,false,1.21f,.84f);
-            Ripple(warm.x,warm.y,22+12*j.Progress,Amber,.62f);
-            bool revealed=j.HintReady || j.IsObserving || j.Phase==Stage.StarsDelegated;
-            if (revealed)
-            {
-                Color neighbor=j.RiskySuggestion?Scarlet:Mint;
-                Knot(other.x,other.y,neighbor,0,j.RiskySuggestion?twice:.55f);
-                Vector2 chosen=j.RiskySuggestion?other:warm;
-                DottedPath(start,chosen,neighbor,j.Phase==Stage.StarsDelegated?1:.46f);
-                if(j.Phase==Stage.StarsDelegated)
-                    Meter(new Rect(468,600,344,6),j.Progress,neighbor,"按 B 收回授权");
-            }
-            for (int i=0;i<3;i++)
-                Knot(589+i*52,532,Iris,j.PathAt(i)==StarPath.Unfinished?0:1,i==j.StarCount?.35f:0);
-        }
-
-        private void DrawMemory(Journey j, Color color)
-        {
-            if (j.Chapter!=2) return;
-            var points=new[] {new Vector2(355,432),new Vector2(525,369),new Vector2(740,391),new Vector2(928,307)};
-            if (j.RuinResult!=RuinPath.Unfinished)
-            {
-                Vector2 fringe=points[0]+new Vector2(-82,j.RuinResult==RuinPath.Arcade?-47:39);
-                if (j.RuinRetryOutcome == RuinRetryResolution.Takeover)
-                {
-                    Vector2 turn = Vector2.Lerp(fringe, points[0], .55f) + new Vector2(-4, -21);
-                    DottedPath(fringe,turn,GlassBlue,.72f);
-                    DottedPath(turn,points[0],Amber,.76f);
-                    Knot(turn.x,turn.y,Amber,1,.18f);
-                }
-                else if (j.RuinRetryOutcome == RuinRetryResolution.Remembered)
-                {
-                    DottedPath(fringe+new Vector2(0,-27),points[0],Iris,.30f);
-                    DottedPath(fringe,points[0],Amber,.76f);
-                }
-                else DottedPath(fringe,points[0],j.RuinResult==RuinPath.Arcade?Iris:Mint,.72f);
-                Knot(fringe.x,fringe.y,j.RuinRetryOutcome==RuinRetryResolution.Remembered?Amber:Mint,1,0);
-            }
-            for(int i=0;i<3;i++)
-            {
-                StarPath path=j.PathAt(i);
-                Color tint=path==StarPath.Corrected?Iris:path==StarPath.Delegated?Mint:Amber;
-                if (path!=StarPath.Unfinished)
-                    Stroke(points[i],points[i+1],j.IsObserving?7:5,tint,.91f,glow);
-                if ((j.Withdrawals&(1<<i))!=0)
-                    DottedPath(points[i]+new Vector2(29,-10),Vector2.Lerp(points[i],points[i+1],.53f)+new Vector2(6,-49),color,.54f);
-                if ((j.Mistakes&(1<<i))!=0)
-                    Stroke(points[i]+new Vector2(20,10),Vector2.Lerp(points[i],points[i+1],.46f)+new Vector2(5,37),
-                        3,Scarlet,.54f,glow);
-                Knot(points[i+1].x,points[i+1].y,tint,path!=StarPath.Unfinished?1:0,.12f);
-            }
         }
 
         private void Knot(float x,float y,Color tint,float fill,float emphasis)
