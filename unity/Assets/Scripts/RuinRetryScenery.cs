@@ -229,7 +229,9 @@ namespace Echoes
             }
             if (retrySet == null) BuildRuinRetry();
             retrySet.gameObject.SetActive(true);
-            retrySet.localPosition = Vector3.forward * journey.RuinRetryWallDepth;
+            var route=RuinTrack.Frame(journey.RuinRoomId,journey.RuinRoomLength,journey.RuinRetryWallDepth-.18f);
+            retrySet.localPosition=route.Position;
+            retrySet.localRotation=route.Rotation;
             float age = journey.Age;
             float progress = journey.Progress;
             bool impact = phase == RuinRetryPhase.Impact;

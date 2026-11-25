@@ -165,11 +165,12 @@ namespace Echoes
 
         private bool TryStartRuinRetry()
         {
-            if (ruinRetryWall || RuinRetryVisited < RuinRetryRequired || CurrentRuinRoom.Style == 5 ||
-                Distance < 8.8f || Distance > RuinRoomLength - 10.5f) return false;
+            bool traversedCircuit = ruinLoops >= 2 || ruinTravelTime >= 72f;
+            if (ruinRetryWall || (!traversedCircuit && RuinRetryVisited < RuinRetryRequired) ||
+                Distance < 5f || Distance > RuinRoomLength - 6.1f) return false;
             float at = Distance + WallApproach;
             foreach (var portal in RuinPortals)
-                if (Math.Abs(portal.Depth - at) < 3.6f) return false;
+                if (Math.Abs(portal.Depth - at) < 3.2f) return false;
 
             RuinRetryWallDepth = at;
             ruinRetryWall = true;

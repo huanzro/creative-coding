@@ -61,8 +61,18 @@ namespace Echoes
         {
             float distance=journey.InForest && journey.Branch==ForestBranch.Right && !paused ? journey.Distance : 0;
             float target=OpeningStoryboard.Ease(117,163,distance)*.19f;
+            float ruinLayer = journey.RuinLayer;
             if (journey.InRuins && !paused)
-                target=(.10f + .028f * Math.Abs(journey.RuinLayer)) * (journey.Phase == Stage.RuinTransfer ? .66f : 1);
+            {
+                float bend = 0;
+                if (journey.Phase == Stage.RuinTransfer && journey.RuinEntrance != null)
+                {
+                    float move = Mathf.SmoothStep(0, 1, journey.Progress);
+                    ruinLayer = Mathf.Lerp(ruinLayer, journey.RuinRoomLayerFor(journey.RuinEntrance.TargetRoom), move);
+                    bend = Mathf.Sin(Mathf.PI * move);
+                }
+                target=(.10f + .028f * Math.Abs(ruinLayer)) * (1 - .33f * bend);
+            }
             switch (journey.RuinRetryState)
             {
                 case RuinRetryPhase.Impact:
@@ -86,7 +96,7 @@ namespace Echoes
                     machinery.clip=bed;
                 }
                 if (!machinery.isPlaying) machinery.Play();
-                machinery.pitch = journey.InRuins ? 1 + .048f * journey.RuinLayer : 1;
+                machinery.pitch = journey.InRuins ? 1 + .048f * ruinLayer : 1;
             }
             if (target<=0 && machinery.volume<=0 && machinery.isPlaying) machinery.Stop();
             if (paused) return;

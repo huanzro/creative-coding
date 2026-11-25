@@ -28,6 +28,19 @@ namespace Echoes
                 ? $"上层 +{journey.RuinLayer}" : $"下层 {journey.RuinLayer}";
             Paint(new Rect(26, 130, 332, 35), InkGlass);
             GUI.Label(new Rect(43, 134, 310, 27), $"{level}   ·   {journey.RuinRoomName}", body);
+            if (journey.RuinCanChoosePassage && journey.RuinGuide == null)
+            {
+                string way;
+                switch (journey.RuinApproach.Direction)
+                {
+                    case RuinDirection.Left: way = "← 左侧弯道"; break;
+                    case RuinDirection.Right: way = "→ 右侧弯道"; break;
+                    case RuinDirection.Upper: way = "↑ 上行坡道"; break;
+                    default: way = "↓ 下行坡道"; break;
+                }
+                Paint(new Rect(26, 173, 332, 32), InkGlass);
+                GUI.Label(new Rect(43, 176, 305, 26), way + "   ·   B 进入", body);
+            }
             if (journey.RuinGuide != null && journey.RuinGateCharge > 0)
             {
                 Paint(new Rect(44, 116, 186, 3), Opacity(GlassBlue, .19f));

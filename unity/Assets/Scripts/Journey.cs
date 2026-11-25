@@ -37,6 +37,8 @@ namespace Echoes
         public int ruinRetryRooms, ruinRetryRecord, ruinRetryLastLane, ruinRetryOutcome, ruinRetryAttempts;
         public bool ruinRetryWall;
         public float ruinRetryDepth;
+        public int ruinLoops;
+        public float ruinTravelTime;
         public bool complete;
     }
 
@@ -161,7 +163,7 @@ namespace Echoes
         public bool EnteredFromOpening => arrivedByOpening;
 
         public JourneyCheckpoint Checkpoint => new JourneyCheckpoint {
-            version = 6, chapter = Chapter, lesson = Lesson, plants = Plants, forestRoute = ForestRoute,
+            version = 7, chapter = Chapter, lesson = Lesson, plants = Plants, forestRoute = ForestRoute,
             forestSeed = forestSeed, forestReserve = savedForestLights, forestLane = savedForestLane,
             forestBranch = (int)savedForestBranch, forestSites = savedForestPlants, forestDepth = savedForestDepth,
             ruin = (int)RuinResult, starPaths = StarBits, withdrawals = Withdrawals, mistakes = Mistakes,
@@ -172,12 +174,13 @@ namespace Echoes
             ruinRetryRecord = (int)ruinRetryRecord, ruinRetryLastLane = ruinRetryLastLane,
             ruinRetryOutcome = (int)RuinRetryOutcome, ruinRetryAttempts = RuinRetryAttempts,
             ruinRetryWall = ruinRetryWall, ruinRetryDepth = RuinRetryWallDepth,
+            ruinLoops = ruinLoops, ruinTravelTime = ruinTravelTime,
             complete = Phase == Stage.Complete
         };
 
         public bool Restore(JourneyCheckpoint checkpoint)
         {
-            if (checkpoint.version < 2 || checkpoint.version > 6 || checkpoint.chapter < 0 || checkpoint.chapter > 2 ||
+            if (checkpoint.version < 2 || checkpoint.version > 7 || checkpoint.chapter < 0 || checkpoint.chapter > 2 ||
                 checkpoint.lesson < -1 || checkpoint.lesson > 2 || (checkpoint.lesson >= 0 && checkpoint.chapter != 0) ||
                 checkpoint.plants < 0 || checkpoint.plants > (checkpoint.version == 2 ? 2 : 3) ||
                 checkpoint.forestRoute < 0 || checkpoint.forestRoute > (checkpoint.version >= 4 ? 3 : 2) ||
@@ -232,6 +235,11 @@ namespace Echoes
                 ruinChestLootTaken = (ulong)checkpoint.ruinChestLootTaken;
                 ruinReleasedMemories = (ulong)checkpoint.ruinReleasedMemories;
                 RestoreRuinRetry(checkpoint);
+            }
+            if (checkpoint.version >= 7)
+            {
+                ruinLoops = Math.Max(0, Math.Min(999, checkpoint.ruinLoops));
+                ruinTravelTime = float.IsNaN(checkpoint.ruinTravelTime) ? 0 : Math.Max(0, Math.Min(180, checkpoint.ruinTravelTime));
             }
             StartSection();
             if (checkpoint.complete && Lesson < 0 && Chapter != 0) Complete();
@@ -436,7 +444,7 @@ namespace Echoes
         private static float Clamp(float value) => Math.Max(0, Math.Min(1, value));
 
         public string LeftLabel => Phase == Stage.Complete ? (Chapter < 2 ? "A · 下一章" : "A · 回看路线") :
-            RuinLootOpen ? "A · 切换" : Phase == Stage.RuinRetry ? RuinRetryLeftLabel :
+            RuinLootOpen ? "A · 切换" : Phase == Stage.RuinRetry ? RuinRetryLeftLabel : RuinCanChoosePassage ? "A · 留在本层" :
             InForest || InRuins ? "A · 向左" : Phase == Stage.Tutorial && Lesson == 2 ? "A · 看落点" : "A · 看一眼";
 
         public string RightLabel
@@ -446,6 +454,7 @@ namespace Echoes
                 if (Phase == Stage.Complete) return Chapter < 2 ? "B · 下一章" : "B · 听回响";
                 if (RuinLootOpen) return "B · 确认";
                 if (Phase == Stage.RuinRetry) return RuinRetryRightLabel;
+                if (RuinCanChoosePassage) return RuinGuide != null && !RuinGuide.Opened ? "完成门前动作" : "B · 进入岔口";
                 if (InForest || InRuins) return "B · 向右";
                 if (Phase == Stage.StarsDelegated) return "B · 收回授权";
                 if (Phase == Stage.StarsSeal) return "B · 留给自己";

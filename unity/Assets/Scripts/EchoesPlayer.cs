@@ -47,7 +47,8 @@ namespace Echoes
         private readonly float[] touchBegan = new float[4];
         private readonly bool[] pendingTouch = new bool[4];
         private Frame remote = new Frame();
-        private const string SaveKey = "EchoesUnity.Checkpoint.Ruins.6";
+        private const string SaveKey = "EchoesUnity.Checkpoint.Ruins.7";
+        private const string PreviousCircuitSaveKey = "EchoesUnity.Checkpoint.Ruins.6";
         private const string PreviousRuinsSaveKey = "EchoesUnity.Checkpoint.Ruins.5";
         private const string PreviousSaveKey = "EchoesUnity.Checkpoint.3D.2";
         private static readonly string[] Titles = { "沉睡森林", "回声遗迹", "星海回响" };
@@ -543,7 +544,8 @@ namespace Echoes
         public void Restore(string unused)
         {
             string save = PlayerPrefs.GetString(SaveKey,
-                PlayerPrefs.GetString(PreviousRuinsSaveKey, PlayerPrefs.GetString(PreviousSaveKey, "")));
+                PlayerPrefs.GetString(PreviousCircuitSaveKey,
+                    PlayerPrefs.GetString(PreviousRuinsSaveKey, PlayerPrefs.GetString(PreviousSaveKey, ""))));
             if (string.IsNullOrEmpty(save)) return;
             try
             {

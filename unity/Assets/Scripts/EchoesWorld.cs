@@ -13,6 +13,9 @@ namespace Echoes
         private readonly RenderTexture scene, graded;
         private readonly Material lens;
         private int lastWorld = -1, lastRuinRoom = -1;
+        private RuinPortal lastRuinPortal;
+        private RuinTrackConnection ruinPassage;
+        private RuinRouteFrame ruinPassageStart;
         private Stage lastPhase;
         private int lastCloseShot;
         private bool lastOpening, rendered;
@@ -96,7 +99,8 @@ namespace Echoes
             bool forest=!opening && journey.InForest;
             bool ruins=!opening && journey.InRuins;
             Vector3 forestActor=forest ? ForestActor(journey,frame) : Vector3.zero;
-            Vector3 ruinActor=ruins ? RuinActor(journey,frame) : Vector3.zero;
+            RuinRouteFrame ruinRoute=ruins ? RuinActor(journey,frame) : default;
+            Vector3 ruinActor=ruins ? ruinRoute.Position+Vector3.up*WorldSet.RuinY : Vector3.zero;
             Vector3 spatialActor=forest ? forestActor : ruinActor;
             float dt=Mathf.Min(.04f,UnityEngine.Time.unscaledDeltaTime);
             if (opening)
@@ -109,7 +113,7 @@ namespace Echoes
             {
                 Vector3 wanted,focus;
                 if (forest) ForestShot(journey,frame,forestActor,out wanted,out focus);
-                else if (ruins) RuinShot(journey,ruinActor,out wanted,out focus);
+                else if (ruins) RuinShot(journey,ruinRoute,out wanted,out focus);
                 else PlayCamera(journey,frame,speed,out wanted,out focus);
                 int closeShot = !forest ? 0 : journey.Phase==Stage.ForestDoor && journey.Progress>=.37f ? 1 :
                     journey.ForestTrap==ForestTrapKind.Cable && journey.Progress>=.66f ? 2 : 0;
@@ -117,7 +121,7 @@ namespace Echoes
                     (!lastOpening && frame.time < lastTravelTime) ||
                     (forest && !lastOpening && Mathf.Abs(journey.Distance-lastDistance)>7.5f) ||
                     (lastPhase==Stage.ForestDoor && journey.Phase!=Stage.ForestDoor) ||
-                    (ruins && (lastRuinRoom!=journey.RuinRoomId || lastPhase==Stage.RuinTransfer && journey.Phase==Stage.Complete));
+                    (ruins && lastRuinRoom!=journey.RuinRoomId && lastPhase!=Stage.RuinTransfer);
                 bool matchCut=closeShot!=0 && closeShot!=lastCloseShot;
                 lastCloseShot=closeShot;
                 if (cut)
@@ -128,11 +132,18 @@ namespace Echoes
                 }
                 else
                 {
-                    float track=ruins ? .16f : !forest ? .48f :
+                    bool activePassage=ruins && journey.Phase==Stage.RuinTransfer;
+                    float track=ruins ? (activePassage ? .076f : .14f) : !forest ? .48f :
                         journey.Phase==Stage.ForestDoor || journey.ForestTrap==ForestTrapKind.Cable ? .095f :
                         frame.forestMaze && journey.MazeMotion==ForestMazeMotion.FacingPassage ? .40f : .24f;
-                    position=matchCut ? wanted : Vector3.SmoothDamp(position,wanted,ref velocity,track,90,dt);
-                    sight=matchCut ? focus : Vector3.SmoothDamp(sight,focus,ref sightVelocity,track,90,dt);
+                    position=matchCut ? wanted : Vector3.SmoothDamp(position,wanted,ref velocity,track,activePassage?240:90,dt);
+                    sight=matchCut ? focus : Vector3.SmoothDamp(sight,focus,ref sightVelocity,track,activePassage?240:90,dt);
+                    if(activePassage)
+                    {
+                        float follow=OpeningStoryboard.Window(journey.Progress,.045f,.18f,.94f,1);
+                        position=Vector3.Lerp(position,wanted,follow);
+                        sight=Vector3.Lerp(sight,focus,follow);
+                    }
                     if(matchCut) velocity=sightVelocity=Vector3.zero;
                 }
                 float fov=ruins ? 55-3*frame.voice : 49-3*frame.voice;
@@ -184,7 +195,8 @@ namespace Echoes
             Vector3 actorAt=spatial ? spatialActor : camera.ViewportToWorldPoint(new Vector3(screen.x,1-screen.y,depth));
             float floor=forest ? frame.forestMaze ? journey.ForestMazeY :
                 WorldSet.ForestPoint(journey,frame.forestLane,journey.Distance,journey.ForestFlightFloor).y-.54f :
-                ruins ? WorldSet.RuinY : position.y<-.8f ? WorldSet.CaveFloor : WorldSet.Ground(actorAt.x,actorAt.z);
+                ruins ? WorldSet.RuinY+RuinTrack.Frame(journey.RuinRoomId,journey.RuinRoomLength,journey.Distance).Position.y :
+                position.y<-.8f ? WorldSet.CaveFloor : WorldSet.Ground(actorAt.x,actorAt.z);
             float weight=Mathf.Clamp01(1-(actorAt.y-floor-.72f)*.76f);
             Shader.SetGlobalVector(Footfall,new Vector4(actorAt.x,floor,actorAt.z,weight*(split?.25f:.58f)));
             if (opening)
@@ -200,7 +212,8 @@ namespace Echoes
 
             performer.Clear();
             float? facing=forest && frame.forestMaze ? (float?)frame.forestMazeHeading :
-                forest && journey.LeftMazeApproach ? (float?)MazeApproachYaw(journey) : null;
+                forest && journey.LeftMazeApproach ? (float?)MazeApproachYaw(journey) :
+                ruins ? (float?)(Mathf.Atan2(ruinRoute.Forward.x,ruinRoute.Forward.z)*Mathf.Rad2Deg) : null;
             if (!split) spirit.DrawInWorld(camera,screen,body,depth,key,performer,spatial,facing);
 
             camera.Render();
@@ -211,8 +224,6 @@ namespace Echoes
                     fade=Mathf.Lerp(fade,.07f,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.76f,1,journey.Progress)));
                 if (forest && (journey.Phase==Stage.ForestFalling || journey.Phase==Stage.ForestDoor))
                     fade *= 1-.93f*OpeningStoryboard.Ease(journey.Phase==Stage.ForestDoor?.89f:.79f,1,journey.Progress);
-                if (ruins && journey.Phase==Stage.RuinTransfer)
-                    fade *= 1-.94f*OpeningStoryboard.Ease(.60f,1,journey.Progress);
                 if (ruins && journey.RuinRetryState==RuinRetryPhase.Impact)
                     fade *= 1-.22f*OpeningStoryboard.Window(journey.Age,.41f,.45f,.49f,.65f);
                 lens.SetVector("_Lens",new Vector4(fade,opening?1:.25f,0,0));
@@ -227,29 +238,52 @@ namespace Echoes
             rendered=scene.IsCreated();
         }
 
-        private static Vector3 RuinActor(Journey journey,SpiritFrame frame)
+        private RuinRouteFrame RuinActor(Journey journey,SpiritFrame frame)
         {
-            Vector3 actor=WorldSet.RuinPoint(journey.RuinLane,journey.Distance,frame.altitude);
             RuinPortal portal=journey.RuinEntrance;
-            if (journey.Phase==Stage.Complete && portal!=null && portal.Direction==RuinDirection.Exit)
-                return WorldSet.RuinPoint(portal.Lane*.48f,portal.Depth+6.55f,.21f);
-            if (journey.Phase!=Stage.RuinTransfer || portal==null) return actor;
-            float t=journey.Progress;
-            Vector3 mouth=WorldSet.RuinPoint(portal.Lane,portal.Depth,portal.Altitude);
-            float move=OpeningStoryboard.Ease(0,.56f,t);
-            float cross=OpeningStoryboard.Ease(.35f,1,t);
-            Vector3 passage=new Vector3(portal.Direction==RuinDirection.Left ? -.68f : portal.Direction==RuinDirection.Right ? .68f : 0,
-                portal.Direction==RuinDirection.Upper ? 1.01f : portal.Direction==RuinDirection.Lower ? -.74f : 0,3.13f);
-            return Vector3.Lerp(actor,mouth,move)+passage*cross;
+            var track=RuinTrack.Frame(journey.RuinRoomId,journey.RuinRoomLength,journey.Distance);
+            if (journey.Phase!=Stage.RuinTransfer || portal==null)
+            {
+                lastRuinPortal=null;
+                var actor=new RuinRouteFrame(track.Point(2.45f*journey.RuinLane,.54f+3.30f*frame.altitude),track.Forward);
+                var retry=journey.RuinRetryState;
+                if(retry==RuinRetryPhase.Inactive || retry==RuinRetryPhase.Departure) return actor;
+                var barrier=RuinTrack.Frame(journey.RuinRoomId,journey.RuinRoomLength,journey.RuinRetryWallDepth-.18f);
+                float lockOn=retry==RuinRetryPhase.Impact ? OpeningStoryboard.Ease(0,.37f,journey.Age) : 1;
+                float metres=(journey.Distance-journey.RuinRetryWallDepth+.18f)*2.5f;
+                Vector3 clear=barrier.Point(journey.RuinLane*1.73f,.54f+3.30f*frame.altitude)+barrier.Forward*metres;
+                return new RuinRouteFrame(Vector3.Lerp(actor.Position,clear,lockOn),Vector3.Slerp(actor.Forward,barrier.Forward,lockOn));
+            }
+            if(lastRuinPortal!=portal)
+            {
+                ruinPassage=WorldSet.RuinConnection(journey,portal);
+                lastRuinPortal=portal;
+                var approach=RuinTrack.Frame(journey.RuinRoomId,journey.RuinRoomLength,journey.RuinPassageStartDepth);
+                ruinPassageStart=new RuinRouteFrame(approach.Point(journey.RuinPassageStartLane*2.45f,.54f+3.30f*journey.RuinPassageStartAltitude),approach.Forward);
+            }
+            return ruinPassage.Travel(ruinPassageStart,journey.Progress);
         }
 
-        private static void RuinShot(Journey journey,Vector3 actor,out Vector3 at,out Vector3 focus)
+        private void RuinShot(Journey journey,RuinRouteFrame actor,out Vector3 at,out Vector3 focus)
         {
             bool transfer=journey.Phase==Stage.RuinTransfer;
-            float cameraY=Mathf.Min(actor.y+1.50f,WorldSet.RuinY+6.56f);
-            float elevation=Mathf.Lerp(WorldSet.RuinY+1.65f,actor.y*.68f+(WorldSet.RuinY+1.9f)*.32f,.70f);
-            at=new Vector3(actor.x*.91f-.16f,cameraY,actor.z-4.9f);
-            focus=new Vector3(actor.x*.70f,elevation,actor.z+9.6f);
+            Vector3 offset=Vector3.up*WorldSet.RuinY;
+            if(transfer)
+            {
+                float near=OpeningStoryboard.Window(journey.Progress,.025f,.23f,.79f,1);
+                float back=Mathf.Lerp(4.63f,2.72f,near);
+                var trailing=ruinPassage.Travel(ruinPassageStart,journey.Progress,-back);
+                var ahead=ruinPassage.Travel(ruinPassageStart,journey.Progress,Mathf.Lerp(4.81f,2.82f,near));
+                at=offset+trailing.Section(-.065f,Mathf.Lerp(1.18f,.50f,near));
+                focus=offset+Vector3.Lerp(actor.Section(0,.14f),ahead.Section(0,.19f),.44f);
+                return;
+            }
+            var road=RuinTrack.Frame(journey.RuinRoomId,journey.RuinRoomLength,journey.Distance);
+            var next=RuinTrack.Frame(journey.RuinRoomId,journey.RuinRoomLength,journey.Distance+2.4f);
+            float actorHeight=actor.Position.y-road.Position.y;
+            float cameraHeight=Mathf.Min(actorHeight+1.5f,6.58f);
+            at=offset+road.Point(journey.RuinLane*2.23f-.16f,cameraHeight)-road.Forward*4.9f;
+            focus=offset+next.Point(journey.RuinLane*1.43f, Mathf.Lerp(1.65f,actorHeight*.70f+.60f,.76f));
             RuinRetryPhase retry = journey.RuinRetryState;
             if (retry != RuinRetryPhase.Inactive)
             {
@@ -258,25 +292,20 @@ namespace Echoes
                     ? OpeningStoryboard.Window(age,.37f,.45f,.49f,.73f)
                     : 0;
                 float closeIn = retry == RuinRetryPhase.Impact ? OpeningStoryboard.Ease(.16f,.73f,age) : 1;
-                Vector3 stage = new Vector3(actor.x*.39f-.20f,WorldSet.RuinY+1.52f + (actor.y-WorldSet.RuinY)*.32f,
-                    actor.z-4.25f-recoil*.66f);
-                stage.x += recoil * .16f;
-                stage.y += recoil * .12f;
+                var barrier=RuinTrack.Frame(journey.RuinRoomId,journey.RuinRoomLength,journey.RuinRetryWallDepth-.18f);
+                float separation=Mathf.Max(3.6f,(journey.RuinRetryWallDepth-journey.Distance)*2.1f+2.8f);
+                Vector3 stage=offset+barrier.Point(journey.RuinLane*.63f-.15f+recoil*.16f,
+                    1.54f+actorHeight*.27f+recoil*.12f)-barrier.Forward*(separation+recoil*.31f);
                 at = Vector3.Lerp(at, stage, closeIn);
-                focus = Vector3.Lerp(focus,new Vector3(actor.x*.20f, WorldSet.RuinY+1.84f, journey.RuinRetryWallDepth+.42f),closeIn);
+                focus = Vector3.Lerp(focus,offset+barrier.Point(journey.RuinLane*.49f,1.84f)+barrier.Forward*.42f,closeIn);
                 if (retry == RuinRetryPhase.Departure)
                 {
                     float follow = OpeningStoryboard.Ease(.07f,.62f,journey.Progress);
-                    at = Vector3.Lerp(at,actor+new Vector3(.1f,.52f,-3.12f),follow);
-                    focus = Vector3.Lerp(focus,actor+new Vector3(0,.12f,3.8f),follow);
+                    at = Vector3.Lerp(at,offset+actor.Point(.1f,.52f)-actor.Forward*3.68f,follow);
+                    focus = Vector3.Lerp(focus,offset+actor.Point(0,.12f)+actor.Forward*4.3f,follow);
                 }
                 return;
             }
-            if (!transfer) return;
-            float approach=OpeningStoryboard.Ease(.12f,.80f,journey.Progress);
-            float chase=Mathf.Lerp(-4.9f,-2.25f,approach);
-            at=Vector3.Lerp(at,actor+new Vector3(.10f,.45f,chase),approach);
-            focus=Vector3.Lerp(focus,actor+new Vector3(0,.18f,2.2f),approach);
         }
 
         private static Vector3 ForestActor(Journey journey,SpiritFrame frame)
@@ -481,7 +510,13 @@ namespace Echoes
             float mist=Mathf.Lerp(.032f,.049f,cave)-heaven*.025f;
             if (!opening && journey.InRuins)
             {
-                Color layerLight=WorldSet.RuinLight(journey.RuinRoomStyle);
+                Color layerLight=WorldSet.RuinGalleryAccentFor(journey.RuinRoomStyle,journey.RuinRoomId);
+                if(journey.Phase==Stage.RuinTransfer && journey.RuinEntrance!=null)
+                {
+                    int destination=journey.RuinEntrance.TargetRoom;
+                    Color arriving=WorldSet.RuinGalleryAccentFor(journey.RuinRoomStyleFor(destination),destination);
+                    layerLight=Color.Lerp(layerLight,arriving,OpeningStoryboard.Ease(.46f,.95f,journey.Progress));
+                }
                 air=Color.Lerp(new Color(.018f,.024f,.049f),layerLight,.106f);
                 dome=Color.Lerp(new Color(.012f,.011f,.030f),layerLight,.125f);
                 fill=Color.Lerp(new Color(.38f,.44f,.58f),layerLight,.23f);

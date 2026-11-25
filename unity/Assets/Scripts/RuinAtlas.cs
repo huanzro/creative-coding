@@ -121,6 +121,14 @@ namespace Echoes
             (dir, gate, hidden, target);
         private static (RuinDirection, RuinGate, bool, int) F(int target) => P(RuinDirection.Forward, RuinGate.Open, target);
 
+        // Keep the former forward slot and its random draws to preserve saved gate and item IDs.
+        private static readonly RuinDirection[] CircuitSpurs = {
+            RuinDirection.Lower, RuinDirection.Right, RuinDirection.Lower, RuinDirection.Left,
+            RuinDirection.Lower, RuinDirection.Right, RuinDirection.Upper, RuinDirection.Lower,
+            RuinDirection.Upper, RuinDirection.Right, RuinDirection.Lower, RuinDirection.Left,
+            RuinDirection.Lower, RuinDirection.Right, RuinDirection.Right, RuinDirection.Left
+        };
+
         internal static RuinRoom[] Build(int seed)
         {
             var random = new Random(seed);
@@ -144,12 +152,23 @@ namespace Echoes
                     var (dir, gate, hidden, destination) = connections[slot];
                     bool end = dir == RuinDirection.Forward;
                     float depth = end ? room.length : 13 + (room.length - 19) * slot / (float)(portals.Length - 1) + Offset(random, .85f);
-                    int lane = dir == RuinDirection.Left || dir == RuinDirection.Exit ? -1 :
-                        dir == RuinDirection.Right ? 1 : 0;
                     float height = dir == RuinDirection.Upper ? 1.23f + Offset(random, .07f) :
                         dir == RuinDirection.Lower ? .045f :
                         dir == RuinDirection.Exit ? .19f :
                         .30f + Offset(random, .11f);
+                    if (end)
+                    {
+                        dir = CircuitSpurs[roomId];
+                        depth = room.length - 6.4f;
+                        if (dir == RuinDirection.Upper) height = 1.23f + (height - .30f) * .58f;
+                        if (dir == RuinDirection.Lower) height = .055f;
+                    }
+                    else if (dir == RuinDirection.Exit)
+                    {
+                        dir = RuinDirection.Left;
+                        destination = 0;
+                    }
+                    int lane = dir == RuinDirection.Left ? -1 : dir == RuinDirection.Right ? 1 : 0;
                     int id = roomId * PassageSlots + slot;
                     portals[slot] = new RuinPortal(id, depth, height, lane, dir, gate, hidden,
                         destination, (roomId * 7 + slot * 3 + (seed & 7)) % 10);

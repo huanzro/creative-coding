@@ -37,9 +37,10 @@ function FlyRuin($game, $depth, $height, $lane) {
 }
 
 function FollowRuin($game, $portal, [switch]$AllowWall) {
-    $height = if ($portal.Direction -eq 'Forward') { .69 } else { $portal.Altitude }
-    FlyRuin $game ($portal.Depth + .15) $height $portal.Lane
+    FlyRuin $game ($portal.Depth + .10) $portal.Altitude $portal.Lane
     if ($AllowWall -and $game.Phase -eq 'RuinRetry') { return }
+    Assert ($game.RuinCanChoosePassage -and $game.RuinApproach -eq $portal -and $game.Phase -eq 'RuinExplore') 'The branch is optional until its entry is chosen.'
+    [void]$game.Touch(1)
     if ($portal.Gate -eq 'Palm' -and !$portal.Opened) {
         Assert ($game.RuinGuide -eq $portal) 'A selected palm gate pauses at its prompt.'
         Pose $game Fist .48 0
@@ -51,7 +52,7 @@ function FollowRuin($game, $portal, [switch]$AllowWall) {
     }
     Step $game .60 0
     Assert ($game.Phase -eq 'RuinTransfer' -and $game.RuinEntrance -eq $portal) 'The chosen threshold starts its directional transition.'
-    Step $game 1.30 0
+    Step $game ([Echoes.Journey]::RuinTransitionDuration + .05) 0
 }
 function Grant($game) {
     [void]$game.Touch(0)
@@ -418,6 +419,8 @@ $ruins.SelectChapter(1)
 Assert ($ruins.InRuins -and $ruins.RuinLayer -eq 0 -and $ruins.RuinVisitedCount -eq 1) 'The entrance is its own level with a threshold to restore.'
 $gate = $ruins.RuinPortals | Where-Object Gate -eq Palm
 FlyRuin $ruins $gate.Depth $gate.Altitude $gate.Lane
+Assert ($ruins.RuinApproach -eq $gate -and !$ruins.RuinGuide) 'A nearby locked gate is optional.'
+[void]$ruins.Touch(1)
 Assert ($ruins.RuinGuide -eq $gate -and !$gate.Opened) 'A closed side passage is encountered with an explicit guide.'
 Pose $ruins Fist .22 0
 Pose $ruins Open .03 0
@@ -425,6 +428,7 @@ Assert (!$gate.Opened) 'A short shake does not consume the optional gesture.'
 Pose $ruins Fist .45 0
 Pose $ruins Open .03 0
 Assert ($gate.Opened -and $ruins.Cue -eq 'RuinDoor') 'A timed release opens the palm door.'
+Assert ($ruins.Touch(0)) 'A explicitly leaves the opened gate.'
 RuinSteer $ruins 0
 Step $ruins .8 0
 Assert ($ruins.Phase -eq 'RuinExplore' -and $ruins.RuinRoomId -eq 0) 'Turning away can skip even an unlocked branch.'
@@ -442,12 +446,31 @@ $top = $ceilingRoute.RuinPortals | Where-Object Direction -eq Upper
 Pose $ceilingRoute Open (($top.Depth - 9.7) / 2.35) 0
 for ($attempt = 0; $attempt -lt 7 -and $ceilingRoute.Phase -eq 'RuinExplore'; $attempt++) {
     Pose $ceilingRoute Fist .18 .30
-    Pose $ceilingRoute Open .35 .30
+    Pose $ceilingRoute Open .00 .30
+    for ($scan = 0; $scan -lt 18 -and $ceilingRoute.Phase -eq 'RuinExplore'; $scan++) {
+        $ceilingRoute.Step(.02,.30)
+        if ($ceilingRoute.RuinCanChoosePassage -and $ceilingRoute.RuinApproach -eq $top) { [void]$ceilingRoute.Touch(1) }
+    }
 }
 Assert ($ceilingRoute.Phase -eq 'RuinTransfer' -and $ceilingRoute.RuinEntrance -eq $top -and
     $ceilingRoute.Flight.Height -gt 1) 'Actual repeated releases make the ceiling entrance reachable without a test altitude override.'
-Step $ceilingRoute 1.30 0
+Step $ceilingRoute ([Echoes.Journey]::RuinTransitionDuration + .06) 0
 Assert ($ceilingRoute.RuinLayer -eq 1) 'A ceiling branch leads to an independent upper floor.'
+
+$circuit = [Echoes.Journey]::new(44)
+$circuit.SelectChapter(1)
+$circuit.SetHand([Echoes.Hand]::Open)
+for ($sample = 0; $sample -lt 4000 -and $circuit.RuinLoops -eq 0; $sample++) { $circuit.Step(.02,0) }
+Assert ($circuit.RuinLoops -eq 1 -and $circuit.RuinRoomId -eq 0 -and $circuit.Phase -eq 'RuinExplore') 'Passing the seam continues the same room without forced transfer.'
+$resumed = [Echoes.Journey]::new(99)
+Assert ($resumed.Restore($circuit.Checkpoint) -and $resumed.RuinLoops -eq 1) 'Returning through a save retains completed circuits.'
+$resumed.SetHand([Echoes.Hand]::Open)
+for ($sample = 0; $sample -lt 4000 -and $resumed.Phase -eq 'RuinExplore'; $sample++) { $resumed.Step(.02,0) }
+Assert ($resumed.RuinRetryState -eq 'Impact' -and $resumed.RuinLoops -eq 2 -and $resumed.RuinRetryVisited -eq 0) 'Two main loops trigger the ending even without committing to a branch.'
+Step $resumed 4.3 0
+[void]$resumed.Touch(0)
+Step $resumed 10.5 0
+Assert ($resumed.Phase -eq 'Complete' -and $resumed.RuinRetryOutcome -eq 'Guided') 'The main-circuit ending remains finishable.'
 
 $heartbeat=[Echoes.Journey]::new(92)
 $heartbeat.SelectChapter(1)
@@ -484,7 +507,7 @@ for ($room=0; $room -lt 16; $room++) {
         else { $kinds[$item.Kind.ToString()]++ }
     }
 }
-Assert ($directions.Count -eq 6 -and $depths.Count -eq 7 -and $styles.Count -eq 10) 'The atlas has every entry direction, seven elevations and ten distinct chests.'
+Assert ($directions.Count -eq 4 -and $depths.Count -eq 7 -and $styles.Count -eq 10) 'The atlas has four voluntary entry directions, seven elevations and ten distinct chests.'
 Assert ($kinds.Phone -gt $kinds.Heart -and $kinds.Phone -gt $kinds.Brain -and $kinds.Computer -gt $kinds.Heart -and $kinds.Computer -gt $kinds.Brain) 'Both technological finds individually appear more frequently.'
 foreach ($start in 0..15) {
     $reached = [System.Collections.Generic.HashSet[int]]::new()
@@ -492,11 +515,11 @@ foreach ($start in 0..15) {
     $pending.Enqueue($start)
     while ($pending.Count -gt 0) {
         $found = $pending.Dequeue()
-        if (!$reached.Add($found) -or $found -eq -1) { continue }
+        if (!$reached.Add($found)) { continue }
         foreach ($next in $passages[$found]) { $pending.Enqueue($next) }
     }
-    Assert ($reached.Contains(-1)) 'Every room has a path to the voluntary exit.'
-    if ($start -eq 0) { Assert ($reached.Count -eq 17) 'Every layer and secret room is reachable from the entry.' }
+    Assert ($reached.Contains(0)) 'Every room can return to the entrance hall through optional branches.'
+    if ($start -eq 0) { Assert ($reached.Count -eq 16) 'Every layer and secret room is reachable from the entry.' }
 }
 
 $atlasSave.ruinFinds = -1
