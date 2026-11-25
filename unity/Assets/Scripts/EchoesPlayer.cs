@@ -16,6 +16,7 @@ namespace Echoes
         private int cast;
         private static readonly string[] CastNames = { "三维精灵", "绿金长裙精灵", "兜帽旅人", "星纹术士" };
         private Hand liveHand;
+        private StarTip liveIndexTip;
         private float liveVoice, lastHandAt, lastAudioAt;
 #if UNITY_WEBGL && !UNITY_EDITOR
         private float publishAt;
@@ -27,7 +28,8 @@ namespace Echoes
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
         private readonly WindowsExhibit exhibit = new WindowsExhibit();
 #endif
-        private int savedRevision;
+        private int savedRevision, savedStarInk;
+        private float nextInkSave;
         private const string LateralKey = "EchoesUnity.Forest.LateralScale";
         private const string MazeKey = "EchoesUnity.Forest.MazeScale";
         private const string WebKey = "EchoesUnity.Forest.WebRange";
@@ -49,7 +51,8 @@ namespace Echoes
         private readonly bool[] physicalTouchDown = new bool[2];
         private readonly bool[] browserTouch = new bool[2];
         private Frame remote = new Frame();
-        private const string SaveKey = "EchoesUnity.Checkpoint.Ruins.10";
+        private const string SaveKey = "EchoesUnity.Checkpoint.Ruins.11";
+        private const string PreviousRouteSaveKey = "EchoesUnity.Checkpoint.Ruins.10";
         private const string PreviousRuinExhibitsSaveKey = "EchoesUnity.Checkpoint.Ruins.9";
         private const string PreviousRuinLootSaveKey = "EchoesUnity.Checkpoint.Ruins.8";
         private const string PreviousGallerySaveKey = "EchoesUnity.Checkpoint.Ruins.7";
@@ -66,11 +69,12 @@ namespace Echoes
         [Serializable]
         private sealed class Frame
         {
-            public int chapter, round, lesson, choice, flock, quota;
+            public int chapter, lesson, choice, flock, quota;
             public float time, light, charge, voice, progress;
             public bool closed, waiting, complete, paused, preview;
             public string title, message, left, right, phase;
             public SpiritFrame spirit = new SpiritFrame { releaseAge = -1, turnAge = -1, touchAge = -1, openingTime = -1 };
+            public StarInkFrame starArtwork;
         }
 
 #if UNITY_WEBGL && !UNITY_EDITOR
@@ -159,58 +163,78 @@ namespace Echoes
             microphone.Update(now, dt);
             if (microphone.Ready) voice = microphone.Level;
 #endif
-            UpdateHand(keyboard, !paused && inputReady);
+            UpdateHand(keyboard, !paused && (inputReady || journey.InStars));
+            if (journey.InStars) UpdateIndexTip(keyboard, !paused && !settings, now);
             bool leftHeld = keyboard && Input.GetKey(KeyCode.A);
             bool rightHeld = keyboard && Input.GetKey(KeyCode.B);
             if (keyboard && Input.GetKeyDown(KeyCode.A) && (!journey.InForest || !rightHeld)) TrackTouch(0, true, false);
             if (keyboard && Input.GetKeyDown(KeyCode.B) && (!journey.InForest || !leftHeld)) TrackTouch(1, true, false);
             ResolveHeldSteering(leftHeld || view.ScreenTouchHeld(0), rightHeld || view.ScreenTouchHeld(1));
-            if (!paused) journey.Step(journey.IsOpening ? Time.unscaledDeltaTime : dt, inputReady ? voice : 0, inputReady);
+            if (!paused)
+            {
+                bool advance = inputReady || journey.InStars;
+                bool hear = journey.InStars ? preview || audioReady && now - lastAudioAt < .5f : inputReady;
+                journey.Step(journey.IsOpening ? Time.unscaledDeltaTime : dt, hear ? voice : 0, advance);
+            }
             UpdateMazeMap(keyboard);
             view.Advance(journey);
             openingSound.Follow(journey.IsOpening ? journey.OpeningTime : -1, paused);
             travelSound.Follow(journey, paused);
             forestAudio.Follow(journey,paused);
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
-            exhibit.HoldingAuthorization = journey.Phase == Stage.StarsDelegated;
             exhibit.Tick(now, !paused && !journey.IsOpening, Application.isFocused,
                 Mathf.Max(journey.Voice * .42f, journey.WindOutput), journey);
 #endif
 
-            if (!forestDebugPoint.HasValue && !journey.IsOpening && savedRevision != journey.Revision)
-            {
-                savedRevision = journey.Revision;
-                PlayerPrefs.SetString(SaveKey, JsonUtility.ToJson(journey.Checkpoint));
-                PlayerPrefs.Save();
-            }
+        }
 
+        private void SaveProgress(float now, bool flush = false)
+        {
+            if (forestDebugPoint.HasValue || journey.IsOpening || view == null) return;
+            bool artworkChanged = journey.InStars && savedStarInk != view.StarInkRevision;
+            if (savedRevision == journey.Revision && (!artworkChanged || !flush && now < nextInkSave)) return;
+            var checkpoint = journey.Checkpoint;
+            if (journey.InStars)
+            {
+                checkpoint.starArtwork = JsonUtility.ToJson(view.StarArtwork);
+                savedStarInk = view.StarInkRevision;
+                nextInkSave = now + .85f;
+            }
+            savedRevision = journey.Revision;
+            PlayerPrefs.SetString(SaveKey, JsonUtility.ToJson(checkpoint));
+            PlayerPrefs.Save();
+        }
+
+        private void Publish()
+        {
 #if UNITY_WEBGL && !UNITY_EDITOR
             if (Time.unscaledTime - publishAt > .08f)
             {
                 publishAt = Time.unscaledTime;
-                string json = JsonUtility.ToJson(Snapshot());
+                string json = JsonUtility.ToJson(Snapshot(splitProjection));
                 if (json != published) { published = json; EchoesPublish(json); }
             }
 #endif
         }
 
-        private Frame Snapshot()
+        private Frame Snapshot(bool includeArtwork = false)
         {
             string message = journey.InStars ? journey.StarInstruction : journey.Message;
             if (journey.ForestMazeWalkArea && journey.Phase == Stage.ForestExplore && string.IsNullOrEmpty(message))
                 message = Journey.MazeWalkHint;
             return new Frame {
-                chapter = journey.Chapter, round = journey.StarCount, lesson = journey.Lesson, choice = journey.ForestRoute,
+                chapter = journey.Chapter, lesson = journey.Lesson, choice = journey.ForestRoute,
                 flock = journey.InRuins ? journey.RuinInventory : journey.InForest ? journey.ForestLights : journey.Plants,
                 quota = journey.InRuins ? Journey.RuinCapacity : journey.InForest ? journey.ForestPlantsRequired : 2,
                 time = journey.Time,
                 light = journey.Light, charge = journey.Charge, voice = journey.Voice, progress = journey.Progress,
                 closed = journey.Gesture == Hand.Fist, complete = journey.Phase == Stage.Complete,
-                waiting = !inputReady || !journey.Started, paused = paused, preview = preview,
+                waiting = !journey.InStars && (!inputReady || !journey.Started), paused = paused, preview = preview,
                 title = journey.IsOpening ? "序幕" : journey.Lesson >= 0 ? "回声庭院 · 试玩" : Titles[journey.Chapter],
                 message = !journey.IsOpening && !journey.InStars && !paused && inputReady && journey.Gesture == Hand.Missing
                     ? "请把手放回画面，张开手继续。 " + message : message,
-                left = journey.LeftLabel, right = journey.RightLabel, phase = journey.Phase.ToString(), spirit = LocalSpirit
+                left = journey.LeftLabel, right = journey.RightLabel, phase = journey.Phase.ToString(), spirit = LocalSpirit,
+                starArtwork = includeArtwork && journey.InStars ? view.StarArtwork : null
             };
         }
 
@@ -234,15 +258,18 @@ namespace Echoes
             if (view == null) return;
             SpiritFrame frame = projection ? remote.spirit : LocalSpirit;
             view.UpdateSpirit(frame);
-            if (!projection && (!characterOnly || ShowProjectionCalibration))
+            if (projection) return;
+            if (!characterOnly || ShowProjectionCalibration || journey.InStars)
                 view.UpdateWorld(journey, frame, StageSplit, ShowProjectionCalibration);
+            SaveProgress(Time.unscaledTime);
+            Publish();
         }
 
         private void OnGUI()
         {
             if (projection)
             {
-                view.DrawProjection(remote.spirit, mirror, true);
+                view.DrawRemoteProjection(remote.spirit, mirror, remote.starArtwork);
                 return;
             }
             if (Event.current.type == EventType.Repaint)
@@ -264,7 +291,7 @@ namespace Echoes
                 option => Choose(option.ToString()), Select, () => Retry(""), () => Restore(""),
                 () => Pause(paused ? "0" : "1"), paused, characterOnly, journey.ForestMazeWalkArea,
                 journey.InForest || journey.InRuins && journey.Phase == Stage.RuinExplore && !journey.RuinLootOpen,
-                journey.InStars, !journey.InStars || journey.StarCanChoose,
+                journey.InStars,
                 ToggleSettings, settings ? DrawSettings : (Action<GUIStyle, GUIStyle>)null);
         }
 
@@ -336,7 +363,7 @@ namespace Echoes
                 PlayerPrefs.SetInt("EchoesUnity.Cast", cast);
                 PlayerPrefs.Save();
             }
-            bool world = GUI.Toggle(new Rect(20, 305, 300, 27), view.UseWorld, "星海使用三维背景");
+            bool world = GUI.Toggle(new Rect(20, 305, 300, 27), view.UseWorld, "试玩使用三维背景");
             if (GUI.Button(new Rect(336, 304, 166, 30), "森林调试断点", button)) forestDebugSettings = true;
             if (world != view.UseWorld)
             {
@@ -521,7 +548,8 @@ namespace Echoes
 
         public void BrowserHand(string value)
         {
-            liveHand = value == "open" ? Hand.Open : value == "closed" ? Hand.Fist : Hand.Missing;
+            if (!StarTip.Decode(value, out string state, out liveIndexTip)) state = "missing";
+            liveHand = state == "open" ? Hand.Open : state == "closed" ? Hand.Fist : Hand.Missing;
             lastHandAt = Time.unscaledTime;
             if (liveHand == Hand.Missing && !preview)
             {
@@ -567,7 +595,7 @@ namespace Echoes
                 browserTouch[option] = false;
                 return;
             }
-            if (preview || paused || !inputReady || browserTouch[option]) return;
+            if (preview || paused || !inputReady && !journey.InStars || browserTouch[option]) return;
             browserTouch[option] = true;
             Touch(option, false);
         }
@@ -585,7 +613,7 @@ namespace Echoes
 
         private void TrackTouch(int option, bool down, bool physical)
         {
-            bool active = !paused && inputReady && Application.isFocused;
+            bool active = !paused && (inputReady || journey.InStars) && Application.isFocused;
             if (physical)
             {
                 bool held = active && down;
@@ -598,17 +626,19 @@ namespace Echoes
 
         private void ResolveHeldSteering(bool left, bool right)
         {
-            bool active = Application.isFocused && !paused && inputReady;
+            bool playing = Application.isFocused && !paused;
+            bool active = playing && inputReady;
+            bool touchesActive = playing && (inputReady || journey.InStars);
             bool physicalReady = false;
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
             physicalReady = exhibit.Ready;
 #endif
-            if (!active || !physicalReady) Array.Clear(physicalTouchDown, 0, physicalTouchDown.Length);
+            if (!touchesActive || !physicalReady) Array.Clear(physicalTouchDown, 0, physicalTouchDown.Length);
             left = active && (left || physicalTouchDown[0]);
             right = active && (right || physicalTouchDown[1]);
             journey.SetMazeSteering(left, right);
             journey.SetForestLateralInput(left, right);
-            if (!active || preview) Array.Clear(browserTouch, 0, browserTouch.Length);
+            if (!touchesActive || preview) Array.Clear(browserTouch, 0, browserTouch.Length);
             journey.SetRuinSteering(left || browserTouch[0], right || browserTouch[1]);
         }
 
@@ -616,7 +646,7 @@ namespace Echoes
         {
             int cueBefore = journey.CueId;
             bool steering = journey.InForest || journey.InRuins;
-            if (paused || !inputReady || !journey.Touch(option)) return;
+            if (paused || !inputReady && !journey.InStars || !journey.Touch(option)) return;
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
             if (steering) return;
             bool changed = journey.CueId != cueBefore;
@@ -628,6 +658,7 @@ namespace Echoes
         public void Select(string value)
         {
             if (!int.TryParse(value, out int chapter) || chapter < -1 || chapter > 2) return;
+            if (journey.InStars) SaveProgress(Time.unscaledTime, true);
             forestDebugPoint = null;
             // Selecting a chapter is an explicit entry point, not a progress checkpoint.
             if (chapter == -1) journey.SelectPractice();
@@ -644,19 +675,22 @@ namespace Echoes
         public void Restore(string unused)
         {
             string save = PlayerPrefs.GetString(SaveKey,
-                PlayerPrefs.GetString(PreviousRuinExhibitsSaveKey,
+                PlayerPrefs.GetString(PreviousRouteSaveKey, PlayerPrefs.GetString(PreviousRuinExhibitsSaveKey,
                     PlayerPrefs.GetString(PreviousRuinLootSaveKey,
                         PlayerPrefs.GetString(PreviousGallerySaveKey,
                             PlayerPrefs.GetString(PreviousCircuitSaveKey,
-                                PlayerPrefs.GetString(PreviousRuinsSaveKey, PlayerPrefs.GetString(PreviousSaveKey, "")))))));
+                                PlayerPrefs.GetString(PreviousRuinsSaveKey, PlayerPrefs.GetString(PreviousSaveKey, ""))))))));
             if (string.IsNullOrEmpty(save)) return;
             try
             {
-                if (!journey.Restore(JsonUtility.FromJson<JourneyCheckpoint>(save))) return;
+                var checkpoint = JsonUtility.FromJson<JourneyCheckpoint>(save);
+                if (!journey.Restore(checkpoint)) return;
+                if (journey.InStars) view.RestoreStarArtwork(journey, checkpoint);
             }
             catch (ArgumentException) { return; }
             forestDebugPoint = null;
             savedRevision = journey.Revision;
+            savedStarInk = view.StarInkRevision;
         }
 
         public void Pause(string value) { paused = value == "1"; }
@@ -678,6 +712,7 @@ namespace Echoes
 
         private void OnDisable()
         {
+            if (!projection && journey.InStars) SaveProgress(Time.unscaledTime, true);
             SaveTuning();
 #if UNITY_EDITOR
             if (Active == this) Active = null;

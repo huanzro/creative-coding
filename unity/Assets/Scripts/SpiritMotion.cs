@@ -67,7 +67,7 @@ namespace Echoes
         private static readonly SpiritArm MawLowerPalm = new SpiritArm(new Vector3(.58f,-.43f,-.69f),
             new Vector3(.13f,-.27f,-.95f),.12f,.18f,20);
 
-        public static SpiritPose Sample(SpiritFrame frame, float tracked, float closed, float voice, float[] dance)
+        public static SpiritPose Sample(SpiritFrame frame, float tracked, float closed, float voice, float[] dance, float pointing = 0)
         {
             if (frame.openingTime >= 0) return ActOpening(frame.openingTime);
             SpiritDance.Sample(frame.phase, dance);
@@ -76,8 +76,8 @@ namespace Echoes
             float flight = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(.37f, .72f, voice));
             if (frame.chapter == 2)
             {
-                draw = Mathf.SmoothStep(0, 1, Mathf.Clamp01(frame.starFlow * 2.5f));
-                flight = frame.starFlow * .62f;
+                draw = pointing;
+                flight = frame.starThrust * .83f;
             }
             float touch = Envelope(frame.touchAge, .14f, .27f, .95f);
             float cast = Envelope(frame.releaseAge, .12f, .20f, .70f);
@@ -112,7 +112,7 @@ namespace Echoes
                     ApplyTouch(ref pose, frame.touch, touch, Measure, Offer, -28, 33, 3);
                     break;
                 case 2:
-                    SampleStarWriting(ref pose, frame, tracked, closed, draw, touch);
+                    SampleStarWriting(ref pose, frame, touch, pointing);
                     break;
                 default:
                     pose.left = SpiritArm.Blend(Rest, Reach, tracked);
@@ -191,26 +191,23 @@ namespace Echoes
             return pose;
         }
 
-        private static void SampleStarWriting(ref SpiritPose pose, SpiritFrame frame, float tracked, float closed, float draw, float touch)
+        private static void SampleStarWriting(ref SpiritPose pose, SpiritFrame frame, float touch, float pointing)
         {
-            var trail = StarTrailArt.Find(frame.starMotif);
-            Vector2 tangent = trail == null ? Vector2.zero : trail.Direction(frame.starProgress);
-            float attention = trail == null ? 0 : tracked * (1 - closed);
-            float upward = Mathf.Clamp01(.42f - tangent.y * .54f);
-            SpiritArm inkHand = SpiritArm.Blend(TouchLight, High, upward * .63f);
-            pose.right = SpiritArm.Blend(Rest, inkHand, attention * (.69f + .31f * draw));
-            pose.right = SpiritArm.Blend(pose.right, Hold, closed * .80f);
-            pose.left = SpiritArm.Blend(Rest, frame.starDelegated ? Offer : Wing, attention * (.34f + .46f * draw));
-            pose.left = SpiritArm.Blend(pose.left, Hold, closed * .59f);
-            pose.yaw += tangent.x * attention * (15 + 27 * draw);
-            pose.lean -= tangent.x * draw * 13;
-            pose.look += attention * (14 + 20 * tangent.x);
-            pose.nod += 11 * closed + tangent.y * (9 + 11 * draw);
-            pose.pitch += tangent.y * draw * 16;
-            pose.lift += .044f * draw;
-            pose.extension = draw * .63f;
-            pose.right.wristFlex += tangent.y * 18 * attention;
-            ApplyTouch(ref pose, frame.touch, touch * .72f, Measure, TouchLight, -19, 22, -8);
+            float aimX = (frame.starTipX - .5f) * 2 * pointing;
+            float aimY = (.5f - frame.starTipY) * 2 * pointing;
+            float pen = Mathf.Lerp(.50f + touch * .20f, 1, pointing);
+            var writingHand = new SpiritArm(new Vector3(.63f + aimX*.29f, -.34f+aimY*.39f, -.70f),
+                new Vector3(.42f + aimX*.68f, .19f+aimY*.57f, -.76f), .76f, .15f+touch*.32f, 10*aimY, 1);
+            pose.right = SpiritArm.Blend(Rest, writingHand, pen);
+            pose.right.point = 1;
+            pose.left = SpiritArm.Blend(Rest, Wing, .24f + frame.starThrust * .54f);
+            pose.yaw += aimX * 22 - frame.starThrust * 13;
+            pose.lean -= aimX * pen * 11;
+            pose.look += aimX * 23;
+            pose.nod -= aimY * 17;
+            pose.pitch += frame.starThrust * 16;
+            pose.lift += frame.starThrust * .063f;
+            pose.extension = frame.starThrust * .67f;
         }
 
         private static void ActRuins(ref SpiritPose pose, SpiritFrame frame, float closed, float glide, float turn)

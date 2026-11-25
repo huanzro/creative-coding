@@ -3,45 +3,76 @@ Shader "Hidden/Echoes/StarTrailInk"
     Properties { _MainTex ("Ink", 2D) = "black" {} }
     SubShader
     {
-        Cull Off ZWrite Off ZTest Always
+        Tags { "Queue"="Transparent" "RenderType"="Transparent" }
+        Cull Off ZWrite Off
+        CGINCLUDE
+            #include "UnityCG.cginc"
+            float4 _InkViewport;
+            struct Vertex { float4 vertex : POSITION; float4 color : COLOR; float2 uv : TEXCOORD0; };
+            struct Pixel { float4 position : SV_POSITION; fixed4 color : COLOR; float2 uv : TEXCOORD0; };
+            Pixel vert(Vertex v)
+            {
+                Pixel o;
+                o.position = UnityObjectToClipPos(v.vertex);
+                o.color = v.color;
+                o.uv = v.uv;
+                return o;
+            }
+            Pixel vertPortrait(Vertex v)
+            {
+                Pixel o;
+                o.position = float4(v.vertex.xy * _InkViewport.xy + _InkViewport.zw, 0, 1);
+                #if UNITY_UV_STARTS_AT_TOP
+                o.position.y = -o.position.y;
+                #endif
+                o.color = v.color;
+                o.uv = v.uv;
+                return o;
+            }
+            fixed4 glow(Pixel i) : SV_Target
+            {
+                float2 d = i.uv * 2 - 1;
+                float radiusSquared = d.x * d.x + d.y * d.y;
+                float halo = .34 * exp(-3.8 * radiusSquared) * (1 - smoothstep(.66, 1, radiusSquared));
+                float core = exp(-68 * radiusSquared);
+                float alpha = saturate((halo + core * .90) * i.color.a);
+                float3 tint = lerp(i.color.rgb, float3(.94, .98, 1), core * .57);
+                return fixed4(tint * alpha, alpha);
+            }
+        ENDCG
         Pass
         {
-            Blend One OneMinusSrcAlpha
+            Name "WorldInk"
+            ZTest LEqual
+            Blend One One, One OneMinusSrcAlpha
             CGPROGRAM
             #pragma vertex vert
-            #pragma fragment frag
-            #include "UnityCG.cginc"
-            struct InkVertex { float4 position : POSITION; fixed4 color : COLOR; };
-            struct InkFragment { float4 position : SV_POSITION; fixed4 color : COLOR; };
-            InkFragment vert(InkVertex value)
-            {
-                InkFragment output;
-                output.position = UnityObjectToClipPos(value.position);
-                output.color = value.color;
-                return output;
-            }
-            fixed4 frag(InkFragment IN) : SV_Target
-            {
-                return fixed4(IN.color.rgb * IN.color.a, IN.color.a);
-            }
+            #pragma fragment glow
             ENDCG
         }
         Pass
         {
+            Name "PortraitInk"
+            ZTest Always
+            Blend One One, One OneMinusSrcAlpha
+            CGPROGRAM
+            #pragma vertex vertPortrait
+            #pragma fragment glow
+            ENDCG
+        }
+        Pass
+        {
+            Name "StraightAlpha"
+            ZTest Always
             CGPROGRAM
             #pragma vertex vert_img
             #pragma fragment frag
             #include "UnityCG.cginc"
             sampler2D _MainTex;
-            float4 _InkProjection;
-            float2 _InkCenterExposure;
-            fixed4 frag(v2f_img IN) : SV_Target
+            fixed4 frag(v2f_img i) : SV_Target
             {
-                fixed4 ink = tex2D(_MainTex, IN.uv);
-                float2 offset = (IN.uv - _InkProjection.xy) * float2(16.0/9, 1);
-                float edge = smoothstep(_InkProjection.z, _InkProjection.z + _InkProjection.w, length(offset));
-                float gain = lerp(_InkCenterExposure.x, 1, edge);
-                return fixed4(ink.rgb / max(.0039, ink.a), ink.a * gain * _InkCenterExposure.y);
+                fixed4 ink = tex2D(_MainTex, i.uv);
+                return fixed4(ink.rgb / max(.0039, ink.a), ink.a);
             }
             ENDCG
         }

@@ -1,6 +1,7 @@
 /* Only the browser can grant device permissions. Unity owns the journey and
    sends render state back for the HTML controls and the second display. */
 import { GestureGate, handOpenness } from './browser/core.js';
+import { IndexTipTracker, withIndexTip } from './StreamingAssets/EchoesCamera/index-tip.mjs';
 import { MicrophoneInput } from './browser/audio-input.js';
 import { VolumeEnvelope, volumeSettings } from './browser/volume-core.js';
 import { comfortCalibration } from './browser/interaction-controls.js';
@@ -15,6 +16,7 @@ const projection = Boolean(projectionId);
 const room = projectionId || [...crypto.getRandomValues(new Uint32Array(3))].join('-');
 const channel = 'BroadcastChannel' in window ? new BroadcastChannel('echoes-unity-' + room) : null;
 const gesture = new GestureGate();
+const indexTracker = new IndexTipTracker();
 const volume = new VolumeEnvelope();
 const source = new MicrophoneInput(stopAudio);
 const video = ui('input-video');
@@ -97,6 +99,7 @@ function stopCamera() {
   handCalibration = null;
   ui('calibrate-hand').disabled = true;
   gesture.reset();
+  indexTracker.reset();
   send('BrowserHand', 'unknown');
   send('BrowserCameraReady', 0);
   text('camera', '开启摄像头');
@@ -155,6 +158,7 @@ function track(now) {
   if (video.readyState < 2 || video.currentTime === lastVideoTime) {
     if (now - lastHandFrame > 300) {
       gesture.reset();
+      indexTracker.reset();
       send('BrowserHand', 'unknown');
       text('hand-status', '等待摄像头画面');
     }
@@ -168,8 +172,10 @@ function track(now) {
     const score = handOpenness(points?.map(p => ({ x: p.x * aspect, y: p.y, z: p.z * aspect })));
     if (handCalibration) { calibrateHand(score, now); return; }
     gesture.update(score, now);
-    send('BrowserHand', gesture.state);
-    text('hand-status', { open: '已识别张手', closed: '已识别握拳', unknown: '请把手放回画面，先张开' }[gesture.state]);
+    const tip = indexTracker.update(points, aspect, now);
+    send('BrowserHand', withIndexTip(gesture.state, tip));
+    text('hand-status', tip ? '已识别食指位置' :
+      { open: '已识别张手', closed: '已识别握拳', unknown: '请把手放回画面，先张开' }[gesture.state]);
   } catch (error) {
     stopCamera();
     text('hand-status', '手势识别中断。' + error.message);
@@ -300,7 +306,7 @@ function configurePrimary() {
     text('title', state.title);
     text('cue', state.message);
     text('chapter-number', state.lesson >= 0 ? '练习 ' + (state.lesson + 1) + ' / 3' :
-      '第 ' + (state.chapter + 1) + ' 章 · ' + Math.min(state.round + 1, 3) + ' / 3' +
+      state.chapter === 2 ? '第 3 章 · 指尖绘画' : '第 ' + (state.chapter + 1) + ' 章' +
       (state.phase === 'Gather' || state.phase === 'Nest' ? ' · 萤火 ' + state.flock + ' / ' + state.quota :
         state.complete ? ' · ' + state.score + ' 分' : ''));
     text('choice-a', state.left);
@@ -323,6 +329,7 @@ function configurePrimary() {
     if (!stream) return;
     handCalibration = { open: null, started: 0, samples: [] };
     gesture.reset();
+    indexTracker.reset();
     send('BrowserHand', 'unknown');
     send('BrowserCameraReady', 0);
     stopOutputs();
@@ -335,7 +342,7 @@ function configurePrimary() {
       stopCamera();
       stopAudio();
       stopOutputs();
-      text('hand-status', '空格握拳，松开张手。A / B 选项。');
+      text('hand-status', state?.chapter === 2 ? '拖动鼠标画光。A / B 放出图案。' : '空格握拳，松开张手。A / B 选项。');
       text('mic-status', 'Z 轻声，X 舒适发声。');
       canvas.focus();
     }

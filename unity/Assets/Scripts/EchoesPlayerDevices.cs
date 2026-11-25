@@ -28,6 +28,27 @@ namespace Echoes
             journey.SetHand(gesture);
         }
 
+        private void UpdateIndexTip(bool keyboard, bool enabled, float now)
+        {
+            StarTip tip = default;
+            if (enabled)
+            {
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+                if (preview && desktopCamera.Active) tip = desktopCamera.ReadIndexTip();
+#endif
+                if (!preview && cameraReady && now - lastHandAt < .30f) tip = liveIndexTip;
+                if (!tip.Valid && keyboard && Input.GetMouseButton(0))
+                {
+                    Rect area = view.StageViewport;
+                    Vector3 mouse = Input.mousePosition;
+                    float x = (mouse.x - area.x) / area.width;
+                    float y = (Screen.height - mouse.y - area.y) / area.height;
+                    tip = new StarTip((x - .5f) / .82f + .5f, (y - .5f) / .71f + .5f);
+                }
+            }
+            journey.SetStarPointer(tip);
+        }
+
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
         private void OpenCameraPage()
         {
@@ -129,6 +150,7 @@ namespace Echoes
             GUI.Label(new Rect(20, 99, 485, 55), desktopCamera.Status, label);
             string hint = paused ? "游戏已暂停，点「继续」后可用手势。" : journey.IsOpening
                 ? "序幕播放中，进入关卡后可控制精灵。"
+                : journey.InStars ? "仅伸出食指指向镜头。识别页亮点会跟随指尖。"
                 : "在识别页点「打开独立预览」。握拳再张手即可起飞。";
             GUI.Label(new Rect(20, 151, 485, 33), hint, label);
 #endif

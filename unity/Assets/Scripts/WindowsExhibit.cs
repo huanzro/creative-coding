@@ -33,7 +33,6 @@ namespace Echoes
         public bool FanSupported { get; private set; }
         public bool LampsEnabled { get; set; }
         public bool FanEnabled { get; set; }
-        public bool HoldingAuthorization { get; set; }
         public string Status { get; private set; } = "串口未连接";
         public string LampTestStatus { get; private set; } = "";
         public bool LampTesting => lampTestAt >= 0;
@@ -244,7 +243,6 @@ namespace Echoes
         private float Lamp(int option, float now)
         {
             if (!LampsEnabled) return 0;
-            if (option == 1 && HoldingAuthorization) return 1;
             if (lampEnd[option] < 0) return 0;
             return Math.Max(0, Math.Min(1, 1 - (now - lampEnd[option]) / .42f));
         }

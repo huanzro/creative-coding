@@ -33,6 +33,8 @@ namespace Echoes
         private readonly List<TracePoint>[] traces = new List<TracePoint>[4];
         private float lastSample = float.NegativeInfinity, lastTrail = float.NegativeInfinity;
         private float tracked, closed, voice;
+        private float pointing;
+        private Vector2 starAim = new Vector2(.5f, .5f);
         private SpiritFrame previous;
         private SpiritPose pose;
         private Color poseTint;
@@ -41,6 +43,7 @@ namespace Echoes
 
         public bool Articulated => rendered;
         public Texture Texture => rendered ? target : (Texture)fallback;
+        public Vector3 WorldFingertip => sceneAnchors[1];
 
         internal readonly struct TracePoint
         {
@@ -118,14 +121,20 @@ namespace Echoes
 
             float elapsed = time - lastSample;
             float blend = elapsed <= 0 || elapsed > .4f ? 1 : 1 - Mathf.Exp(-elapsed / .145f);
-            tracked = Mathf.Lerp(tracked, frame.hand == Hand.Missing ? 0 : 1, blend);
-            closed = Mathf.Lerp(closed, frame.hand == Hand.Fist ? 1 : 0, blend);
+            tracked = Mathf.Lerp(tracked, frame.hand == Hand.Missing && !frame.starPointing ? 0 : 1, blend);
+            closed = Mathf.Lerp(closed, frame.hand == Hand.Fist && !frame.starPointing ? 1 : 0, blend);
             voice = Mathf.Lerp(voice, frame.voice, blend);
             lastSample = time;
             bool changedCast = previous.cast != frame.cast;
             bool changedDoor = frame.forestDoor != previous.forestDoor;
             previous = frame;
-            pose = SpiritMotion.Sample(frame, tracked, closed, voice, dance);
+            float aimBlend = elapsed <= 0 || elapsed > .4f ? 1 : 1 - Mathf.Exp(-elapsed / .072f);
+            var aimTarget = frame.starPointing ? new Vector2(frame.starTipX, frame.starTipY) : new Vector2(.5f, .5f);
+            starAim = Vector2.Lerp(starAim, aimTarget, aimBlend);
+            pointing = Mathf.Lerp(pointing, frame.starPointing ? 1 : 0, aimBlend);
+            frame.starTipX = starAim.x;
+            frame.starTipY = starAim.y;
+            pose = SpiritMotion.Sample(frame, tracked, closed, voice, dance, pointing);
             guest = Guest(frame.cast);
             guest?.Pose(pose);
             commands.Clear();

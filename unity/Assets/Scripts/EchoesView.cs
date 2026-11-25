@@ -194,7 +194,7 @@ namespace Echoes
                 return;
             }
             var color = palette[journey.Chapter];
-            bool spatial = (UseWorld || frame.forest || frame.ruins || previewWorld) && world != null && world.Ready;
+            bool spatial = (UseWorld || frame.forest || frame.ruins || journey.InStars || previewWorld) && world != null && world.Ready;
             if (spatial) Paint(new Rect(0,0,Width,Height),Color.white,world.Texture);
             else DrawLegacyBackground(journey, frame, color);
             if (journey.InStars)
@@ -414,7 +414,7 @@ namespace Echoes
 
         public void DrawControls(string heading, string message, string left, string right, float volume,
             Action<int> choose, Action<string> select, Action retry, Action restore, Action pause, bool paused,
-            bool characterOnly, bool mazeWalking, bool continuousTouch, bool stars, bool touchAvailable,
+            bool characterOnly, bool mazeWalking, bool continuousTouch, bool stars,
             Action toggleSettings, Action<GUIStyle, GUIStyle> settings)
         {
             PrepareInterface();
@@ -427,12 +427,12 @@ namespace Echoes
             GUI.Label(new Rect(44, 74, 650, 41), message, body);
             Paint(new Rect(26, 650, 1228, 50), new Color(.02f, .05f, .09f, .86f));
             bool enabled = GUI.enabled;
-            GUI.enabled = enabled && settings == null && touchAvailable;
+            GUI.enabled = enabled && settings == null;
             DrawTouchControl(new Rect(42, 658, 164, 34), left, 0, continuousTouch, choose);
             DrawTouchControl(new Rect(213, 658, 164, 34), right, 1, continuousTouch, choose);
             GUI.enabled = enabled && settings == null;
             GUI.Label(new Rect(393, 651, 310, 25), mazeWalking ? "A/B 转向 · 松开空格走 · 按住停" :
-                stars ? "空格提笔 · Z轻声 · X加速" : "空格握拳 · 松开张手 · Z轻声 · X加速", body);
+                stars ? "按住鼠标画光 · Z轻声 · X加速" : "空格握拳 · 松开张手 · Z轻声 · X加速", body);
             Paint(new Rect(396, 680, 270, 4), new Color(1, 1, 1, .2f));
             Paint(new Rect(396, 680, volume * 270, 4), new Color(.81f, .85f, 1));
             if (GUI.Button(new Rect(687, 658, 76, 34), paused ? "继续" : "暂停", button)) pause();
@@ -477,7 +477,7 @@ namespace Echoes
             spirit.Dispose();
             world?.Dispose();
             ReleasePlates();
-            ReleaseStarCanvas();
+            starInk.Dispose();
             UnityEngine.Object.Destroy(glow);
             UnityEngine.Object.Destroy(ring);
             UnityEngine.Object.Destroy(openingVignette);

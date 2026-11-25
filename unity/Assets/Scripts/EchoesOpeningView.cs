@@ -16,8 +16,7 @@ namespace Echoes
 
         public void UpdateWorld(Journey journey, SpiritFrame frame, bool split, bool previewWorld = false)
         {
-            if (journey.InStars) UpdateStarCanvas(journey);
-            if (frame.openingTime < 0 && !frame.forest && !frame.ruins && !UseWorld && !previewWorld) return;
+            if (frame.openingTime < 0 && !frame.forest && !frame.ruins && !journey.InStars && !UseWorld && !previewWorld) return;
             if (world == null) world = new EchoesWorld();
             Vector2 amber = Vector2.zero, red = Vector2.zero;
             if (frame.openingTime >= 0)
@@ -31,7 +30,7 @@ namespace Echoes
             }
             world.Render(journey,frame,spirit,split,TimeOfDay,ScrollSpeed,amber,red,
                 ScreenBrightness,ProjectionFalloff,ProjectionGradient,BackgroundBrightness,
-                ForestSpiderBrightness,ForestMawBrightness);
+                ForestSpiderBrightness,ForestMawBrightness,starInk);
             if (frame.openingTime >= 0 && !world.Ready) UpdatePlates(frame.openingTime);
         }
 

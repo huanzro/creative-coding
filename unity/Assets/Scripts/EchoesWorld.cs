@@ -96,10 +96,11 @@ namespace Echoes
 
         public void Render(Journey journey, SpiritFrame frame, SpiritRig spirit, bool split, int period, float speed,
             Vector2 amber, Vector2 scarlet, float brightness, float falloff, bool projectionGradient,
-            float backgroundBrightness = 1, float spiderBrightness = 1, float mawBrightness = 1)
+            float backgroundBrightness = 1, float spiderBrightness = 1, float mawBrightness = 1, StarInkSpace starInk = null)
         {
             if (set==null) return;
             bool opening=frame.openingTime>=0;
+            bool stars=!opening && journey.InStars;
             bool forest=!opening && journey.InForest;
             bool ruins=!opening && journey.InRuins;
             Vector3 forestActor=forest ? ForestActor(journey,frame) : Vector3.zero;
@@ -143,14 +144,14 @@ namespace Echoes
                     sight=matchCut ? focus : Vector3.SmoothDamp(sight,focus,ref sightVelocity,track,90,dt);
                     if(matchCut) velocity=sightVelocity=Vector3.zero;
                 }
-                float fov=ruins ? 55-3*frame.voice : journey.InStars ? 49 : 49-3*frame.voice;
+                float fov=ruins ? 55-3*frame.voice : 49-3*frame.voice;
                 if (ruins && journey.RuinRetryState != RuinRetryPhase.Inactive)
                     fov = journey.RuinRetryState == RuinRetryPhase.Impact
                         ? 55 - 7 * OpeningStoryboard.Window(journey.Age,.19f,.40f,.45f,1.16f)
                         : journey.RuinRetryState == RuinRetryPhase.Departure ? 57 : 50;
                 if (forest && journey.Section==ForestSection.Vestibule && journey.Phase!=Stage.ForestDoor) fov=54f;
                 if (forest && journey.Phase==Stage.ForestTrapped) fov=45f;
-                camera.fieldOfView=Mathf.Lerp(camera.fieldOfView,fov,dt*4);
+                camera.fieldOfView=stars ? StarInkSpace.FieldOfView : Mathf.Lerp(camera.fieldOfView,fov,dt*4);
             }
             sectionAge+=dt;
             lastWorld=journey.World;
@@ -175,14 +176,14 @@ namespace Echoes
                 new Vector3(.5f,SpiritFlight.ScreenY(frame.altitude),1);
             Vector2 screen = new Vector2(shotActor.x,shotActor.y);
             float body=162*shotActor.z;
-            if (!opening && journey.InStars)
+            if (stars)
             {
-                screen = Vector2.Scale(StarTrailArt.Actor(journey), new Vector2(1f / 1280, 1f / 720));
-                body = 122;
+                screen = new Vector2(.5f, .56f);
+                body = 142;
             }
             bool spatial=forest || ruins;
             Vector3 viewport=spatial ? camera.WorldToViewportPoint(spatialActor) : Vector3.zero;
-            float depth=spatial ? Mathf.Max(.2f,viewport.z) : ActorDepth(screen,body,journey,opening);
+            float depth=stars ? StarInkSpace.PerformerDepth : spatial ? Mathf.Max(.2f,viewport.z) : ActorDepth(screen,body,journey,opening);
             if(spatial)
             {
                 screen=new Vector2(viewport.x,1-viewport.y);
@@ -217,7 +218,15 @@ namespace Echoes
             float? facing=forest && (frame.forestMaze || journey.LeftMazeApproach ||
                 journey.Branch==ForestBranch.Right && journey.Distance<140) ? (float?)WorldSet.ForestHeading(journey) :
                 ruins ? (float?)(Mathf.Atan2(ruinRoute.Forward.x,ruinRoute.Forward.z)*Mathf.Rad2Deg) : null;
-            if (!split) spirit.DrawInWorld(camera,screen,body,depth,key,performer,spatial,facing,lens!=null);
+            if (!split || stars) spirit.DrawInWorld(camera,screen,body,depth,key,performer,spatial,facing,lens!=null);
+            if (stars)
+            {
+                if (split) performer.Clear();
+                Vector3 finger = spirit.Articulated ? spirit.WorldFingertip : actorAt;
+                Vector2 portrait = spirit.Articulated ? spirit.Landmark(1) : new Vector2(.23f, -.07f);
+                starInk?.Update(journey, camera, finger, portrait);
+                starInk?.DrawWorld(camera, performer);
+            }
 
             camera.Render();
             if (lens!=null)
@@ -717,10 +726,9 @@ namespace Echoes
             }
             else
             {
-                float z=9.3f+Mathf.Min(14,travel*.42f);
-                float orbit=Mathf.Sin(travel*.11f)*1.18f;
-                at=new Vector3(-1.7f+orbit+drift,WorldSet.StarY+3.3f,z);
-                focus=new Vector3(2.15f+orbit*.34f,WorldSet.StarY+7.1f,z+18.7f);
+                float z=9.3f+68*(1-Mathf.Exp(-travel/68));
+                at=new Vector3(-1.7f,WorldSet.StarY+3.3f,z);
+                focus=at + new Vector3(3.85f,3.8f,18.7f);
             }
         }
 

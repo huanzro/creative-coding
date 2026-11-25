@@ -11,9 +11,9 @@ namespace Echoes
     {
         Tutorial, Prologue, ForestRoute, ForestPlant, ForestWind, ForestCrossing,
         RuinGather, RuinVoice, RuinRelease, RuinMisread, RuinRepair, RuinSide, RuinCrossing,
-        StarsRoute, StarsDelegated, StarsDrawing, Complete,
+        Complete = 16,
         ForestExplore, ForestPlanting, ForestTrapped, ForestTransition,
-        ForestFalling, ForestDoor, ForestLoop, RuinExplore, RuinTransfer, RuinRetry, StarsRest, StarsWorkshop
+        ForestFalling, ForestDoor, ForestLoop, RuinExplore, RuinTransfer, RuinRetry, StarsCanvas
     }
     public enum JourneyCue
     {
@@ -23,15 +23,13 @@ namespace Echoes
         RuinWall, RuinReplay, RuinRetryBeat
     }
     public enum RuinPath { Unfinished, Repaired, Assisted, Arcade, Explored }
-    public enum StarPath { Unfinished, Manual, Delegated, Corrected }
 
     [Serializable]
     public struct JourneyCheckpoint
     {
-        public int version, chapter, lesson, plants, forestRoute, ruin, starPaths, withdrawals;
-        public int starMotifs, starHelpStarts, starHelpEnds, starLeft, starRight, starMotif;
-        public float starProgress, starMachineStart, starMachineEnd;
-        public bool starHelpUsed;
+        public int version, chapter, lesson, plants, forestRoute, ruin, starPaths, starMotifs;
+        public float starDepth, starTime;
+        public string starArtwork;
         public int forestSeed, forestReserve, forestLane, forestBranch, forestSites, forestDepth;
         public int ruinSeed, ruinRoom, ruinVisited;
         public long ruinFinds, ruinFindsExtra, ruinOpenLow, ruinOpenHigh, ruinExhibitOrder;
@@ -123,7 +121,6 @@ namespace Echoes
                 ResetForestHistory();
                 ResetRuinHistory();
                 RuinResult = RuinPath.Unfinished;
-                ResetStarHistory();
             }
             Chapter = chapter;
             Lesson = practice ? 0 : -1;
@@ -173,13 +170,10 @@ namespace Echoes
         public bool EnteredFromOpening => arrivedByOpening;
 
         public JourneyCheckpoint Checkpoint => new JourneyCheckpoint {
-            version = 10, chapter = Chapter, lesson = Lesson, plants = Plants, forestRoute = ForestRoute,
+            version = 11, chapter = Chapter, lesson = Lesson, plants = Plants, forestRoute = ForestRoute,
             forestSeed = forestSeed, forestReserve = savedForestLights, forestLane = savedForestLane,
             forestBranch = (int)savedForestBranch, forestSites = savedForestPlants, forestDepth = savedForestDepth,
-            ruin = (int)RuinResult, starPaths = StarBits, withdrawals = Withdrawals,
-            starMotifs = starMotifs, starHelpStarts = starHelpStarts, starHelpEnds = starHelpEnds,
-            starLeft = StarLeft, starRight = StarRight, starMotif = StarMotif, starProgress = StarProgress,
-            starMachineStart = StarMachineStart, starMachineEnd = StarMachineEnd, starHelpUsed = starHelpUsed,
+            ruin = (int)RuinResult, starDepth = InStars ? Distance : 0, starTime = InStars ? Time : 0,
             ruinSeed = ruinSeed, ruinRoom = ruinRoomId, ruinVisited = ruinVisited, ruinFinds = (long)ruinFinds,
             ruinFindsExtra = (long)ruinFindsExtra, ruinOpenLow = (long)ruinOpenLow, ruinOpenHigh = (long)ruinOpenHigh, ruinHeartSeen = ruinHeartSeen,
             ruinChestLootTaken = (long)ruinChestLootTaken, ruinReleasedMemories = (long)ruinReleasedMemories,
@@ -195,13 +189,15 @@ namespace Echoes
 
         public bool Restore(JourneyCheckpoint checkpoint)
         {
-            if (checkpoint.version < 2 || checkpoint.version > 10 || checkpoint.chapter < 0 || checkpoint.chapter > 2 ||
+            if (checkpoint.version < 2 || checkpoint.version > 11 || checkpoint.chapter < 0 || checkpoint.chapter > 2 ||
                 checkpoint.lesson < -1 || checkpoint.lesson > 2 || (checkpoint.lesson >= 0 && checkpoint.chapter != 0) ||
                 checkpoint.plants < 0 || checkpoint.plants > (checkpoint.version == 2 ? 2 : 3) ||
                 checkpoint.forestRoute < 0 || checkpoint.forestRoute > (checkpoint.version >= 4 ? 3 : 2) ||
                 checkpoint.forestReserve < 0 || checkpoint.forestReserve > 64 || Math.Abs((long)checkpoint.forestLane) > 1 ||
                 checkpoint.ruin < 0 || checkpoint.ruin > (checkpoint.version >= 5 ? 4 : 3) ||
-                (checkpoint.starPaths & ~63) != 0 || !ValidStarCheckpoint(checkpoint)) return false;
+                (checkpoint.starPaths & ~63) != 0 ||
+                !(checkpoint.starDepth >= 0 && checkpoint.starDepth <= 1000000 &&
+                  checkpoint.starTime >= 0 && checkpoint.starTime <= 1000000)) return false;
             if (checkpoint.version >= 4 && !IsForestCheckpointValid(checkpoint)) return false;
             if (checkpoint.version >= 5 &&
                 ((uint)checkpoint.ruinRoom >= RuinAtlas.RoomCount || (checkpoint.ruinVisited & ~65535) != 0)) return false;
@@ -346,8 +342,7 @@ namespace Echoes
             var previous = Gesture;
             Gesture = next;
             if (next == Hand.Open) Started = true;
-            if (InStars) SetStarHand(previous, next);
-            else if (previous == Hand.Fist && next == Hand.Open && (cameraGesture || Held >= .13f) && Phase != Stage.Complete &&
+            if (!InStars && previous == Hand.Fist && next == Hand.Open && (cameraGesture || Held >= .13f) && Phase != Stage.Complete &&
                 !IsForestSequence && !IsRuinSequence)
                 Release();
             Held = Charge = 0;
@@ -402,8 +397,7 @@ namespace Echoes
             {
                 Time += dt;
                 Age += dt;
-                if (Gesture == Hand.Fist) Held += dt;
-                Voice = Gesture == Hand.Open ? PoseVoice : 0;
+                Voice = PoseVoice;
                 UpdateStars(dt);
                 return;
             }
@@ -464,7 +458,7 @@ namespace Echoes
 
         private static float Clamp(float value) => Math.Max(0, Math.Min(1, value));
 
-        public string LeftLabel => InStars ? "A · 抽取光迹" : Phase == Stage.Complete ? "A · 下一章" :
+        public string LeftLabel => InStars ? "A · 流线" : Phase == Stage.Complete ? "A · 下一章" :
             RuinLootOpen ? "A · 切换" : Phase == Stage.RuinRetry ? RuinRetryLeftLabel :
             ForestMazeWalkArea ? "A · 左转" : InForest || InRuins ? "A · 向左" :
             Phase == Stage.Tutorial && Lesson == 2 ? "A · 看落点" : "A · 看一眼";
@@ -473,7 +467,7 @@ namespace Echoes
         {
             get
             {
-                if (InStars) return "B · 抽取光迹";
+                if (InStars) return "B · 星纹";
                 if (Phase == Stage.Complete) return "B · 下一章";
                 if (RuinLootOpen) return "B · 确认";
                 if (Phase == Stage.RuinRetry) return RuinRetryRightLabel;

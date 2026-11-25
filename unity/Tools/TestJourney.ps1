@@ -68,14 +68,6 @@ function FollowRuin($game, $portal, [switch]$AllowWall) {
     Assert ($game.Phase -eq 'RuinTransfer' -and $game.RuinEntrance -eq $portal -and $portal.Opened) 'The direction opens the chosen passage directly.'
     CrossRuin $game
 }
-function Draw-Star($game, $until = 1, $voice = .82) {
-    for ($i = 0; $i -lt 1500 -and $game.StarDrawing -and $game.StarProgress -lt $until; $i++) {
-        $game.Step(.02, $voice)
-    }
-    if ($until -eq 1) { Assert ($game.Phase -eq 'StarsRest') 'The curve finishes before it settles into the collection.' }
-    else { Assert ($game.StarProgress -ge $until) 'Voice reaches the designated point on the curve.' }
-}
-
 function Steer($game, $lane) {
     if ($game.Branch -eq 'Left' -and !$game.ForestMazeActive) { return }
     $rate = 1.35 * $game.ForestLateralScale
@@ -234,98 +226,44 @@ Step $game 3.55 0
 Assert ($game.Phase -eq 'Complete' -and $game.RuinResult -eq 'Explored' -and $game.RuinRetryOutcome -eq 'Remembered' -and $game.RuinRetryAttempts -eq 2) 'The remembered route completes without a quota and preserves retries.'
 [void]$game.Touch(1)
 Pose $game Open .1 0
-Assert ($game.Phase -eq 'StarsRoute' -and $game.StarScoreMargin -gt 4 -and $game.StarRecommendation -gt 0) 'The first pair shows the scored recommendation.'
-$first = $game.StarLeft
-Assert ($game.Touch(0) -and $game.StarMotif -eq $first -and $first -le 4) 'A picks from the flowing series.'
-Step $game .8 0
-Assert ($game.StarProgress -eq 0) 'Silence holds the starting mark.'
+Assert ($game.Phase -eq 'StarsCanvas' -and $game.Started) 'Ruins lead directly into the open Star Sea.'
+$game.SetHand([Echoes.Hand]::Missing)
+$initial = $game.Distance
+Assert ($game.Touch(0) -and $game.StarLastStamp -in 1..4) 'A immediately places one of its four original trails.'
+$first = $game.StarLastStamp
+Assert ($game.Touch(1) -and $game.StarLastStamp -in 5..8) 'B works without waiting for A or a gesture.'
+Step $game 3.2 0
+Assert ($game.Distance -eq $initial -and $game.Phase -eq 'StarsCanvas') 'Stamp animation does not carry the player or complete the chapter.'
+Assert ($game.Touch(0) -and $game.StarLastStamp -in 1..4 -and $game.StarLastStamp -ne $first) 'Repeated A taps sample the same group without an immediate repeat.'
+$game.SetStarPointer([Echoes.StarTip]::new(.38,.62))
+Assert ($game.StarPointer.Valid -and $game.Gesture -eq 'Missing') 'The position of the index finger is independent from open-hand and fist tracking.'
 Step $game 1 .30
-$soft = $game.StarProgress
-Step $game 1 .70
-Assert ($soft -gt 0 -and $game.StarProgress - $soft -gt $soft) 'Voice level changes forward speed.'
-$pause = $game.StarProgress
-Pose $game Fist .72 .93
-Assert ($game.StarProgress -eq $pause -and !$game.Touch(1)) 'Lifting the pen pauses without changing the current motif.'
-Pose $game Open .08 0
-Draw-Star $game
-Step $game 1.3 0
-Assert ($game.StarCount -eq 1 -and $game.StarMotifAt(0) -eq $first -and $game.StarRecommendation -eq 0 -and
-    $game.StarScoreMargin -le 4 -and $game.StarLeft -ne $first) 'The second pair keeps the artwork and surfaces comparable estimates.'
-Assert ($game.Touch(1) -and $game.StarMotif -gt 4) 'B picks from the geometric series.'
-Pose $game Missing 1 .94
-Assert ($game.StarProgress -eq 0 -and $game.StarFlow -eq 0) 'Missing hand input cannot draw.'
-Pose $game Open .02 0
-Draw-Star $game
-Step $game 1.30 0
-Assert ($game.Touch(0) -and $game.StarMotif -ne $first -and $game.StarCount -eq 2) 'Completed shapes never reappear as candidates.'
-Draw-Star $game .43
-$bounded = [Echoes.Journey]::new()
-Assert ($bounded.Restore($game.Checkpoint)) 'Restore the checkpoint inside the authorization range.'
-Pose $bounded Open .68 0
-Pose $bounded Fist .64 0
-Pose $bounded Open .06 0
-Assert ($bounded.Phase -eq 'StarsDelegated') 'A gesture can authorize a restored draft.'
-Draw-Star $bounded .69
-Assert ($bounded.Phase -eq 'StarsDrawing' -and $bounded.StarMachineEnd -eq [Echoes.Journey]::StarHelpEnd -and
-    !$bounded.StarCanBorrow) 'Authority returns at the previewed boundary and cannot be reused.'
-Pose $game Fist .64 0
-Assert ($game.StarAuthorization -eq 1) 'A deliberate hold prepares the bounded delegation.'
-Pose $game Open .80 0
-$authorized = $game.StarProgress
-Assert ($game.Phase -eq 'StarsDelegated' -and $game.StarMachineEnd -eq $authorized) 'Authorization still waits for voice to move.'
-Draw-Star $game .54
-$restoredDraft=[Echoes.Journey]::new()
-Assert ($restoredDraft.Restore($game.Checkpoint) -and $restoredDraft.Phase -eq 'StarsDrawing' -and
-    $restoredDraft.StarProgress -eq $game.StarProgress -and $restoredDraft.StarMachineEnd -gt $restoredDraft.StarMachineStart) 'A saved draft retains partial ink without reauthorizing the system.'
-$mainV8 = $game.Checkpoint
-$mainV8.version = 8
-$mainV8.ruinExhibitOrder = 0
-$mainV8.ruinFindsExtra = 0
-$mainV8.ruinReleasedMemoriesExtra = 0
-Assert ($restoredDraft.Restore($mainV8) -and $restoredDraft.Phase -eq 'StarsDrawing' -and
-    $restoredDraft.StarMotif -eq $game.StarMotif -and $restoredDraft.StarProgress -eq $game.StarProgress -and
-    $restoredDraft.StarMachineStart -eq $game.StarMachineStart -and $restoredDraft.StarMachineEnd -eq $game.StarMachineEnd) 'The earlier main save keeps its exact unfinished motif and delegated ink.'
-Pose $game Fist .14 .9
-Assert ($game.Phase -eq 'StarsDrawing' -and $game.Withdrawals -eq 4 -and $game.StarProgress -eq $game.StarMachineEnd) 'Withdrawal is immediate and preserves the drawn blue portion.'
-Pose $game Open .10 0
-Draw-Star $game
-Step $game 1.3 0
-Assert ($game.Phase -eq 'StarsWorkshop' -and $game.StarCount -eq 3 -and $game.PathAt(2) -eq 'Delegated' -and
-    !$game.Touch(0) -and !$game.Touch(1)) 'The finished work stays visible without a closing gesture.'
-$saved=[Echoes.Journey]::new()
-Assert ($saved.Restore($game.Checkpoint)) 'An earned checkpoint should load.'
-Assert ($saved.Phase -eq 'StarsWorkshop' -and $saved.Plants -eq 2 -and $saved.RuinResult -eq 'Explored' -and
-    $saved.RuinRetryOutcome -eq 'Remembered' -and $saved.StarCount -eq 3 -and $saved.Withdrawals -eq 4 -and
-    $saved.StarMotifAt(0) -eq $first -and $saved.StarMachineEndAt(2) -gt $saved.StarMachineStartAt(2)) 'Restore the exact constellation and its provenance.'
-Assert ($saved.Checkpoint.version -eq 10 -and $choiceSave.ruinExhibitOrder -ne 0 -and
-    $saved.Checkpoint.ruinExhibitOrder -eq $choiceSave.ruinExhibitOrder) 'The merged checkpoint stores the Ruins exhibition order alongside current Star ink.'
-foreach ($legacyVersion in 7, 8, 9) {
-    $legacy = $game.Checkpoint
-    $legacy.version = $legacyVersion
-    $legacy.complete = $true
-    # These saves only recorded the completed paths and withdrawals.
-    $legacy.starMotifs = $legacy.starHelpStarts = $legacy.starHelpEnds = 0
-    $legacy.starLeft = $legacy.starRight = $legacy.starMotif = 0
-    $legacy.starProgress = $legacy.starMachineStart = $legacy.starMachineEnd = 0
-    $legacy.starHelpUsed = $false
-    if ($legacyVersion -lt 9) { $legacy.ruinExhibitOrder = 0 }
-    Assert ($saved.Restore($legacy) -and $saved.Phase -eq 'StarsWorkshop' -and
-        $saved.StarCount -eq 3 -and $saved.Withdrawals -eq 4 -and
-        $saved.StarMotifAt(0) -gt 0 -and $saved.StarMotifAt(2) -gt 0 -and
-        $saved.PathAt(2) -eq 'Delegated' -and $saved.StarMachineEndAt(2) -gt $saved.StarMachineStartAt(2)) "Legacy version $legacyVersion reconstructs the constellation and its provenance."
-    Assert ($saved.Checkpoint.ruinExhibitOrder -eq $legacy.ruinExhibitOrder) "Legacy version $legacyVersion preserves the exhibition order when present."
-}
+$soft = $game.StarSpeed
+Step $game 1 .78
+Assert ($soft -gt 0 -and $game.StarSpeed -gt $soft -and $game.Distance -gt 1) 'Greater audio level drives deeper movement.'
+$game.SetStarPointer([Echoes.StarTip]::new(2,2))
+Assert (!$game.StarPointer.Valid) 'Dropping the pen is represented separately from forward movement.'
+Step $game .4 0
+$stopped = $game.Distance
+Step $game 1 0
+Assert ($game.Distance -eq $stopped -and $game.StarSpeed -eq 0) 'The camera comes to rest in silence.'
+$saved = [Echoes.Journey]::new()
+Assert ($saved.Restore($game.Checkpoint) -and $saved.Phase -eq 'StarsCanvas' -and $saved.Distance -eq $stopped -and
+    $saved.Plants -eq 2 -and $saved.RuinResult -eq 'Explored' -and $saved.RuinRetryOutcome -eq 'Remembered') 'Restore the existing route and precise Star Sea depth.'
+Assert ($saved.Checkpoint.ruinFindsExtra -eq $choiceSave.ruinFindsExtra -and
+    $saved.Checkpoint.ruinExhibitOrder -eq $choiceSave.ruinExhibitOrder) 'The Star Sea checkpoint preserves the Ruins exhibition history.'
+$legacy = $game.Checkpoint
+$legacy.version = 10
+$legacy.starPaths = 21
+$legacy.starMotifs = 1073
+$legacy.complete = $true
+Assert ($saved.Restore($legacy) -and $saved.Phase -eq 'StarsCanvas' -and $saved.Distance -eq 0 -and
+    $saved.RuinRetryOutcome -eq 'Remembered') 'A legacy constellation opens in the free-drawing level.'
 
 foreach ($seed in 1..40) {
     $draw = [Echoes.Journey]::new($seed)
     $draw.SelectChapter(2)
-    Assert ($draw.StarLeft -in 1..4 -and $draw.StarRight -in 5..8 -and $draw.StarRecommendation -gt 0) 'Every opening draw has both groups and a defensible recommendation.'
-    $draw.SetHand([Echoes.Hand]::Open)
-    $choice = $seed % 2
-    Assert ($draw.Touch($choice)) 'Either group is available.'
-    Draw-Star $draw 1 1
-    Step $draw 1.3 0
-    Assert ($draw.StarLeft -in 1..4 -and $draw.StarRight -in 5..8 -and $draw.StarRecommendation -eq 0) 'The ambiguity phase always has a real close score pair.'
+    Assert ($draw.Touch(0) -and $draw.StarLastStamp -in 1..4 -and $draw.Touch(1) -and $draw.StarLastStamp -in 5..8) 'Both randomized motif pools are available immediately in each run.'
 }
 
 function ReachesWall($maze,$node,$next) {

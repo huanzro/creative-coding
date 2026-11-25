@@ -119,9 +119,8 @@ namespace Echoes
         public int ruinRetryTraceLane;
         public float ruinLane, ruinSteering, ruinHeartAge, ruinTransfer, ruinUnlock;
         public RuinFindView[] ruinFinds;
-        public int starMotif;
-        public float starProgress, starFlow, starMachineStart, starMachineEnd;
-        public bool starDelegated;
+        public float starTipX, starTipY, starThrust;
+        public bool starPointing;
         public bool closed;
 
         public static SpiritFrame Read(Journey journey, int cast = 0)
@@ -194,9 +193,8 @@ namespace Echoes
             ruinTransfer = journey.Phase == Stage.RuinTransfer ? journey.Progress : -1,
             ruinUnlock = journey.RuinDoorOpening,
             ruinFinds = NearbyRuinFinds(journey),
-            starMotif = journey.StarMotif, starProgress = journey.StarProgress, starFlow = journey.StarFlow,
-            starMachineStart = journey.StarMachineStart, starMachineEnd = journey.StarMachineEnd,
-            starDelegated = journey.Phase == Stage.StarsDelegated,
+            starTipX = journey.StarPointer.X, starTipY = journey.StarPointer.Y,
+            starThrust = journey.StarSpeed / Journey.StarMaxSpeed, starPointing = journey.StarPointer.Valid,
             releaseAge = Age(journey.PoseTime, journey.LastRelease, 2.2f),
             turnAge = Age(journey.PoseTime, journey.LastSpin, 1.35f),
             touchAge = Age(journey.PoseTime, journey.LastTouch, .95f)

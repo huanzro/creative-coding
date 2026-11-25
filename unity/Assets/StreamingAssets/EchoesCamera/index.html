@@ -12,6 +12,7 @@
     .preview-frame { position: relative; aspect-ratio: 4 / 3; overflow: hidden; background: #080e0d; border-radius: .7rem; }
     video { display: block; width: 100%; height: 100%; object-fit: contain; transform: scaleX(-1); }
     .hand-guide { position: absolute; inset: 13% 24%; border: 2px dashed #e3fff09c; border-radius: .8rem; box-shadow: 0 0 0 1px #10231c9c; pointer-events: none; }
+    .index-tip { position: absolute; width: .64rem; height: .64rem; border-radius: 50%; background: #e8fffd; transform: translate(-50%,-50%); box-shadow: 0 0 12px #8cf5ff; pointer-events: none; }
     .floating-preview { height: 100dvh; margin: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; }
     .floating-preview .preview-frame { aspect-ratio: auto; border-radius: 0; }
     .preview-status { margin: 0; padding: .55rem .7rem; font-size: .875rem; }
@@ -23,10 +24,11 @@
 <body>
   <main>
     <h1>光的回响 · 手势识别</h1>
-    <p>把整只手放进框内，保持本页打开。回到游戏后握拳，再张手起飞。</p>
+    <p>把手放入画面，保持本页打开。在星海只伸出食指指向镜头，亮点会跟随指尖。森林和遗迹可用握拳再张手起飞。</p>
     <div id="preview-frame" class="preview-frame">
       <video id="preview" autoplay muted playsinline></video>
       <span class="hand-guide" aria-hidden="true"></span>
+      <span class="index-tip" hidden aria-hidden="true"></span>
     </div>
     <p id="status" role="status">正在准备摄像头…</p>
     <div class="actions">

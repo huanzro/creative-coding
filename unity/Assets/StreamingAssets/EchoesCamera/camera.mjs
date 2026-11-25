@@ -1,10 +1,12 @@
 import { handOpenness } from './core.js';
+import { IndexTipTracker, withIndexTip } from './index-tip.mjs';
 
 const video = document.getElementById('preview');
 const previewFrame = document.getElementById('preview-frame');
 const status = document.getElementById('status');
 const button = document.getElementById('camera');
 const previewButton = document.getElementById('popout');
+const indexTracker = new IndexTipTracker();
 const frameInterval = 48;
 const confirmPoseAfter = 38;
 const handLostAfter = 320;
@@ -12,7 +14,7 @@ const openThreshold = 1.58, closedThreshold = 1.38;
 const receivedPose = {
   open: 'Unity 已收到：张手',
   closed: 'Unity 已收到：握拳',
-  missing: 'Unity 已连接。把一只手放进画面，先张开手掌。'
+  missing: 'Unity 已连接。把一只手放进画面。'
 };
 let stream, detector, frameReader, timer, queuedState;
 let previewWindow, previewStatus;
@@ -24,6 +26,15 @@ function setStatus(text) {
   if (status.textContent === text) return;
   status.textContent = text;
   if (previewStatus) previewStatus.textContent = text;
+}
+
+function placeTip(frame, feed, tip) {
+  const marker = frame.querySelector('.index-tip');
+  marker.hidden = !tip || feed.videoWidth === 0 || frame.clientHeight === 0;
+  if (marker.hidden) return;
+  const scale = Math.min(frame.clientWidth / feed.videoWidth, frame.clientHeight / feed.videoHeight);
+  marker.style.left = frame.clientWidth * .5 + (tip.x - .5) * feed.videoWidth * scale + 'px';
+  marker.style.top = frame.clientHeight * .5 + (tip.y - .5) * feed.videoHeight * scale + 'px';
 }
 
 async function togglePreview() {
@@ -91,7 +102,7 @@ async function report(state) {
       queuedState = null;
       const response = await fetch('./state/' + next, { method: 'POST', cache: 'no-store' });
       if (!response.ok) throw new Error('Unity connection lost');
-      const label = receivedPose[next];
+      const label = next.includes('/') ? 'Unity 已收到：食指位置' : receivedPose[next];
       if (generation === current && label) setStatus(label);
     }
   } catch {
@@ -118,6 +129,8 @@ function releaseCamera() {
   pose = 'missing';
   candidate = null;
   lastLandmarksAt = -Infinity;
+  indexTracker.reset();
+  placeTip(previewFrame, video, null);
 }
 
 function stop(message, state = 'off') {
@@ -140,6 +153,7 @@ async function loadDetector() {
 
 function identify(source, aspect, now) {
   const points = source ? detector.detectForVideo(source, now).landmarks[0] : null;
+  const tip = indexTracker.update(points, aspect, now);
   const score = handOpenness(points?.map(point => ({ x: point.x * aspect, y: point.y, z: point.z * aspect })));
   if (now - lastLandmarksAt >= handLostAfter) {
     pose = 'missing';
@@ -153,7 +167,10 @@ function identify(source, aspect, now) {
   } else if (candidate && now - candidateAt >= confirmPoseAfter) {
     pose = candidate;
   }
-  void report(pose);
+  placeTip(previewFrame, video, tip);
+  const floating = previewWindow?.document.querySelector('.preview-frame');
+  if (floating) placeTip(floating, floating.querySelector('video'), tip);
+  void report(withIndexTip(pose, tip));
 }
 
 async function trackFrames(reader, current) {

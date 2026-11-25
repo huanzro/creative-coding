@@ -12,14 +12,15 @@ using System.Threading.Tasks;
 
 namespace Echoes
 {
-    // MediaPipe runs in the local permission page. The game receives only hand states over loopback.
+    // MediaPipe stays on the permission page. The loopback carries pose and normalized index coordinates.
     internal sealed class DesktopHandCamera : IDisposable
     {
         private sealed class Sample
         {
             public readonly string State;
+            public readonly StarTip Tip;
             public readonly long At = Stopwatch.GetTimestamp();
-            public Sample(string state) { State = state; }
+            public Sample(string state, StarTip tip = default) { State = state; Tip = tip; }
         }
 
         private sealed class Session
@@ -58,12 +59,18 @@ namespace Echoes
                 Stopwatch.GetTimestamp() - sample.At > PoseTimeoutSeconds * Stopwatch.Frequency;
             private static bool IsPose(string state) => state == "open" || state == "closed";
 
-            private void Receive(string state)
+            public StarTip ReadIndexTip()
+            {
+                Sample sample = latest;
+                return Stopwatch.GetTimestamp() - sample.At <= .30 * Stopwatch.Frequency ? sample.Tip : default;
+            }
+
+            private void Receive(string state, StarTip tip = default)
             {
                 lock (sampleLock)
                 {
                     string previous = State;
-                    latest = new Sample(state);
+                    latest = new Sample(state, tip);
                     if (!IsPose(state))
                     {
                         pendingPoses.Clear();
@@ -147,10 +154,10 @@ namespace Echoes
                             string path = line[1].Substring(prefix.Length);
                             if (line[0] == "POST" && path.StartsWith("state/", StringComparison.Ordinal))
                             {
-                                string state = path.Substring(6);
-                                if (ValidState(state))
+                                if (StarTip.Decode(path.Substring(6), out string state, out StarTip tip) &&
+                                    ValidState(state) && (!tip.Valid || IsPose(state) || state == "missing"))
                                 {
-                                    Receive(state);
+                                    Receive(state, tip);
                                     Reply(stream, "204 No Content", null, 0);
                                     return;
                                 }
@@ -182,6 +189,7 @@ namespace Echoes
                     case "": path = "index.html"; goto case "index.html";
                     case "index.html": kind = "text/html; charset=utf-8"; root = pageRoot; break;
                     case "camera.mjs": kind = "text/javascript; charset=utf-8"; root = pageRoot; break;
+                    case "index-tip.mjs": kind = "text/javascript; charset=utf-8"; root = pageRoot; break;
                     case "core.js":
                     case "vendor/vision_bundle.mjs":
                     case "vendor/wasm/vision_wasm_internal.js":
@@ -233,11 +241,13 @@ namespace Echoes
         private string error = "摄像头已关闭";
         public bool Active => session != null;
         public Hand ReadGesture(bool enabled) => session?.ReadGesture(enabled) ?? Hand.Missing;
+        public StarTip ReadIndexTip() => session?.ReadIndexTip() ?? default;
         public string Status
         {
             get
             {
                 if (!Active) return error;
+                if (ReadIndexTip().Valid) return "摄像头已启用，识别到食指坐标";
                 switch (session.State)
                 {
                     case "open": return "摄像头已启用，识别到张手";
