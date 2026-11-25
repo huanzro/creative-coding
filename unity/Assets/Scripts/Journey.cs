@@ -38,7 +38,6 @@ namespace Echoes
         public bool ruinRetryWall;
         public float ruinRetryDepth;
         public int ruinLoops;
-        public float ruinTravelTime;
         public bool complete;
     }
 
@@ -174,7 +173,7 @@ namespace Echoes
             ruinRetryRecord = (int)ruinRetryRecord, ruinRetryLastLane = ruinRetryLastLane,
             ruinRetryOutcome = (int)RuinRetryOutcome, ruinRetryAttempts = RuinRetryAttempts,
             ruinRetryWall = ruinRetryWall, ruinRetryDepth = RuinRetryWallDepth,
-            ruinLoops = ruinLoops, ruinTravelTime = ruinTravelTime,
+            ruinLoops = ruinLoops,
             complete = Phase == Stage.Complete
         };
 
@@ -239,7 +238,6 @@ namespace Echoes
             if (checkpoint.version >= 7)
             {
                 ruinLoops = Math.Max(0, Math.Min(999, checkpoint.ruinLoops));
-                ruinTravelTime = float.IsNaN(checkpoint.ruinTravelTime) ? 0 : Math.Max(0, Math.Min(180, checkpoint.ruinTravelTime));
             }
             StartSection();
             if (checkpoint.complete && Lesson < 0 && Chapter != 0) Complete();
@@ -400,6 +398,7 @@ namespace Echoes
             {
                 Time += dt;
                 Age += dt;
+                Voice = Gesture == Hand.Missing ? 0 : PoseVoice;
                 UpdateRuins(dt);
                 return;
             }
@@ -411,7 +410,11 @@ namespace Echoes
                 UpdateRuinRetry(dt);
                 return;
             }
-            if (!Started || Gesture == Hand.Missing) return;
+            if (!Started || Gesture == Hand.Missing)
+            {
+                if (InRuins) RuinForwardSpeed = 0;
+                return;
+            }
 
             Time += dt;
             Age += dt;
@@ -454,6 +457,7 @@ namespace Echoes
                 if (Phase == Stage.Complete) return Chapter < 2 ? "B · 下一章" : "B · 听回响";
                 if (RuinLootOpen) return "B · 确认";
                 if (Phase == Stage.RuinRetry) return RuinRetryRightLabel;
+                if (RuinCanTake) return RuinTakeLabel;
                 if (RuinCanChoosePassage) return RuinGuide != null && !RuinGuide.Opened ? "完成门前动作" : "B · 进入岔口";
                 if (InForest || InRuins) return "B · 向右";
                 if (Phase == Stage.StarsDelegated) return "B · 收回授权";

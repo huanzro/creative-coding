@@ -165,8 +165,8 @@ namespace Echoes
 
         private bool TryStartRuinRetry()
         {
-            bool traversedCircuit = ruinLoops >= 2 || ruinTravelTime >= 72f;
-            if (ruinRetryWall || (!traversedCircuit && RuinRetryVisited < RuinRetryRequired) ||
+            bool traversedGallery = ruinLoops >= 1;
+            if (ruinRetryWall || (!traversedGallery && RuinRetryVisited < RuinRetryRequired) ||
                 Distance < 5f || Distance > RuinRoomLength - 6.1f) return false;
             float at = Distance + WallApproach;
             foreach (var portal in RuinPortals)

@@ -115,8 +115,14 @@ namespace Echoes
                 float tryDepth = Mathf.Clamp(wanted + offset, 3.4f, journey.RuinRoomLength - 6.5f);
                 float clearance = tryDepth - previous;
                 foreach (RuinPortal mouth in journey.RuinPortals)
-                    if (mouth.Lane == side || mouth.Direction == RuinDirection.Upper || mouth.Direction == RuinDirection.Lower)
-                        clearance = Mathf.Min(clearance, Mathf.Abs(RuinTrack.Offset(mouth.Depth,tryDepth,journey.RuinRoomLength)));
+                {
+                    bool vertical = IsVerticalRuinGate(mouth.Direction);
+                    if (mouth.Lane == side || vertical)
+                    {
+                        float separation = Mathf.Abs(RuinTrack.Offset(mouth.Depth, tryDepth, journey.RuinRoomLength));
+                        clearance = Mathf.Min(clearance, separation - (vertical ? 1.55f : 0));
+                    }
+                }
                 float score = Mathf.Min(3.5f,clearance) - Mathf.Abs(offset)*.10f;
                 if (score <= best) continue;
                 closest = tryDepth;

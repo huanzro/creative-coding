@@ -137,9 +137,15 @@ namespace Echoes
 
         private static bool RuinGalleryBayClear(Journey journey, int room, float depth)
         {
+            float length = journey.RuinRoomLengthFor(room);
             foreach (RuinPortal portal in journey.RuinPortalsFor(room))
-                if (portal.Direction != RuinDirection.Forward && portal.Direction != RuinDirection.Exit &&
-                    Mathf.Abs(portal.Depth - depth) < 2.7f) return false;
+            {
+                if (portal.Direction == RuinDirection.Forward || portal.Direction == RuinDirection.Exit)
+                    continue;
+                float clearDepth = IsVerticalRuinGate(portal.Direction) ? 3.5f : 2.7f;
+                if (Mathf.Abs(RuinTrack.Offset(portal.Depth, depth, length)) < clearDepth)
+                    return false;
+            }
             return true;
         }
 

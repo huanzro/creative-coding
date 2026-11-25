@@ -28,7 +28,13 @@ namespace Echoes
                 ? $"上层 +{journey.RuinLayer}" : $"下层 {journey.RuinLayer}";
             Paint(new Rect(26, 130, 332, 35), InkGlass);
             GUI.Label(new Rect(43, 134, 310, 27), $"{level}   ·   {journey.RuinRoomName}", body);
-            if (journey.RuinCanChoosePassage && journey.RuinGuide == null)
+            if (journey.RuinSearchTarget != null && !journey.RuinLootOpen && !journey.RuinCanChoosePassage)
+            {
+                Paint(new Rect(26, 173, 332, 32), InkGlass);
+                GUI.Label(new Rect(43, 176, 305, 26),
+                    journey.RuinCanTake ? journey.RuinTakeLabel : "靠近墙龛了，停声查看", body);
+            }
+            else if (journey.RuinCanChoosePassage && journey.RuinGuide == null)
             {
                 string way;
                 switch (journey.RuinApproach.Direction)

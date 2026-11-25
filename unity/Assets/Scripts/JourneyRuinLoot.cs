@@ -100,7 +100,7 @@ namespace Echoes
 
         private void RefreshRuinLootContact()
         {
-            if (ruinLootClearedSource != null && (Math.Abs(ruinLootClearedSource.Depth - Distance) > .85f ||
+            if (ruinLootClearedSource != null && (Math.Abs(ruinLootClearedSource.Depth - Distance) > 1.98f ||
                 Math.Abs(ruinLootClearedSource.Lane - RuinLane) > .80f))
                 ruinLootClearedSource = null;
         }
@@ -130,7 +130,8 @@ namespace Echoes
             }
 
             RuinLootSource = item;
-            RuinSteering = ruinSteeringSpeed = 0;
+            RuinSteering = ruinSteeringSpeed = RuinForwardSpeed = 0;
+            RuinSearchTarget = null;
             ShowRuinLootDevices();
             return true;
         }

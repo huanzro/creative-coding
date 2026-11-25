@@ -14,12 +14,15 @@ namespace Echoes
         private const float VoiceTime = .48f;
         private const float HeartStartleTime = 1.45f;
         private const float EntryAltitude = .17f;
+        private const float RuinVoiceDeadZone = .12f;
+        private const float RuinFastSpeed = 4.2f;
+        private const float RuinSearchSpeed = .19f;
         private static readonly string[] RuinObjectLabels = { "心脏", "大脑", "手机", "电脑", "宝箱" };
 
         private RuinRoom[] ruinRooms;
         private int ruinSeed, ruinVisited, ruinRoomId, ruinLoops, ruinBypassedPortal = -1;
         private ulong ruinFinds, ruinOpenLow, ruinOpenHigh;
-        private float ruinHeartAt, ruinSteeringSpeed, ruinVoiceCharge, ruinTravelTime;
+        private float ruinHeartAt, ruinSteeringSpeed, ruinVoiceCharge;
         private bool ruinHeartSeen;
         private string ruinHint;
 
@@ -42,10 +45,15 @@ namespace Echoes
         public float RuinLane { get; private set; }
         public int RuinTargetLane { get; private set; }
         public float RuinSteering { get; private set; }
+        public float RuinForwardSpeed { get; private set; }
+        public RuinObject RuinSearchTarget { get; private set; }
+        public bool RuinCanTake => Phase == Stage.RuinExplore && !RuinLootOpen && RuinGuide == null &&
+            RuinSearchTarget != null && RuinForwardSpeed <= RuinSearchSpeed;
+        public string RuinTakeLabel => RuinSearchTarget?.Kind == RuinObjectKind.Chest ? "B · 打开宝箱" : "B · 拾取藏品";
         public RuinPortal RuinApproach { get; private set; }
         public RuinPortal RuinGuide { get; private set; }
         public RuinPortal RuinEntrance { get; private set; }
-        public bool RuinCanChoosePassage => Phase == Stage.RuinExplore && !RuinLootOpen &&
+        public bool RuinCanChoosePassage => Phase == Stage.RuinExplore && !RuinLootOpen && !RuinCanTake &&
             RuinApproach != null && (RuinGuide != null || CanChooseRuinPortal(RuinApproach));
         public float RuinGateCharge => RuinGuide == null || RuinGuide.Opened ? 0 :
             RuinGuide.Gate == RuinGate.Palm ? Clamp(Held / PalmTime) : Clamp(ruinVoiceCharge / VoiceTime);
@@ -71,7 +79,6 @@ namespace Echoes
             ruinRooms = null;
             ruinRoomId = ruinVisited = 0;
             ruinLoops = 0;
-            ruinTravelTime = 0;
             ruinFinds = ruinOpenLow = ruinOpenHigh = 0;
             ruinHeartSeen = false;
             ruinHeartAt = float.NegativeInfinity;
@@ -102,21 +109,26 @@ namespace Echoes
             }
             Distance = 0;
             RuinLane = RuinTargetLane = 0;
-            RuinSteering = ruinSteeringSpeed = ruinVoiceCharge = 0;
+            RuinSteering = ruinSteeringSpeed = ruinVoiceCharge = RuinForwardSpeed = 0;
+            RuinSearchTarget = null;
             RuinApproach = RuinGuide = RuinEntrance = null;
             ruinBypassedPortal = -1;
             foreach (var item in CurrentRuinRoom.Objects) item.Reveal = 0;
             float entryHeight = atThreshold && room == 0 ? EntryAltitude : RuinEntryAltitude;
             Flight.Reset(entryHeight, RuinHeightLimit);
-            ruinHint = room == 0 ? "A / B 换道，握拳后张手上升。对准岔口后，按 B 进入。" :
-                CurrentRuinRoom.Style == 5 ? "这里的光回不到主廊。靠近暗处，看清里面藏了什么。" :
-                room == RuinAtlas.ExitRoom ? "墙上的光纹开始朝同一个方向延伸。" :
-                "主路会绕回本层。横移或改变高度，在想走的岔口按 B。";
+            ruinHint = room == 0 ? "发声前进，停声停下。A / B 横移，握拳后张手上升。" :
+                CurrentRuinRoom.Style == 5 ? "墙后还有空间。沿两侧的微光找一找。" :
+                "发声前进。可在岔口换层，也可停下来查看墙边。";
             Change(Stage.RuinExplore, ruinHint);
         }
 
         private void RuinTouch(int option)
         {
+            if (option == 1 && RuinCanTake)
+            {
+                TakeRuinCache(RuinSearchTarget);
+                return;
+            }
             if (!RuinCanChoosePassage)
             {
                 RuinTargetLane = Math.Max(-1, Math.Min(1, RuinTargetLane + (option == 0 ? -1 : 1)));
@@ -137,17 +149,29 @@ namespace Echoes
                 return;
             }
             RuinGuide = portal;
+            RuinTargetLane = portal.Lane;
+            RuinForwardSpeed = 0;
+            RuinSearchTarget = null;
             Message = portal.Gate == RuinGate.Palm ? "掌印门。握拳半秒，再张开手。A 可返回主路。" :
                 "共鸣门。张手并轻声约半秒。A 可返回主路。";
         }
 
+        private static bool IsVerticalRuinPortal(RuinPortal portal) =>
+            portal.Direction == RuinDirection.Upper || portal.Direction == RuinDirection.Lower;
+
         private bool CanChooseRuinPortal(RuinPortal portal)
         {
+            if (portal.Id == ruinBypassedPortal) return false;
             float ahead = portal.Depth - Distance;
-            float height = portal.Direction == RuinDirection.Upper ? .31f : .26f;
-            return portal.Id != ruinBypassedPortal && ahead >= -.74f && ahead <= 2.20f &&
-                RuinTargetLane == portal.Lane && Math.Abs(RuinLane - portal.Lane) <= .34f &&
-                Math.Abs(Flight.Height - portal.Altitude) <= height;
+            float lateral = Math.Abs(RuinLane - portal.Lane);
+            float altitude = Flight.Height;
+            if (IsVerticalRuinPortal(portal))
+            {
+                bool aligned = portal.Direction == RuinDirection.Upper ? altitude >= .64f : altitude <= .53f;
+                return ahead >= -1.30f && ahead <= 4.15f && lateral <= .90f && aligned;
+            }
+            return ahead >= -.74f && ahead <= 2.20f && RuinTargetLane == portal.Lane &&
+                lateral <= .34f && Math.Abs(altitude - portal.Altitude) <= .26f;
         }
 
         // Gate-assisted hovering makes the short prompt forgiving without committing the player to that route.
@@ -175,7 +199,8 @@ namespace Echoes
         {
             if (IsRuinSequence)
             {
-                Progress = Clamp(Age / RuinTransitionDuration);
+                UpdateRuinForwardSpeed(dt);
+                Progress = Clamp(Progress + dt * (float)Math.Sqrt(RuinForwardSpeed / RuinFastSpeed) / RuinTransitionDuration);
                 if (Progress < 1) return;
                 RememberRuinPortal(RuinEntrance);
                 EnterRuinRoom(RuinEntrance.TargetRoom, false);
@@ -206,17 +231,14 @@ namespace Echoes
                     ruinVoiceCharge = Math.Max(0, ruinVoiceCharge + dt * (speaking ? 1 : -1.35f));
                     if (ruinVoiceCharge >= VoiceTime) OpenRuinGate(RuinGuide);
                 }
-                CollectRuinObjects(dt);
+                RuinSearchTarget = null;
                 return;
             }
             RuinGuide = null;
             ruinVoiceCharge = 0;
 
-            float air = Clamp(Flight.Height / .31f);
-            float speed = 2.35f + air * 2.1f + Voice * (1 + air * 3.5f);
-            if (RuinCanChoosePassage) speed *= .56f;
-            ruinTravelTime = Math.Min(180f, ruinTravelTime + dt);
-            Distance += speed * dt;
+            UpdateRuinForwardSpeed(dt);
+            Distance += RuinForwardSpeed * dt;
             if (Distance >= RuinRoomLength)
             {
                 Distance %= RuinRoomLength;
@@ -225,21 +247,31 @@ namespace Echoes
                 RuinApproach = null;
                 Revision++;
             }
-            CollectRuinObjects(dt);
-            if (RuinLootOpen || TryStartRuinRetry()) return;
+            UpdateRuinSearch(dt);
+            if (!RuinCanTake && RuinForwardSpeed > RuinSearchSpeed && TryStartRuinRetry())
+            {
+                RuinForwardSpeed = 0;
+                RuinSearchTarget = null;
+                return;
+            }
             RuinPortal approached = null;
+            float bestScore = float.PositiveInfinity;
             foreach (var portal in CurrentRuinRoom.Portals)
             {
                 float ahead = portal.Depth - Distance;
-                if (portal.Id == ruinBypassedPortal || ahead < -.74f || ahead > 7.0f) continue;
+                bool tall = IsVerticalRuinPortal(portal);
+                if (portal.Id == ruinBypassedPortal || ahead < (tall ? -1.3f : -.74f) || ahead > (tall ? 8.6f : 7f))
+                    continue;
                 float lateral = Math.Abs(RuinLane - portal.Lane);
                 float vertical = Math.Abs(Flight.Height - portal.Altitude);
-                if (CanChooseRuinPortal(portal))
+                bool canChoose = CanChooseRuinPortal(portal);
+                if (!canChoose && (lateral > (tall ? .98f : .72f) || vertical > (tall ? .85f : .57f))) continue;
+                float score = (canChoose ? 0 : 20) + Math.Abs(ahead) + lateral * 2 + vertical * 2;
+                if (score < bestScore)
                 {
                     approached = portal;
-                    break;
+                    bestScore = score;
                 }
-                if (approached == null && lateral < .72f && vertical < .57f) approached = portal;
             }
             if (Phase != Stage.RuinExplore || RuinGuide != null) return;
             if (approached != RuinApproach)
@@ -250,6 +282,13 @@ namespace Echoes
                         "隧道在这里分开。贴近后按 B 进入，继续飞就会留在当前层。";
                 else if (CueAge > 1.2f) Message = ruinHint;
             }
+        }
+
+        private void UpdateRuinForwardSpeed(float dt)
+        {
+            float target = RuinFastSpeed * Clamp((Voice - RuinVoiceDeadZone) / .76f);
+            float step = dt * (target < RuinForwardSpeed ? 18f : 5.6f);
+            RuinForwardSpeed += Math.Max(-step, Math.Min(step, target - RuinForwardSpeed));
         }
 
         private void UpdateRuinSteering(float dt)
@@ -267,58 +306,72 @@ namespace Echoes
             RuinPassageStartAltitude = Flight.Height;
             RuinEntrance = portal;
             RuinApproach = RuinGuide = null;
-            RuinSteering = ruinSteeringSpeed = 0;
+            RuinSteering = ruinSteeringSpeed = RuinForwardSpeed = 0;
+            RuinSearchTarget = null;
             Notify(JourneyCue.RuinTravel);
-            Change(Stage.RuinTransfer, "进入新的层道。");
+            Change(Stage.RuinTransfer, "发声穿过岔道，停声可以停下。");
         }
 
-        private void CollectRuinObjects(float dt)
+        private void UpdateRuinSearch(float dt)
         {
             RefreshRuinLootContact();
+            RuinSearchTarget = null;
+            float nearest = float.PositiveInfinity;
             foreach (var item in CurrentRuinRoom.Objects)
             {
                 float depth = item.Depth - Distance;
                 float lateral = Math.Abs(RuinLane - item.Lane);
                 float vertical = Math.Abs(Flight.Height - item.Altitude);
-                float reveal = depth > -1.8f && depth < 6.8f ?
-                    Clamp((6.8f - Math.Abs(depth)) / 5.10f) * Clamp(1.17f - .28f * lateral - .26f * vertical) : 0;
+                bool chest = item.Kind == RuinObjectKind.Chest;
+                float proximity = Clamp((6.7f - Math.Abs(depth)) / 5.5f);
+                float approach = Clamp((.86f - lateral) / .51f) * Clamp((.86f - vertical) / .55f);
+                float reveal = proximity * (chest ? .22f + .78f * approach : .13f + .87f * approach);
                 item.Reveal += (reveal - item.Reveal) * Follow(dt, 8.5f);
                 if (item.Collected)
                 {
                     item.OpenAge = Math.Min(10, item.OpenAge + dt);
-                    if (item.Kind != RuinObjectKind.Chest) continue;
+                    if (!chest || RuinChestRemaining(item) == 0) continue;
                 }
-                if (item.Kind == RuinObjectKind.Heart && !ruinHeartSeen && depth >= -.55f && depth < 2.45f &&
-                    lateral < .76f && vertical < .36f)
+                if (item.Kind == RuinObjectKind.Heart && !ruinHeartSeen && Math.Abs(depth) < 2.05f &&
+                    lateral < .48f && vertical < .43f)
                 {
                     ruinHeartAt = PoseTime;
                     ruinHeartSeen = true;
                     Notify(JourneyCue.RuinHeartbeat);
                     Revision++;
                 }
-                if (Math.Abs(depth) > .62f || lateral > .34f || vertical > .23f) continue;
-                if (item.Kind == RuinObjectKind.Chest)
-                {
-                    OfferRuinLoot(item);
-                    if (RuinLootOpen) return;
-                    continue;
-                }
-                if (RuinInventory >= RuinCapacity)
-                {
-                    if (item.Kind == RuinObjectKind.Phone || item.Kind == RuinObjectKind.Computer)
-                    {
-                        OfferRuinLoot(item);
-                        if (RuinLootOpen) return;
-                    }
-                    if (RuinGuide == null) Message = "收藏已满，15 件。仍可继续寻找出口和宝箱。";
-                    continue;
-                }
-                RecordRuinPickup(item);
-                if (RuinHeartAge < 0 || item.Kind != RuinObjectKind.Heart) Notify(JourneyCue.RuinCollect);
-                if (RuinGuide == null)
-                    Message = $"已收集{RuinObjectLabels[(int)item.Kind]}。";
-                Revision++;
+                if (item == ruinLootClearedSource || Math.Abs(depth) > (chest ? 1.25f : 1.85f) ||
+                    lateral > .44f || vertical > (chest ? .40f : .53f)) continue;
+                float score = Math.Abs(depth) + lateral + vertical;
+                if (score >= nearest) continue;
+                RuinSearchTarget = item;
+                nearest = score;
             }
+        }
+
+        private void TakeRuinCache(RuinObject item)
+        {
+            if (item.Kind == RuinObjectKind.Chest)
+            {
+                OfferRuinLoot(item);
+                return;
+            }
+            if (RuinInventory >= RuinCapacity)
+            {
+                if (IsRuinDevice(item.Kind)) OfferRuinLoot(item);
+                else
+                {
+                    Message = "收藏已满，15 件。藏品留在原处。";
+                    ruinLootClearedSource = item;
+                }
+                RuinSearchTarget = null;
+                return;
+            }
+            RecordRuinPickup(item);
+            RuinSearchTarget = null;
+            if (RuinHeartAge < 0 || item.Kind != RuinObjectKind.Heart) Notify(JourneyCue.RuinCollect);
+            Message = "已收集" + RuinObjectLabels[(int)item.Kind] + "。";
+            Revision++;
         }
 
         private void AddRuinFind(RuinObjectKind kind)

@@ -124,7 +124,8 @@ namespace Echoes
                 tunnelGates[i].OpenFraction = portal.Opened || portal.Gate == RuinGate.Open ? 1 : 0;
             }
 
-            wayfinding.gameObject.SetActive(journey.RuinRoomId == 0);
+            wayfinding.gameObject.SetActive(journey.RuinRoomId == 0 && journey.RuinVisitedCount == 1 &&
+                journey.RuinLoops == 0 && journey.Distance < 8.2f);
             var entranceRoad=RuinTrack.Frame(journey.RuinRoomId,journey.RuinRoomLength,2.6f);
             wayfinding.localPosition=entranceRoad.Point(-3.0f,2.56f);
             wayfinding.localRotation=entranceRoad.Rotation*Quaternion.Euler(1,-12,0);
@@ -216,10 +217,9 @@ namespace Echoes
             bool left = direction == RuinDirection.Left, right = direction == RuinDirection.Right;
             bool upper = direction == RuinDirection.Upper, lower = direction == RuinDirection.Lower;
             bool exit = direction == RuinDirection.Exit;
-            int faces = left ? 6 : right ? 8 : upper ? 20 : lower ? 4 : exit ? 12 : 10;
+            int faces = left ? 6 : right ? 8 : upper ? 20 : lower ? 8 : exit ? 12 : 10;
             float angleOffset = lower || right ? Mathf.PI / faces : 0;
-            Vector2 radius = new Vector2(exit ? 1.66f : lower ? 1.39f : upper ? 1.20f : 1.14f,
-                exit ? 1.86f : lower ? .73f : upper ? 1.43f : 1.23f);
+            Vector2 radius = RuinGateRadius(direction);
             for (int i = 0; i < faces; i++)
             {
                 float a = 2 * Mathf.PI * i / faces + angleOffset;
@@ -233,7 +233,7 @@ namespace Echoes
                     qWide + Vector3.forward * .83f, qWide - Vector3.forward * .13f, dark);
                 if (!left || i % 3 != 0)
                     RuinBar(trim, p * 1.082f - Vector3.forward * .108f, q * 1.082f - Vector3.forward * .108f,
-                        upper ? .024f : .047f, .047f, Color.white);
+                        upper || lower ? .052f : .047f, .047f, Color.white);
                 if (right && (i & 1) == 0)
                 {
                     Vector3 knuckle = (pWide + qWide) * .56f;
@@ -263,6 +263,21 @@ namespace Echoes
                 indicator.Rock(new Vector3(radius.x * 1.19f, y, -.21f), new Vector3(.057f, .05f, .05f),
                     Color.white, i * .41f, 3, 5, .035f);
             }
+            if (upper || lower)
+            {
+                float facing = upper ? 1 : -1;
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    float x = side * radius.x * .66f;
+                    for (int band = 0; band < 2; band++)
+                    {
+                        float y = facing * (.58f * radius.y + band * .18f);
+                        Vector3 peak = new Vector3(x, y + facing * .13f, -.17f);
+                        RuinBar(indicator, new Vector3(x - .17f, y, -.17f), peak, .035f, .023f, Color.white);
+                        RuinBar(indicator, peak, new Vector3(x + .17f, y, -.17f), .035f, .023f, Color.white);
+                    }
+                }
+            }
             float symbolY = radius.y * .39f;
             palm.Box(new Vector3(0, symbolY, -.29f), new Vector3(.19f, .17f, .028f), Quaternion.Euler(0,0,-8), highlight);
             for (int i = 0; i < 4; i++)
@@ -284,6 +299,22 @@ namespace Echoes
                 Signal = indicator.Finish("Passage markers"), Palm = palm.Finish("Palm illustration"), Voice = voice.Finish("Voice illustration") };
         }
 
+        private static bool IsVerticalRuinGate(RuinDirection direction) =>
+            direction == RuinDirection.Upper || direction == RuinDirection.Lower;
+
+        private static Vector2 RuinGateRadius(RuinDirection direction)
+        {
+            switch (direction)
+            {
+                case RuinDirection.Upper: return new Vector2(2.00f, 1.66f);
+                case RuinDirection.Lower: return new Vector2(2.08f, 1.37f);
+                case RuinDirection.Exit: return new Vector2(1.66f, 1.86f);
+                default: return new Vector2(1.14f, 1.23f);
+            }
+        }
+
+        private static float RuinGateScale(RuinDirection direction) => direction == RuinDirection.Lower ? 1.47f : 1.35f;
+
         private static Vector3 GatePoint(float angle, Vector2 radius, float z) =>
             new Vector3(Mathf.Cos(angle) * radius.x, Mathf.Sin(angle) * radius.y, z);
 
@@ -294,7 +325,7 @@ namespace Echoes
             Vector3 bore=RuinTrack.PortalForward(layout,gate);
             view.Root.localPosition=layout.Point(hole.x,hole.y)-bore*.20f;
             view.Root.localRotation=Quaternion.LookRotation(bore);
-            view.Root.localScale=Vector3.one*(gate.Direction==RuinDirection.Lower ? 1.47f : 1.35f);
+            view.Root.localScale=Vector3.one*RuinGateScale(gate.Direction);
             bool top=gate.Direction==RuinDirection.Upper, bottom=gate.Direction==RuinDirection.Lower;
             float range=RuinTrack.Offset(gate.Depth,journey.Distance,journey.RuinRoomLength);
             bool exit=false;
@@ -310,8 +341,10 @@ namespace Echoes
             view.RightDoor.gameObject.SetActive(shutter && opened < .998f);
             view.PalmHint.gameObject.SetActive(gate.Gate == RuinGate.Palm && !gate.Opened);
             view.VoiceHint.gameObject.SetActive(gate.Gate == RuinGate.Voice && !gate.Opened);
-            view.LeftDoor.localPosition = new Vector3(-.48f - opened * 1.18f, opened * .115f, .145f);
-            view.RightDoor.localPosition = new Vector3(.48f + opened * 1.18f, -opened * .08f, .145f);
+            float halfDoor = RuinGateRadius(gate.Direction).x * .48f;
+            float doorShift = halfDoor * (1 + 2.15f * opened);
+            view.LeftDoor.localPosition = new Vector3(-doorShift, opened * .115f, .145f);
+            view.RightDoor.localPosition = new Vector3(doorShift, -opened * .08f, .145f);
             view.LeftDoor.localRotation = Quaternion.Euler(0, opened * -70, opened * -6);
             view.RightDoor.localRotation = Quaternion.Euler(0, opened * 70, opened * 6);
             Color hue = exit ? new Color(1, .86f, .55f) : top ? new Color(.61f, .62f, 1) : bottom ? new Color(.35f, .83f, .86f) :
@@ -385,23 +418,30 @@ namespace Echoes
         {
             int artifacts = 0;
             int chests = 0;
+            int niches = 0;
             foreach (RuinObject item in journey.RuinObjects)
             {
-                float gap=RuinTrack.Offset(item.Depth,journey.Distance,journey.RuinRoomLength);
+                float gap = RuinTrack.Offset(item.Depth, journey.Distance, journey.RuinRoomLength);
                 if (gap < -6 || gap > 22) continue;
-                if (item.Collected && item.Kind != RuinObjectKind.Chest) continue;
-                if (item == journey.RuinLootSource && item.Kind != RuinObjectKind.Chest) continue;
-                var atFrame=RuinTrack.Frame(journey.RuinRoomId,journey.RuinRoomLength,item.Depth);
-                Vector3 at=atFrame.Point(item.Lane*2.45f,.54f+3.30f*item.Altitude);
-                float yaw = atFrame.Rotation.eulerAngles.y + item.Lane * -10;
+                var frame = RuinTrack.Frame(journey.RuinRoomId, journey.RuinRoomLength, item.Depth);
+                float height = .54f + 3.30f * item.Altitude;
+                float heading = frame.Rotation.eulerAngles.y;
                 if (item.Kind == RuinObjectKind.Chest)
                 {
+                    Vector3 at = frame.Point(item.Lane * 2.45f, height - .29f);
                     bool displaying = journey.RuinLootDisplaySource == item || item.Collected && journey.RuinChestRemaining(item) == 0;
-                    archiveObjects.UpdateChest(chests++, item.ChestStyle, at - Vector3.up * .29f, time, item.Reveal, displaying, yaw);
+                    archiveObjects.UpdateChest(chests++, item.ChestStyle, at, time, item.Reveal, displaying, heading - item.Lane * 10);
+                    continue;
                 }
-                else
-                    archiveObjects.UpdateArtifact(artifacts++, (int)item.Kind, at, time, item.Reveal, yaw);
+                DrawRuinNiche(niches++, item, frame, journey, time);
+                if (item.Collected || item == journey.RuinLootSource) continue;
+                float reach = Mathf.SmoothStep(0, 1, item.Reveal);
+                int side = item.Lane < 0 ? -1 : 1;
+                Vector3 relic = frame.Point(side * (RuinNicheLateral - reach * .19f), height)
+                    + frame.Forward * (.26f - reach * .37f);
+                archiveObjects.UpdateArtifact(artifacts++, (int)item.Kind, relic, time, item.Reveal, heading + side * 23);
             }
+            HideRuinNichesFrom(niches);
             archiveObjects.HideFrom(artifacts, chests);
             DrawRuinLootDevices(journey, time);
         }

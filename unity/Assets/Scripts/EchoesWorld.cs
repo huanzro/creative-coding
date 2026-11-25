@@ -278,12 +278,32 @@ namespace Echoes
                 focus=offset+Vector3.Lerp(actor.Section(0,.14f),ahead.Section(0,.19f),.44f);
                 return;
             }
-            var road=RuinTrack.Frame(journey.RuinRoomId,journey.RuinRoomLength,journey.Distance);
-            var next=RuinTrack.Frame(journey.RuinRoomId,journey.RuinRoomLength,journey.Distance+2.4f);
+            int room=journey.RuinRoomId;
+            float length=journey.RuinRoomLength;
+            float depth=journey.Distance;
+            var road=RuinTrack.Frame(room,length,depth);
+            var behind=RuinTrack.Frame(room,length,depth-RuinTrack.DepthForMetres(room,length,4.9f));
+            var next=RuinTrack.Frame(room,length,depth+RuinTrack.DepthForMetres(room,length,5.9f));
             float actorHeight=actor.Position.y-road.Position.y;
             float cameraHeight=Mathf.Min(actorHeight+1.5f,6.58f);
-            at=offset+road.Point(journey.RuinLane*2.23f-.16f,cameraHeight)-road.Forward*4.9f;
-            focus=offset+next.Point(journey.RuinLane*1.43f, Mathf.Lerp(1.65f,actorHeight*.70f+.60f,.76f));
+            float focusHeight=Mathf.Lerp(1.65f,actorHeight*.70f+.60f,.76f);
+            float mouthFraming=0;
+            bool upperMouth=false;
+            float centreWeight=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.08f,1,Mathf.Abs(journey.RuinLane)));
+            foreach(var portal in journey.RuinPortals)
+            {
+                bool upper=portal.Direction==RuinDirection.Upper;
+                if (!upper && portal.Direction!=RuinDirection.Lower || portal.Hidden && journey.RuinApproach!=portal) continue;
+                float ahead=RuinTrack.Offset(portal.Depth,depth,length);
+                float window=OpeningStoryboard.Window(ahead,-2.4f,.2f,3.9f,7.8f)*centreWeight;
+                if(window<=mouthFraming) continue;
+                upperMouth=upper;
+                mouthFraming=window;
+            }
+            cameraHeight=Mathf.Lerp(cameraHeight,Mathf.Min(cameraHeight,upperMouth ? 4.75f : 5.1f),mouthFraming);
+            focusHeight=Mathf.Lerp(focusHeight,upperMouth ? 5.62f : 1.25f,mouthFraming*(upperMouth ? .56f : .52f));
+            at=offset+behind.Point(journey.RuinLane*2.23f-.16f,cameraHeight);
+            focus=offset+next.Point(journey.RuinLane*1.43f,focusHeight);
             RuinRetryPhase retry = journey.RuinRetryState;
             if (retry != RuinRetryPhase.Inactive)
             {

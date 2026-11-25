@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Echoes
@@ -20,25 +21,189 @@ namespace Echoes
     {
         // One authored district occupies the centre. Other galleries use the surrounding grid
         // and multiple elevations, so crossing a side branch really leaves the original hull.
-        private const float Cell=53;
-        private const float Scale=2.5f;
+        private const float Cell=57;
         private static readonly int[] Cells={4,3,5,1,7,0,6,8,2,7,1,3,5,0,6,8};
         private static readonly int[] Elevations={0,0,0,1,0,-1,-2,-1,2,-2,3,-1,1,1,-3,-3};
         private static readonly float[] Heading={0,185,177,69,282,85,257,223,109,188,246,351,65,164,348,169};
-
-        public static RuinRouteFrame Frame(int room,float length,float depth)
+        // The first edge passes the entrance. Each plan has a distinct long sightline and a dogleg
+        // that hides the return, with enough room inside the bends for the full gallery cross-section.
+        private static readonly Vector2[][] Plans =
         {
-            int cell=Cells[room];
-            Vector3 centre=new Vector3((cell%3-1)*Cell,Elevations[room]*14.2f,(cell/3-1)*Cell);
-            float angle=Mathf.Repeat(depth/length,1)*2*Mathf.PI;
-            float radius=length*Scale/(2*Mathf.PI);
-            float bend=.12f + .02f*(room%4);
-            Quaternion heading=Quaternion.Euler(0,Heading[room],0);
-            Vector3 offset=new Vector3(radius*(Mathf.Cos(angle)+bend*Mathf.Cos(2*angle)),0,
-                radius*(.94f*Mathf.Sin(angle)+.07f*Mathf.Sin(3*angle)));
-            Vector3 tangent=new Vector3(-Mathf.Sin(angle)-2*bend*Mathf.Sin(2*angle),0,
-                .94f*Mathf.Cos(angle)+.21f*Mathf.Cos(3*angle));
-            return new RuinRouteFrame(centre+heading*offset,heading*tangent);
+            new[] { new Vector2(1,-1.18f), new Vector2(1,1.13f), new Vector2(-.35f,1.16f),
+                new Vector2(-1.18f,.57f), new Vector2(-.86f,-.19f), new Vector2(-1.19f,-1.10f), new Vector2(.10f,-1.23f) },
+            new[] { new Vector2(1.09f,-1.01f), new Vector2(1.09f,1.04f), new Vector2(.27f,1.18f),
+                new Vector2(-1.10f,.83f), new Vector2(-1.10f,-.87f), new Vector2(-.34f,-1.17f), new Vector2(.15f,-1) },
+            new[] { new Vector2(1.14f,-.98f), new Vector2(1.14f,.86f), new Vector2(.18f,1.22f),
+                new Vector2(-1.13f,.98f), new Vector2(-.92f,.24f), new Vector2(-1.12f,-.49f),
+                new Vector2(-.61f,-1.13f), new Vector2(.22f,-1.17f) },
+            new[] { new Vector2(.96f,-1.20f), new Vector2(.96f,.66f), new Vector2(.62f,1.17f), new Vector2(-.66f,1.17f),
+                new Vector2(-1.17f,.22f), new Vector2(-1.13f,-.89f), new Vector2(-.34f,-1.18f), new Vector2(.19f,-1.11f) }
+        };
+        private static readonly GalleryRoute[] Routes = new GalleryRoute[Cells.Length];
+
+        public static RuinRouteFrame Frame(int room,float length,float depth) => Route(room,length).Frame(depth);
+
+        public static float DepthForMetres(int room,float length,float metres) => metres * length / Route(room,length).Metres;
+
+        private static GalleryRoute Route(int room, float length)
+        {
+            var route = Routes[room];
+            if (route == null || route.LogicalLength != length)
+                Routes[room] = route = new GalleryRoute(room,length);
+            return route;
+        }
+
+        private sealed class GalleryRoute
+        {
+            private readonly GallerySegment[] segments;
+            private readonly Quaternion heading;
+            private readonly Vector3 centre;
+            private readonly float gradePhase;
+            public float LogicalLength { get; }
+            public float Metres { get; }
+
+            public GalleryRoute(int room,float length)
+            {
+                LogicalLength = length;
+                int cell = Cells[room];
+                centre = new Vector3((cell%3-1)*Cell,Elevations[room]*14.2f,(cell/3-1)*Cell);
+                heading = Quaternion.Euler(0,Heading[room],0);
+                gradePhase = room * 1.13f;
+                Vector2[] plan = Plans[room % Plans.Length];
+                int count = plan.Length;
+                float scale = Mathf.Clamp(length*.378f,16.3f,18.8f);
+                var corners = BuildCorners(plan,scale);
+
+                var parts = new List<GallerySegment>(count*2+1);
+                Vector2 seam = Vector2.Lerp(corners[0].End,corners[1].Start,.42f);
+                Vector2 lastPosition = seam;
+                float distance = 0;
+                for (int n = 1; n <= count; n++)
+                {
+                    GalleryCorner corner = corners[n%count];
+                    var straight = GallerySegment.Straight(lastPosition,corner.Start,distance);
+                    var bend = GallerySegment.Arc(corner,straight.EndDistance);
+                    parts.Add(straight);
+                    parts.Add(bend);
+                    lastPosition = corner.End;
+                    distance = bend.EndDistance;
+                }
+                var closing = GallerySegment.Straight(lastPosition,seam,distance);
+                parts.Add(closing);
+                segments = parts.ToArray();
+                Metres = closing.EndDistance;
+            }
+
+            private static GalleryCorner[] BuildCorners(Vector2[] plan,float scale)
+            {
+                int count=plan.Length;
+                var directions=new Vector2[count];
+                var distances=new float[count];
+                var turns=new float[count];
+                var setbacks=new float[count];
+                for(int i=0;i<count;i++)
+                {
+                    Vector2 edge=(plan[(i+1)%count]-plan[i])*scale;
+                    directions[i]=edge.normalized;
+                    distances[i]=edge.magnitude;
+                }
+                for(int i=0;i<count;i++)
+                {
+                    Vector2 incoming=directions[(i+count-1)%count], outgoing=directions[i];
+                    turns[i]=Mathf.Atan2(incoming.x*outgoing.y-incoming.y*outgoing.x,Vector2.Dot(incoming,outgoing));
+                    setbacks[i]=10.9f*Mathf.Tan(Mathf.Abs(turns[i])*.5f);
+                }
+                // Adjacent bends share the available straight. A shallow turn leaves more
+                // room for its neighbour so a short edge does not force a pinched corner.
+                for(int i=0;i<count;i++)
+                {
+                    int next=(i+1)%count;
+                    float available=Mathf.Min(1,.94f*distances[i]/(setbacks[i]+setbacks[next]));
+                    setbacks[i]*=available;
+                    setbacks[next]*=available;
+                }
+                var corners=new GalleryCorner[count];
+                for(int i=0;i<count;i++)
+                    corners[i]=new GalleryCorner(plan[i]*scale,directions[(i+count-1)%count],directions[i],turns[i],setbacks[i]);
+                return corners;
+            }
+
+            public RuinRouteFrame Frame(float depth)
+            {
+                float progress = Mathf.Repeat(depth / LogicalLength,1);
+                float distance = progress * Metres;
+                int index = 0;
+                while (index < segments.Length-1 && distance > segments[index].EndDistance) index++;
+                segments[index].Sample(distance,out Vector2 position,out Vector2 forward);
+
+                float angle = progress * (2*Mathf.PI);
+                float slopeWave = angle + gradePhase;
+                float height = .59f*(Mathf.Sin(slopeWave)-Mathf.Sin(gradePhase)) + .23f*Mathf.Sin(2*angle);
+                float grade = (2*Mathf.PI/Metres)*(.59f*Mathf.Cos(slopeWave) + .46f*Mathf.Cos(2*angle));
+                return new RuinRouteFrame(centre + heading*new Vector3(position.x,height,position.y),
+                    heading*new Vector3(forward.x,grade,forward.y));
+            }
+        }
+
+        private readonly struct GalleryCorner
+        {
+            public readonly Vector2 Start, End, Heading;
+            public readonly float Turn, Radius;
+
+            public GalleryCorner(Vector2 vertex,Vector2 incoming,Vector2 outgoing,float turn,float setback)
+            {
+                Heading = incoming;
+                Turn = turn;
+                Radius = setback/Mathf.Tan(Mathf.Abs(turn)*.5f);
+                Start = vertex-Heading*setback;
+                End = vertex+outgoing*setback;
+            }
+        }
+
+        private readonly struct GallerySegment
+        {
+            private readonly Vector2 start, forward, pivot;
+            private readonly float distance, turn;
+            public readonly float EndDistance;
+
+            private GallerySegment(Vector2 start,Vector2 forward,Vector2 pivot,float distance,float length,float turn)
+            {
+                this.start=start;
+                this.forward=forward;
+                this.pivot=pivot;
+                this.distance=distance;
+                this.turn=turn;
+                EndDistance=distance+length;
+            }
+
+            public static GallerySegment Straight(Vector2 start,Vector2 end,float distance)
+            {
+                Vector2 span=end-start;
+                return new GallerySegment(start,span.normalized,default,distance,span.magnitude,0);
+            }
+
+            public static GallerySegment Arc(GalleryCorner corner,float distance)
+            {
+                Vector2 normal=new Vector2(-corner.Heading.y,corner.Heading.x);
+                Vector2 pivot=corner.Start+normal*(Mathf.Sign(corner.Turn)*corner.Radius);
+                return new GallerySegment(corner.Start,corner.Heading,pivot,distance,Mathf.Abs(corner.Turn)*corner.Radius,corner.Turn);
+            }
+
+            public void Sample(float metres,out Vector2 at,out Vector2 heading)
+            {
+                float along = metres-distance;
+                if (turn == 0)
+                {
+                    at=start+forward*along;
+                    heading=forward;
+                    return;
+                }
+                float angle=turn*along/(EndDistance-distance);
+                float c=Mathf.Cos(angle), s=Mathf.Sin(angle);
+                Vector2 arm=start-pivot;
+                at=pivot+new Vector2(arm.x*c-arm.y*s,arm.x*s+arm.y*c);
+                heading=new Vector2(forward.x*c-forward.y*s,forward.x*s+forward.y*c);
+            }
         }
 
         public static float Offset(float depth,float origin,float length) => Mathf.Repeat(depth-origin+length*.5f,length)-length*.5f;
@@ -73,6 +238,7 @@ namespace Echoes
         private readonly Vector3 branch;
         private readonly int target;
         private readonly float targetLength;
+        private readonly float overpassHeight;
         private const int TravelSamples=160;
         private float[] cumulative;
         public readonly Vector3 Entrance, OpeningForward;
@@ -91,8 +257,8 @@ namespace Echoes
             a=Entrance+branch*5.0f;
             float gap=Vector3.Distance(a,entry);
             float span=Mathf.Clamp(gap*.26f,9,36);
-            float bypass=portal.Direction==RuinDirection.Left || portal.Direction==RuinDirection.Right ? 16 : 0;
-            b=a+branch*span+Vector3.up*bypass;
+            overpassHeight=portal.Direction==RuinDirection.Left || portal.Direction==RuinDirection.Right ? 16 : 0;
+            b=a+branch*span;
             d=entry;
             c=d-entryTangent*Mathf.Clamp(gap*.20f,8,32);
         }
@@ -106,7 +272,13 @@ namespace Echoes
         private Vector3 Along(float t)
         {
             if(t<=.07f) return Vector3.Lerp(Entrance,a,t/.07f);
-            if(t<.81f) return Cubic(a,b,c,d,(t-.07f)/.74f);
+            if(t<.81f)
+            {
+                float u=(t-.07f)/.74f;
+                // Ease the overpass onto the passage tangent before it climbs over the gallery.
+                float lift=overpassHeight*3*u*(1-u)*(1-u)*Mathf.SmoothStep(0,1,Mathf.Clamp01(u/.24f));
+                return Cubic(a,b,c,d,u)+Vector3.up*lift;
+            }
             float arrival=(t-.81f)/.19f;
             return RuinTrack.Frame(target,targetLength,Mathf.Lerp(-3.7f,0,arrival)).Point(0,Mathf.Lerp(.42f,.54f+3.30f*.072f,arrival));
         }

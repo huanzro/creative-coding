@@ -174,18 +174,23 @@ namespace Echoes
                         destination, (roomId * 7 + slot * 3 + (seed & 7)) % 10);
                 }
                 var objects = new RuinObject[room.chest < 0 ? 3 : 4];
+                int lastSide = 0;
                 for (int i = 0; i < 3; i++)
                 {
                     RuinObjectKind kind = i == 2 && roomId % 4 == 1 ? RuinObjectKind.Heart :
                         i == 2 && roomId % 4 == 3 ? RuinObjectKind.Brain :
                         (i + random.Next(2)) % 2 == 0 ? RuinObjectKind.Phone : RuinObjectKind.Computer;
-                    // Put the first heartbeat where it can be heard even when travelling low.
+                    // Keep the original seeded kind and draws so saved item IDs retain their contents.
                     if (roomId == 0 && i == 1) kind = RuinObjectKind.Heart;
                     float stop = room.length * (.18f + .22f * i) + Offset(random, 1.1f);
                     float height = kind == RuinObjectKind.Heart ? .25f + Offset(random, .05f) :
                         i == 0 ? .12f + Offset(random, .05f) : .36f + (float)random.NextDouble() * .89f;
                     int lane = roomId == 0 && i == 1 ? 0 : random.Next(-1, 2);
-                    objects[i] = new RuinObject(roomId * ObjectSlots + i, stop, height, lane, kind, -1);
+                    int side = lastSide != 0 ? -lastSide : lane == 0 ? ((roomId & 1) == 0 ? -1 : 1) : lane;
+                    lastSide = side;
+                    float shelf = Math.Max(.16f, Math.Min(.42f, .12f + height * .28f));
+                    stop = FindRuinCacheDepth(stop, room.length, portals, objects, i);
+                    objects[i] = new RuinObject(roomId * ObjectSlots + i, stop, shelf, side, kind, -1);
                 }
                 if (room.chest >= 0)
                     objects[3] = new RuinObject(roomId * ObjectSlots + 3, room.length * .72f + Offset(random, 1),
@@ -194,6 +199,27 @@ namespace Echoes
                 atlas[roomId] = new RuinRoom(room.name, room.layer, room.style, room.length, portals, objects);
             }
             return atlas;
+        }
+
+        private static float FindRuinCacheDepth(float origin, float length, RuinPortal[] portals, RuinObject[] objects, int count)
+        {
+            float best = origin;
+            float bestScore = float.NegativeInfinity;
+            for (int step = -12; step <= 12; step++)
+            {
+                float candidate = origin + step * .4f;
+                if (candidate < 4.6f || candidate > length - 5.2f) continue;
+                float clearance = 4.5f;
+                foreach (RuinPortal portal in portals)
+                    clearance = Math.Min(clearance, Math.Abs(portal.Depth - candidate));
+                for (int previous = 0; previous < count; previous++)
+                    clearance = Math.Min(clearance, Math.Abs(objects[previous].Depth - candidate));
+                float score = Math.Min(3.1f, clearance) - Math.Abs(candidate - origin) * .20f;
+                if (score <= bestScore) continue;
+                best = candidate;
+                bestScore = score;
+            }
+            return best;
         }
 
         private static float Offset(Random random, float radius) => (float)(random.NextDouble() * 2 - 1) * radius;

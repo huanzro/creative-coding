@@ -150,7 +150,7 @@ namespace Echoes
             List<RuinFindView> nearby = null;
             foreach (RuinObject item in journey.RuinObjects)
             {
-                if (item.Collected || item.Reveal <= .025f) continue;
+                if (item.Collected || item.Reveal <= .30f) continue;
                 float depth = item.Depth - journey.Distance;
                 float lane = item.Lane - journey.RuinLane;
                 float height = item.Altitude - journey.Flight.Height;
