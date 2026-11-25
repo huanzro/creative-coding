@@ -31,7 +31,7 @@ namespace Echoes
         public int version, chapter, lesson, plants, forestRoute, ruin, starPaths, withdrawals, mistakes;
         public int forestSeed, forestReserve, forestLane, forestBranch, forestSites, forestDepth;
         public int ruinSeed, ruinRoom, ruinVisited;
-        public long ruinFinds, ruinFindsExtra, ruinOpenLow, ruinOpenHigh;
+        public long ruinFinds, ruinFindsExtra, ruinOpenLow, ruinOpenHigh, ruinExhibitOrder;
         public bool ruinHeartSeen;
         public long ruinChestLootTaken, ruinReleasedMemories, ruinReleasedMemoriesExtra;
         public int ruinRetryRooms, ruinRetryRecord, ruinRetryLastLane, ruinRetryOutcome, ruinRetryAttempts;
@@ -162,7 +162,7 @@ namespace Echoes
         public bool EnteredFromOpening => arrivedByOpening;
 
         public JourneyCheckpoint Checkpoint => new JourneyCheckpoint {
-            version = 8, chapter = Chapter, lesson = Lesson, plants = Plants, forestRoute = ForestRoute,
+            version = 9, chapter = Chapter, lesson = Lesson, plants = Plants, forestRoute = ForestRoute,
             forestSeed = forestSeed, forestReserve = savedForestLights, forestLane = savedForestLane,
             forestBranch = (int)savedForestBranch, forestSites = savedForestPlants, forestDepth = savedForestDepth,
             ruin = (int)RuinResult, starPaths = StarBits, withdrawals = Withdrawals, mistakes = Mistakes,
@@ -170,6 +170,7 @@ namespace Echoes
             ruinFindsExtra = (long)ruinFindsExtra, ruinOpenLow = (long)ruinOpenLow, ruinOpenHigh = (long)ruinOpenHigh, ruinHeartSeen = ruinHeartSeen,
             ruinChestLootTaken = (long)ruinChestLootTaken, ruinReleasedMemories = (long)ruinReleasedMemories,
             ruinReleasedMemoriesExtra = (long)ruinReleasedMemoriesExtra,
+            ruinExhibitOrder = (long)ruinExhibitOrder,
             ruinRetryRooms = ruinRetryRooms,
             ruinRetryRecord = (int)ruinRetryRecord, ruinRetryLastLane = ruinRetryLastLane,
             ruinRetryOutcome = (int)RuinRetryOutcome, ruinRetryAttempts = RuinRetryAttempts,
@@ -180,7 +181,7 @@ namespace Echoes
 
         public bool Restore(JourneyCheckpoint checkpoint)
         {
-            if (checkpoint.version < 2 || checkpoint.version > 8 || checkpoint.chapter < 0 || checkpoint.chapter > 2 ||
+            if (checkpoint.version < 2 || checkpoint.version > 9 || checkpoint.chapter < 0 || checkpoint.chapter > 2 ||
                 checkpoint.lesson < -1 || checkpoint.lesson > 2 || (checkpoint.lesson >= 0 && checkpoint.chapter != 0) ||
                 checkpoint.plants < 0 || checkpoint.plants > (checkpoint.version == 2 ? 2 : 3) ||
                 checkpoint.forestRoute < 0 || checkpoint.forestRoute > (checkpoint.version >= 4 ? 3 : 2) ||
@@ -245,6 +246,7 @@ namespace Echoes
                 ruinFindsExtra = (ulong)checkpoint.ruinFindsExtra;
                 ruinReleasedMemoriesExtra = (ulong)checkpoint.ruinReleasedMemoriesExtra;
             }
+            ruinExhibitOrder = checkpoint.version >= 9 ? (ulong)checkpoint.ruinExhibitOrder : 0;
             StartSection();
             if (checkpoint.complete && Lesson < 0 && Chapter != 0) Complete();
             return true;

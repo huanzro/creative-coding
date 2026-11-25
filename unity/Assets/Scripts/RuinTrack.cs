@@ -12,6 +12,12 @@ namespace Echoes
             Forward=forward.normalized;
             Right=Vector3.Cross(Mathf.Abs(Forward.y)>.985f ? Vector3.forward : Vector3.up, Forward).normalized;
         }
+        public RuinRouteFrame(Vector3 position,Vector3 forward,Vector3 right)
+        {
+            Position=position;
+            Forward=forward.normalized;
+            Right=(right-Forward*Vector3.Dot(right,Forward)).normalized;
+        }
         public Quaternion Rotation => Quaternion.LookRotation(Forward, Vector3.Cross(Forward,Right));
         public Vector3 Point(float lateral,float height) => Position + Right*lateral + Vector3.up*height;
         public Vector3 Section(float across,float above) => Position + Right*across + Vector3.Cross(Forward,Right)*above;
@@ -236,16 +242,23 @@ namespace Echoes
 
     internal sealed class RuinTrackConnection
     {
-        private readonly Vector3 a, b, c, d;
+        private readonly Vector3 boreEnd;
+        private readonly QuinticCurve connector;
         private readonly int target;
         private readonly float targetLength;
-        private readonly float overpassHeight;
-        private const float MouthParameter=.22f, ArrivalParameter=.81f, ArrivalDepth=-3.7f;
-        private const int ApproachSamples=72, BoreSamples=48, CurveSamples=168, MergeSamples=96;
+        private readonly Vector3 connectorDetour;
+        private const float MouthParameter=.22f, BoreParameter=.07f, ArrivalParameter=.81f, ArrivalDepth=-3.7f;
+        private const int ApproachSamples=96, BoreSamples=48, CurveSamples=168, MergeSamples=96;
         private const int TravelSamples=ApproachSamples+BoreSamples+CurveSamples+MergeSamples;
+        private const int SectionSamples=224;
+        private const float LandingHeight=.54f+3.30f*Journey.RuinEntryAltitude;
         private static readonly float[] TravelParameters=BuildTravelParameters();
         private readonly float[] cumulative = new float[TravelSamples+1];
+        private Vector3[] sectionRight;
+        private float landingRoll;
+        private float[] speedLimits;
         private RuinRouteFrame preparedStart;
+        private QuinticCurve approach;
         public readonly Vector3 Entrance, OpeningForward;
 
         public RuinTrackConnection(int room,float length,RuinPortal portal,Vector2 opening,int targetRoom,float tLength)
@@ -256,42 +269,167 @@ namespace Echoes
             target=targetRoom;
             targetLength=tLength;
             var arrival=RuinTrack.Frame(target,targetLength,ArrivalDepth);
-            a=Entrance+OpeningForward*5f;
-            d=arrival.Point(0,.42f);
-            float gap=Vector3.Distance(a,d);
-            float span=Mathf.Clamp(gap*.26f,9,36);
-            overpassHeight=portal.Direction==RuinDirection.Left || portal.Direction==RuinDirection.Right ? 16 : 0;
-            b=a+OpeningForward*span;
-            c=d-arrival.Forward*Mathf.Clamp(gap*.20f,8,32);
+            boreEnd=Entrance+OpeningForward*5f;
+            Vector3 landing=arrival.Point(0,.42f);
+            float gap=Vector3.Distance(boreEnd,landing);
+            float span=Mathf.Clamp(gap*.26f,9,36)*.60f;
+            float runout=Mathf.Clamp(gap*.20f,8,32)*.60f;
+            connector=new QuinticCurve(boreEnd,OpeningForward*span,landing,arrival.Forward*runout);
+            float lift=portal.Direction==RuinDirection.Left || portal.Direction==RuinDirection.Right ? 7.1f : 0;
+            connectorDetour=ChooseDetour(connector,boreEnd,landing,OpeningForward,arrival.Forward,lift);
         }
 
-        private static Vector3 Cubic(Vector3 p,Vector3 q,Vector3 r,Vector3 s,float t)
+        private static Vector3 ChooseDetour(QuinticCurve curve,Vector3 start,Vector3 end,
+            Vector3 departing,Vector3 arriving,float lift)
         {
-            float inv=1-t;
-            return inv*inv*inv*p + 3*inv*inv*t*q + 3*inv*t*t*r + t*t*t*s;
+            Vector3 chord=end-start;
+            float gap=chord.magnitude;
+            Vector3 heading=chord.normalized;
+            Vector3 side=Vector3.Cross(Mathf.Abs(heading.y)>.90f ? Vector3.right : Vector3.up,heading).normalized;
+            float reversal=Mathf.Max(
+                Mathf.InverseLerp(.04f,-.86f,Vector3.Dot(departing,heading)),
+                Mathf.InverseLerp(.04f,-.86f,Vector3.Dot(arriving,heading)));
+            var best=Vector3.up*lift;
+            if(reversal<.08f) return best;
+            float swing=Mathf.Clamp(gap*.20f,9,48)*reversal;
+            float score=CurveBendScore(curve,best);
+            // A near-reversal needs room to bank into its track and then turn back on arrival.
+            for(int direction=-1;direction<=1;direction+=2)
+            for(int step=0;step<3;step++)
+            {
+                var candidate=Vector3.up*lift+side*(direction*swing*(.69f+step*.36f));
+                float bend=CurveBendScore(curve,candidate);
+                if(bend<score) { best=candidate; score=bend; }
+            }
+            return best;
         }
 
-        private Vector3 Along(float t)
+        private static float CurveBendScore(QuinticCurve curve,Vector3 detour)
         {
-            if(t<=.07f) return Vector3.Lerp(Entrance,a,t/.07f);
+            float worst=0;
+            Vector3 previous=curve.Tangent(0).normalized;
+            for(int i=1;i<=64;i++)
+            {
+                float t=i/64f, edge=1-2*t, envelope=4*t*(1-t);
+                Vector3 velocity=curve.Tangent(t)+detour*(12*envelope*envelope*edge);
+                Vector3 acceleration=curve.Acceleration(t)+detour*(24*envelope*(4*edge*edge-envelope));
+                Vector3 direction=velocity.normalized;
+                // Include the angle between probes so close reversals cannot hide between samples.
+                float bend=Mathf.Max(Curvature(velocity,acceleration),1.8f*(1-Vector3.Dot(previous,direction)));
+                worst=Mathf.Max(worst,bend);
+                previous=direction;
+            }
+            return worst;
+        }
+
+        private static float Curvature(Vector3 tangent,Vector3 acceleration)
+        {
+            float speed=tangent.magnitude;
+            if(speed<.001f) return 100;
+            return Vector3.Cross(tangent,acceleration).magnitude/(speed*speed*speed);
+        }
+
+        internal static float SmoothJoin(float t)
+        {
+            t=Mathf.Clamp01(t);
+            return t*t*t*(t*(t*6-15)+10);
+        }
+
+        public Vector3 CentreAt(float t)
+        {
+            t=Mathf.Clamp01(t);
+            if(t<=BoreParameter) return Vector3.Lerp(Entrance,boreEnd,t/BoreParameter);
             if(t<ArrivalParameter)
             {
-                float u=(t-.07f)/(ArrivalParameter-.07f);
-                // Ease the overpass onto the passage tangent before it climbs over the gallery.
-                float lift=overpassHeight*3*u*(1-u)*(1-u)*Mathf.SmoothStep(0,1,Mathf.Clamp01(u/.24f));
-                return Cubic(a,b,c,d,u)+Vector3.up*lift;
+                float u=(t-BoreParameter)/(ArrivalParameter-BoreParameter);
+                float envelope=4*u*(1-u);
+                return connector.Point(u)+connectorDetour*(envelope*envelope*envelope);
             }
             float arrival=Mathf.InverseLerp(ArrivalParameter,1,t);
-            float height=Mathf.SmoothStep(.42f,.54f+3.30f*Journey.RuinEntryAltitude,arrival);
+            float height=Mathf.Lerp(.42f,LandingHeight,SmoothJoin(arrival));
             return RuinTrack.Frame(target,targetLength,Mathf.Lerp(ArrivalDepth,0,arrival)).Point(0,height);
+        }
+
+        private Vector3 ForwardAt(float t)
+        {
+            if(t<=BoreParameter) return OpeningForward;
+            if(t<ArrivalParameter)
+            {
+                float u=(t-BoreParameter)/(ArrivalParameter-BoreParameter);
+                float envelope=4*u*(1-u);
+                return (connector.Tangent(u)+connectorDetour*(12*envelope*envelope*(1-2*u))).normalized;
+            }
+            float arrival=Mathf.InverseLerp(ArrivalParameter,1,t);
+            var road=RuinTrack.Frame(target,targetLength,Mathf.Lerp(ArrivalDepth,0,arrival));
+            float normalizedHeightChange=30*arrival*arrival*(1-arrival)*(1-arrival);
+            float slope=(LandingHeight-.42f)*normalizedHeightChange/
+                (-ArrivalDepth*RuinTrack.RouteMetresPerDepth(target,targetLength));
+            return (road.Forward+Vector3.up*slope).normalized;
+        }
+
+        private void PrepareRoll()
+        {
+            if(sectionRight!=null) return;
+            sectionRight=new Vector3[SectionSamples+1];
+            Vector3 forward=OpeningForward;
+            sectionRight[0]=Vector3.Cross(Vector3.up,forward).normalized;
+            for(int i=1;i<=SectionSamples;i++)
+            {
+                Vector3 next=ForwardAt(i/(float)SectionSamples);
+                sectionRight[i]=Quaternion.FromToRotation(forward,next)*sectionRight[i-1];
+                forward=next;
+            }
+            var exit=RuinTrack.Frame(target,targetLength,0);
+            landingRoll=Vector3.SignedAngle(sectionRight[SectionSamples],exit.Right,exit.Forward);
         }
 
         public RuinRouteFrame Frame(float t)
         {
             t=Mathf.Clamp01(t);
-            Vector3 tangent=t==1 ? RuinTrack.Frame(target,targetLength,0).Forward :
-                Along(Mathf.Min(1,t+.0005f))-Along(Mathf.Max(0,t-.0005f));
-            return new RuinRouteFrame(Along(t),tangent);
+            PrepareRoll();
+            Vector3 forward=ForwardAt(t);
+            float sample=t*SectionSamples;
+            int lower=Mathf.FloorToInt(sample);
+            var right=Vector3.Lerp(sectionRight[lower],sectionRight[Mathf.Min(lower+1,SectionSamples)],sample-lower);
+            // Transport the cross section around the shaft, then bring the horizon back to the gallery.
+            float unwind=SmoothJoin(Mathf.InverseLerp(.46f,1,t));
+            return new RuinRouteFrame(CentreAt(t),forward,Quaternion.AngleAxis(unwind*landingRoll,forward)*right);
+        }
+
+        private readonly struct QuinticCurve
+        {
+            private readonly Vector3 a,b,c,d,e,f;
+            public QuinticCurve(Vector3 start,Vector3 startHandle,Vector3 end,Vector3 endHandle)
+            {
+                a=start;
+                b=start+startHandle;
+                c=b+startHandle;
+                f=end;
+                e=end-endHandle;
+                d=e-endHandle;
+            }
+
+            public Vector3 Point(float t)
+            {
+                float u=1-t, u2=u*u, t2=t*t, u3=u2*u, t3=t2*t;
+                return a*(u3*u2)+b*(5*u2*u2*t)+c*(10*u3*t2)+d*(10*u2*t3)+e*(5*u*t2*t2)+f*(t3*t2);
+            }
+
+            public Vector3 Tangent(float t)
+            {
+                float u=1-t, u2=u*u, t2=t*t;
+                return 5*((b-a)*(u2*u2)+(c-b)*(4*u2*u*t)+(d-c)*(6*u2*t2)+(e-d)*(4*u*t2*t)+(f-e)*(t2*t2));
+            }
+
+            public Vector3 Acceleration(float t)
+            {
+                float u=1-t, u2=u*u, t2=t*t;
+                var ab=b-a;
+                var bc=c-b;
+                var cd=d-c;
+                var de=e-d;
+                return 20*((bc-ab)*(u2*u)+(cd-bc)*(3*u2*t)+(de-cd)*(3*u*t2)+(f-e-de)*(t2*t));
+            }
         }
 
         public float TravelMetres(RuinRouteFrame start)
@@ -318,14 +456,69 @@ namespace Echoes
                 preparedStart.Forward==start.Forward) return;
 
             preparedStart=start;
+            speedLimits=null;
+            approach=FitApproach(start);
             Vector3 previous=start.Position;
             for(int i=1;i<=TravelSamples;i++)
             {
-                Vector3 p=SampleTravel(start,TravelParameters[i]).Position;
+                float sample=TravelParameters[i];
+                Vector3 p=sample<=MouthParameter ? approach.Point(sample/MouthParameter) :
+                    CentreAt(Mathf.InverseLerp(MouthParameter,1,sample));
                 cumulative[i]=cumulative[i-1]+Vector3.Distance(previous,p);
                 previous=p;
             }
         }
+
+        private QuinticCurve FitApproach(RuinRouteFrame start)
+        {
+            float gap=Vector3.Distance(start.Position,Entrance);
+            QuinticCurve Fit(float lead,float end) => new QuinticCurve(start.Position,
+                start.Forward*Mathf.Clamp(gap*lead,.08f,3.0f),Entrance,OpeningForward*Mathf.Clamp(gap*end,.08f,2.3f));
+
+            QuinticCurve best=Fit(.226f,.172f);
+            float score=CurveBendScore(best,Vector3.zero);
+            if(score<.26f) return best;
+            // Favour the widest curvature that still fits the available turn-in distance.
+            for(int lead=0;lead<4;lead++)
+            for(int exit=0;exit<3;exit++)
+            {
+                var option=Fit(.132f+lead*.060f,.138f+exit*.045f);
+                float bend=CurveBendScore(option,Vector3.zero);
+                if(bend<score) { best=option; score=bend; }
+            }
+            return best;
+        }
+
+        public float SafeTransferSpeed(RuinRouteFrame start,float progress)
+        {
+            float length=TravelMetres(start);
+            if(speedLimits==null)
+            {
+                int count=Mathf.Max(2,Mathf.CeilToInt(length/.30f));
+                float interval=length/count;
+                speedLimits=new float[count+1];
+                for(int i=0;i<=count;i++)
+                {
+                    float at=i*interval;
+                    float previous=Mathf.Max(0,at-interval*.5f), next=Mathf.Min(length,at+interval*.5f);
+                    Vector3 behind=TravelForward(ParameterAt(previous)), ahead=TravelForward(ParameterAt(next));
+                    float turn=Mathf.Acos(Mathf.Clamp(Vector3.Dot(behind,ahead),-1,1));
+                    float curvature=turn/Mathf.Max(.01f,next-previous);
+                    speedLimits[i]=Mathf.Clamp(1.85f/Mathf.Max(.01f,curvature),.85f,18f);
+                }
+
+                // The speed limit starts braking before a bend, not on its sharpest part.
+                float brake=2*3.7f*interval;
+                for(int i=count-1;i>=0;i--)
+                    speedLimits[i]=Mathf.Min(speedLimits[i],Mathf.Sqrt(speedLimits[i+1]*speedLimits[i+1]+brake));
+            }
+            float index=Mathf.Clamp01(progress)*(speedLimits.Length-1);
+            int a=Mathf.FloorToInt(index);
+            return Mathf.Lerp(speedLimits[a],speedLimits[Mathf.Min(a+1,speedLimits.Length-1)],index-a);
+        }
+
+        private Vector3 TravelForward(float t) => t<=MouthParameter ? approach.Tangent(t/MouthParameter).normalized :
+            ForwardAt(Mathf.InverseLerp(MouthParameter,1,t));
 
         private static float[] BuildTravelParameters()
         {
@@ -341,7 +534,7 @@ namespace Echoes
                 from=to;
             }
             Append(ApproachSamples,MouthParameter);
-            Append(BoreSamples,Mathf.Lerp(MouthParameter,1,.07f));
+            Append(BoreSamples,Mathf.Lerp(MouthParameter,1,BoreParameter));
             Append(CurveSamples,Mathf.Lerp(MouthParameter,1,ArrivalParameter));
             Append(MergeSamples,1);
             return result;
@@ -363,15 +556,18 @@ namespace Echoes
             if(travelled<0) return new RuinRouteFrame(start.Position+start.Forward*travelled,start.Forward);
             if(travelled>length)
             {
-                var end=Frame(1);
-                return new RuinRouteFrame(end.Position+end.Forward*(travelled-length),end.Forward);
+                float depth=RuinTrack.DepthForMetres(target,targetLength,travelled-length);
+                var road=RuinTrack.Frame(target,targetLength,depth);
+                return new RuinRouteFrame(road.Point(0,LandingHeight),road.Forward,road.Right);
             }
             return SampleTravel(start,ParameterAt(travelled));
         }
 
         public float ArrivalRoadDepth(RuinRouteFrame start,float travelled)
         {
-            float arrival=ParameterAt(travelled);
+            float length=TravelMetres(start);
+            if(travelled>=length) return RuinTrack.DepthForMetres(target,targetLength,travelled-length);
+            float arrival=ParameterAt(Mathf.Max(0,travelled));
             return Mathf.Lerp(ArrivalDepth,0,Mathf.InverseLerp(Mathf.Lerp(MouthParameter,1,ArrivalParameter),1,arrival));
         }
 
@@ -379,14 +575,9 @@ namespace Echoes
         {
             if(progress>=MouthParameter) return Frame(Mathf.InverseLerp(MouthParameter,1,progress));
             float t=Mathf.Clamp01(progress/MouthParameter);
-            Vector3 p=start.Position;
-            float bend=Vector3.Distance(p,Entrance);
-            // Fit the handles to the starting gap so late turns do not overshoot the mouth.
-            Vector3 q=p+start.Forward*Mathf.Clamp(bend*.38f,.09f,4.25f);
-            Vector3 r=Entrance-OpeningForward*Mathf.Clamp(bend*.29f,.07f,2.05f);
-            float v=1-t;
-            Vector3 tangent= v*v*(q-p) + 2*v*t*(r-q) + t*t*(Entrance-r);
-            return new RuinRouteFrame(Cubic(p,q,r,Entrance,t),tangent);
+            Vector3 forward=approach.Tangent(t).normalized;
+            Vector3 right=Vector3.Lerp(start.Right,Vector3.Cross(Vector3.up,OpeningForward).normalized,SmoothJoin(t));
+            return new RuinRouteFrame(approach.Point(t),forward,right);
         }
     }
 }

@@ -5,33 +5,29 @@ namespace Echoes
 {
     internal sealed partial class WorldSet
     {
-        private const float RuinNicheLateral = 3.87f;
-        private static readonly Color[] RuinClueColors =
-        {
-            new Color(1f, .46f, .47f), new Color(.87f, .73f, 1f),
-            new Color(.45f, .88f, 1f), new Color(.53f, 1f, .78f)
-        };
-
+        private const float RuinCacheOffset = 3.91f;
+        private const float RuinCacheDeckHeight = 1.29f;
+        private static readonly Color CacheMarkerTint = new Color(.47f, 1f, .86f);
         private readonly List<RuinNicheView> ruinNiches = new List<RuinNicheView>(7);
-        private readonly Dictionary<(RuinObjectKind, int), RuinNicheParts> ruinNicheMeshes =
-            new Dictionary<(RuinObjectKind, int), RuinNicheParts>();
+        private readonly Dictionary<(int Style, int Side), RuinNicheParts> ruinNicheMeshes =
+            new Dictionary<(int Style, int Side), RuinNicheParts>();
 
         private sealed class RuinNicheView
         {
             public Transform Root;
-            public MeshFilter Stone, Fittings, Seam;
-            public MeshRenderer StoneRenderer, SeamRenderer;
+            public MeshFilter Stone, Fittings, Marker;
+            public MeshRenderer StoneRenderer, MarkerRenderer;
         }
 
         private readonly struct RuinNicheParts
         {
-            public readonly Mesh Stone, Fittings, Seam;
+            public readonly Mesh Stone, Fittings, Marker;
 
-            public RuinNicheParts(Mesh stone, Mesh fittings, Mesh seam)
+            public RuinNicheParts(Mesh stone, Mesh fittings, Mesh marker)
             {
                 Stone = stone;
                 Fittings = fittings;
-                Seam = seam;
+                Marker = marker;
             }
         }
 
@@ -39,47 +35,52 @@ namespace Echoes
         {
             if (slot == ruinNiches.Count)
             {
-                Transform root = Group("Recessed side archive", tunnelRoot);
-                Transform stonework = RuinPiece("Stone pocket and overhang", null, tunnelStone, root);
-                Transform fittings = RuinPiece("Recess and partial screen", null, tunnelMetal, root);
-                Transform seam = RuinPiece("Light leaking through the seam", null, glow, root);
+                Transform root = Group("Side archive shelf", tunnelRoot);
+                Transform stonework = RuinPiece("Stone shelf plinth", null, tunnelStone, root);
+                Transform fittings = RuinPiece("Archive cabinet and lantern case", null, tunnelMetal, root);
+                Transform marker = RuinPiece("Archive lantern and path to its shelf", null, glow, root);
                 ruinNiches.Add(new RuinNicheView
                 {
                     Root = root,
                     Stone = stonework.GetComponent<MeshFilter>(),
                     Fittings = fittings.GetComponent<MeshFilter>(),
-                    Seam = seam.GetComponent<MeshFilter>(),
+                    Marker = marker.GetComponent<MeshFilter>(),
                     StoneRenderer = stonework.GetComponent<MeshRenderer>(),
-                    SeamRenderer = seam.GetComponent<MeshRenderer>()
+                    MarkerRenderer = marker.GetComponent<MeshRenderer>()
                 });
             }
             RuinNicheView view = ruinNiches[slot];
             int side = item.Lane < 0 ? -1 : 1;
-            var key = (item.Kind, side);
+            int style = journey.RuinRoomStyle;
+            var key = (style, side);
             if (!ruinNicheMeshes.TryGetValue(key, out RuinNicheParts parts))
             {
-                parts = BuildRuinNiche(item.Kind, side);
+                parts = BuildRuinNiche(style, side);
                 ruinNicheMeshes.Add(key, parts);
             }
             if (view.Stone.sharedMesh != parts.Stone)
             {
                 view.Stone.sharedMesh = parts.Stone;
                 view.Fittings.sharedMesh = parts.Fittings;
-                view.Seam.sharedMesh = parts.Seam;
+                view.Marker.sharedMesh = parts.Marker;
             }
             view.Root.gameObject.SetActive(true);
-            view.Root.SetLocalPositionAndRotation(frame.Point(side * RuinNicheLateral, .54f + 3.30f * item.Altitude),
-                frame.Rotation);
-            view.Root.localScale = new Vector3(1, 1, 1 + .13f * (item.Id % 3));
-            Color roomStone = RuinGalleryStoneFor(journey.RuinRoomStyle, journey.RuinRoomId);
-            Light(view.StoneRenderer, Color.Lerp(Color.white, roomStone, .56f), 0);
-            view.SeamRenderer.enabled = !item.Collected;
+            view.Root.SetLocalPositionAndRotation(frame.Position, frame.Rotation);
+            Color roomStone = RuinGalleryStoneFor(style, journey.RuinRoomId);
+            Light(view.StoneRenderer, Color.Lerp(Color.white, roomStone, .51f), 0);
+            view.MarkerRenderer.enabled = !item.Collected;
             if (item.Collected) return;
-            Color roomLight = RuinGalleryAccentFor(journey.RuinRoomStyle, journey.RuinRoomId);
-            Color trace = Color.Lerp(RuinClueColors[(int)item.Kind], roomLight, .22f);
-            float pulse = .5f + .5f * Mathf.Sin(time * 2.15f + item.Id * .79f);
-            float near = 1 - Mathf.SmoothStep(0, 1, (Mathf.Abs(gap) - 3.2f) / 7.2f);
-            Light(view.SeamRenderer, trace, .17f + near * (.28f + .18f * pulse) + .18f * item.Reveal);
+            float pulse = .5f + .5f * Mathf.Sin(time * 2.35f + item.Id * .73f);
+            float distance = Mathf.Abs(gap);
+            float near = 1 - Mathf.SmoothStep(0, 1, (distance - 4) / 11);
+            Light(view.MarkerRenderer, CacheMarkerTint, .47f + .29f * near + .17f * pulse + .10f * item.Reveal);
+        }
+
+        private static Vector3 RuinCacheDisplay(RuinRouteFrame frame, int side, float reveal)
+        {
+            // Allow the largest model to bob and turn above the tray inside every gallery shell.
+            float lift = .14f * Mathf.SmoothStep(0, 1, reveal);
+            return frame.Point(RuinCacheOffset * side, 1.87f + lift);
         }
 
         private void HideRuinNichesFrom(int slot)
@@ -88,71 +89,70 @@ namespace Echoes
                 ruinNiches[i].Root.gameObject.SetActive(false);
         }
 
-        private RuinNicheParts BuildRuinNiche(RuinObjectKind kind, int side)
+        private RuinNicheParts BuildRuinNiche(int style, int side)
         {
-            WorldMesh stonework = Geometry(), fittings = Geometry(), seam = Geometry();
-            Color stoneTone = new Color(.42f, .435f, .46f);
-            Color recess = new Color(.069f, .080f, .091f);
-            Color alloy = new Color(.34f, .31f, .266f);
-            Color edge = new Color(.47f, .42f, .34f);
+            WorldMesh stone = Geometry(), fittings = Geometry(), markers = Geometry();
+            Color slate = new Color(.37f, .41f, .43f);
+            Color blackened = new Color(.095f, .135f, .15f);
+            Color bronze = new Color(.43f, .34f, .23f);
+            Quaternion flat = Quaternion.identity;
 
-            void Box(WorldMesh mesh, float x, float y, float z, float w, float h, float d, Color tint,
-                float yaw = 0, float tilt = 0)
+            Vector3 Cabinet(float inward, float height, float depth) =>
+                new Vector3(side * (RuinCacheOffset - inward), height, depth);
+
+            stone.Box(Cabinet(-.025f, .39f, .055f), new Vector3(.76f, .78f, .98f), flat, slate);
+            stone.Box(Cabinet(0, .80f, 0), new Vector3(.71f, .47f, .91f), flat, slate);
+            fittings.Box(Cabinet(0, 1.065f, 0), new Vector3(.78f, .125f, 1.06f), flat, bronze);
+            fittings.Box(Cabinet(0, RuinCacheDeckHeight - .072f, 0), new Vector3(.86f, .144f, 1.10f), flat, blackened);
+            fittings.Box(Cabinet(0, RuinCacheDeckHeight + .012f, 0),
+                new Vector3(.62f, .025f, .73f), flat, bronze);
+            markers.Box(Cabinet(0, RuinCacheDeckHeight + .031f, -.335f),
+                new Vector3(.50f, .015f, .034f), flat, Color.white);
+
+            Vector3 lamp = Cabinet(.20f, 1.09f, -.59f);
+            fittings.Box(lamp, new Vector3(.57f, .24f, .195f), flat, blackened);
+            markers.Box(lamp + new Vector3(0, .016f, -.104f), new Vector3(.45f, .097f, .032f), flat, Color.white);
+            markers.Box(lamp + new Vector3(-side * .292f, .016f, 0),
+                new Vector3(.026f, .097f, .141f), flat, Color.white);
+
+            // Follow the shoulder's actual lower profile. This keeps the signs on top of the ground
+            // where a low camera can see their lead line even before the cabinet is in view.
+            Vector3 OnFloor(float across, float depth, float lift)
             {
-                mesh.Box(new Vector3(x * side, y, z), new Vector3(w, h, d),
-                    Quaternion.Euler(0, yaw * side, tilt * side), tint);
+                float absoluteCross = across * side;
+                return new Vector3(absoluteCross, RuinCacheFloorHeight(style, absoluteCross) + lift, depth);
             }
 
-            // Each recess opens diagonally toward the side aisle. The offset screen breaks
-            // the line of sight from the centre of the tunnel.
-            Box(stonework, .67f, -.11f, .15f, .39f, 1.75f, 1.86f, stoneTone, -9);
-            Box(stonework, .06f, -.74f, .09f, 1.59f, .29f, 1.86f, stoneTone, -4);
-            Box(stonework, .23f, -.71f, .93f, 1.29f, 1.05f, .35f, stoneTone, 4);
-            Box(stonework, 1.10f, -.53f, .43f, 1.12f, .27f, .77f, stoneTone, 7);
-            Box(stonework, 1.54f, -.96f, .44f, .24f, 1.05f, .47f, stoneTone);
-            Box(fittings, .04f, .005f, .93f, 1.25f, 1.46f, .13f, recess, -4);
-            Box(fittings, .06f, -.55f, -.17f, 1.36f, .13f, 1.44f, alloy, -4);
-            Box(fittings, -.59f, -.02f, -.70f, .23f, 1.24f, .33f, alloy, -16);
-            Box(fittings, -.62f, -.36f, -.85f, .27f, .23f, .19f, edge, -16);
-            Box(fittings, -.68f, -.36f, -.947f, .58f, .24f, .095f, recess, -16);
-            Box(seam, -.67f, -.322f, -1.002f, .39f, .048f, .024f, Color.white, -16);
-            Box(seam, -.77f, -.406f, -1.021f, .18f, .026f, .019f, Color.white, -16);
-            Box(seam, -.98f, -.341f, -.905f, .03f, .113f, .126f, Color.white, -16);
-
-            // Different remnants of the archive were used to board up the four kinds of hiding place.
-            switch (kind)
+            for (int step = 0; step < 3; step++)
             {
-                case RuinObjectKind.Heart:
-                    Box(stonework, .24f, .68f, .18f, 1.24f, .26f, 1.32f, stoneTone, -6, -9);
-                    for (int rib = 0; rib < 3; rib++)
-                    {
-                        float z = -.65f + rib * .38f;
-                        Box(fittings, .33f, .40f, z, .92f, .065f, .14f, alloy, -7, -16);
-                        Box(fittings, -.14f, .22f, z, .12f, .32f, .14f, alloy, -7, 38);
-                    }
-                    break;
-                case RuinObjectKind.Brain:
-                    Box(stonework, .06f, .70f, .14f, 1.46f, .33f, 1.45f, stoneTone, 4);
-                    for (int slate = 0; slate < 4; slate++)
-                        Box(fittings, -.65f, .55f - slate * .14f, -.70f + slate * .057f,
-                            .43f, .097f, .16f, alloy, -24, 6);
-                    break;
-                case RuinObjectKind.Phone:
-                    Box(stonework, .22f, .59f, .20f, 1.33f, .22f, 1.58f, stoneTone, -3);
-                    Box(fittings, -.65f, .06f, -.77f, .39f, .89f, .12f, recess, -23, 8);
-                    Box(fittings, -.65f, .47f, -.80f, .40f, .082f, .15f, edge, -23, 8);
-                    Box(fittings, -.52f, -.04f, -.86f, .042f, .21f, .061f, alloy, -23, 8);
-                    break;
-                default:
-                    Box(stonework, .15f, .71f, .17f, 1.43f, .34f, 1.65f, stoneTone, 7);
-                    Box(fittings, -.64f, .39f, -.66f, .46f, .45f, .16f, recess, -17, 8);
-                    for (int vent = 0; vent < 4; vent++)
-                        Box(fittings, -.80f + .092f * vent, .40f + .015f * vent, -.747f + .028f * vent,
-                            .041f, .27f, .026f, alloy, -17, 8);
-                    break;
+                float across = 1.88f + .46f * step;
+                float depth = -2.54f + .56f * step;
+                Vector3 a = OnFloor(across - .13f, depth - .33f, .105f);
+                Vector3 b = OnFloor(across + .20f, depth, .105f);
+                Vector3 c = OnFloor(across - .13f, depth + .33f, .105f);
+                Vector3 nudge = Vector3.down * .017f;
+                RuinBar(fittings, a + nudge, b + nudge, .113f, .125f, blackened);
+                RuinBar(fittings, b + nudge, c + nudge, .113f, .125f, blackened);
+                Vector3 lensTop = Vector3.up * .046f;
+                RuinBar(markers, a + lensTop, b + lensTop, .077f, .058f, Color.white);
+                RuinBar(markers, b + lensTop, c + lensTop, .077f, .058f, Color.white);
             }
-            return new RuinNicheParts(stonework.Finish("Archive side recess stonework"),
-                fittings.Finish("Archive side recess baffles"), seam.Finish("Archive casing status seam"));
+
+            return new RuinNicheParts(stone.Finish("Side cache pedestal"),
+                fittings.Finish("Archive shelf and trail housings"), markers.Finish("Side cache luminous trail"));
+        }
+
+        private static float RuinCacheFloorHeight(int style, float x)
+        {
+            // On the lower hull section x increases with angle from left to right.
+            float left = Mathf.PI, right = 2 * Mathf.PI;
+            for (int step = 0; step < 14; step++)
+            {
+                float middle = .5f * (left + right);
+                if (RuinGallerySection(style, middle).x < x) left = middle;
+                else right = middle;
+            }
+            return Mathf.Max(-.04f, RuinGallerySection(style, .5f * (left + right)).y);
         }
     }
 }

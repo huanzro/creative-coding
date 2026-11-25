@@ -16,6 +16,7 @@ namespace Echoes
         private RuinPortal lastRuinPortal;
         private RuinTrackConnection ruinPassage;
         private RuinRouteFrame ruinPassageStart;
+        private Vector3 ruinViewUp=Vector3.up;
         private Stage lastPhase;
         private int lastCloseShot;
         private bool lastOpening, rendered;
@@ -155,7 +156,8 @@ namespace Echoes
             lastRuinRoom=ruins ? journey.RuinRoomId : -1;
             lastTravelTime=frame.time;
             lastDistance=journey.Distance;
-            camera.transform.SetPositionAndRotation(position,Quaternion.LookRotation(sight-position));
+            camera.transform.SetPositionAndRotation(position,Quaternion.LookRotation(sight-position,
+                ruins && journey.Phase==Stage.RuinTransfer ? ruinViewUp : Vector3.up));
             float time=opening?frame.openingTime:frame.motionTime;
             Vector3 key=LightScene(journey,frame,period,time,opening);
 
@@ -165,7 +167,7 @@ namespace Echoes
             set.DrawMaze(journey,forest,time);
             set.DrawMachine(journey,forest,time,forestActor);
             set.ForestScenery(journey,forest,time,forestActor,frame.glide,split);
-            set.DrawRuinTunnel(journey,ruins,time);
+            set.DrawRuinTunnel(journey,ruins,time,camera.transform.position);
             Vector3 shotActor = opening ? OpeningStoryboard.Sample(time).Actor :
                 new Vector3(.5f,SpiritFlight.ScreenY(frame.altitude),1);
             Vector2 screen = new Vector2(shotActor.x,shotActor.y);
@@ -257,7 +259,8 @@ namespace Echoes
             float travelled=ruinPassage.TravelMetres(ruinPassageStart)*journey.Progress;
             var facing=RuinTrack.Frame(journey.RuinRoomId,journey.RuinRoomLength,journey.RuinPassageStartDepth).Forward;
             return new RuinRouteFrame(passage.Position,
-                Vector3.Slerp(facing,passage.Forward,OpeningStoryboard.Ease(0,2.8f,travelled)));
+                Vector3.Slerp(facing,passage.Forward,RuinTrackConnection.SmoothJoin(travelled/3.6f)),
+                passage.Right);
         }
 
         private void RuinShot(Journey journey,RuinRouteFrame actor,out Vector3 at,out Vector3 focus)
@@ -305,34 +308,43 @@ namespace Echoes
             float arrival=ruinPassage.GalleryMetres(ruinPassageStart);
             float metres=journey.Progress*length;
             set.SetRuinTransitionDistances(metres,mouth,arrival);
-            float inside=OpeningStoryboard.Window(metres,Mathf.Max(0,mouth-3.8f),mouth+2.1f,
-                arrival-1.6f,arrival+3.1f);
-            float landing=OpeningStoryboard.Window(metres,arrival-10f,arrival-4f,arrival+.6f,arrival+5f);
-            float followDistance=Mathf.Lerp(4.9f,2.85f,inside)-.44f*landing;
-            var trailing=ruinPassage.Travel(ruinPassageStart,journey.Progress,-followDistance);
-            var ahead=ruinPassage.Travel(ruinPassageStart,journey.Progress,Mathf.Lerp(5.9f,2.9f,inside));
-            at=offset+trailing.Point(-.08f,Mathf.Lerp(1.44f,.62f,inside)-.18f*landing);
-            focus=offset+Vector3.Lerp(actor.Point(0,.13f),ahead.Point(0,.25f),.48f-.10f*landing);
+            float enter=RuinTrackConnection.SmoothJoin(Mathf.InverseLerp(mouth-6f,mouth+1.8f,metres));
+            float exit=RuinTrackConnection.SmoothJoin(Mathf.InverseLerp(arrival-7.8f,arrival+3.2f,metres));
+            float inside=enter*(1-exit);
+            var trailing=ruinPassage.Travel(ruinPassageStart,journey.Progress,-Mathf.Lerp(4.9f,2.55f,inside));
+            var ahead=ruinPassage.Travel(ruinPassageStart,journey.Progress,Mathf.Lerp(5.9f,3.35f,inside));
+            at=offset+trailing.Section(-.08f,Mathf.Lerp(1.44f,.68f,inside));
+            focus=offset+Vector3.Lerp(actor.Point(0,.16f),ahead.Point(0,.27f),Mathf.Lerp(.58f,.37f,inside));
 
-            if(metres<mouth+3f)
+            float leadIn=RuinTrackConnection.SmoothJoin(metres/Mathf.Clamp(mouth*.83f,3.2f,7.8f));
+            if(leadIn<1)
             {
-                RuinGalleryShot(journey,journey.RuinRoomId,journey.RuinPassageStartDepth,journey.RuinPassageStartLane,
-                    journey.RuinPassageStartAltitude,journey.RuinEntrance,out Vector3 sourceAt,out Vector3 sourceFocus);
-                float leadIn=OpeningStoryboard.Ease(0,Mathf.Min(mouth+3f,5.5f),metres);
+                // Continue advancing the source follow target while the camera joins the swept curve.
+                float inherited=.42f*(1-Mathf.Exp(-journey.Age/.42f));
+                float depth=journey.RuinPassageStartDepth+journey.RuinPassageStartForwardSpeed*inherited;
+                float lane=Mathf.Clamp(journey.RuinPassageStartLane+journey.RuinPassageStartLateralSpeed*inherited,-1.35f,1.35f);
+                float altitude=Mathf.Clamp(journey.RuinPassageStartAltitude+journey.RuinPassageStartVerticalSpeed*inherited,0,Journey.RuinHeightLimit);
+                RuinGalleryShot(journey,journey.RuinRoomId,depth,lane,altitude,journey.RuinEntrance,
+                    out Vector3 sourceAt,out Vector3 sourceFocus);
                 at=Vector3.Lerp(sourceAt,at,leadIn);
                 focus=Vector3.Lerp(sourceFocus,focus,leadIn);
             }
-            if(metres>arrival-1.5f)
+            float merge=RuinTrackConnection.SmoothJoin(Mathf.InverseLerp(arrival-3.2f,Mathf.Min(length,arrival+7.8f),metres));
+            if(merge>0)
             {
                 int destination=journey.RuinEntrance.TargetRoom;
                 float depth=ruinPassage.ArrivalRoadDepth(ruinPassageStart,metres);
                 float baseY=RuinTrack.Frame(destination,journey.RuinRoomLengthFor(destination),depth).Position.y;
-                float altitude=metres>=arrival ? (actor.Position.y-baseY-.54f)/3.30f : 0;
+                float altitude=(actor.Position.y-baseY-.54f)/3.30f;
                 RuinGalleryShot(journey,destination,depth,0,altitude,null,out Vector3 destinationAt,out Vector3 destinationFocus);
-                float merge=OpeningStoryboard.Ease(arrival-1.5f,Mathf.Min(length,arrival+6.4f),metres);
                 at=Vector3.Lerp(at,destinationAt,merge);
                 focus=Vector3.Lerp(focus,destinationFocus,merge);
             }
+
+            // Keep the camera's up direction stable even when a shaft is nearly vertical.
+            var viewDir=(focus-at).normalized;
+            float align=RuinTrackConnection.SmoothJoin(Mathf.InverseLerp(.63f,.93f,Mathf.Abs(viewDir.y)))*leadIn*(1-merge);
+            ruinViewUp=Vector3.Slerp(Vector3.up,Vector3.Cross(trailing.Forward,trailing.Right),align);
         }
 
         private static void RuinGalleryShot(Journey journey,int room,float depth,float lane,float altitude,RuinPortal marker,

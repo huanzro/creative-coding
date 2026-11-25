@@ -6,17 +6,20 @@ namespace Echoes
     public readonly struct RuinTransferMetrics
     {
         public readonly float Distance, SourceScale, DestinationScale;
-        public RuinTransferMetrics(float distance, float sourceScale, float destinationScale)
+        public readonly Func<float, float> SpeedLimit;
+        public RuinTransferMetrics(float distance, float sourceScale, float destinationScale, Func<float, float> speedLimit = null)
         {
             Distance = distance;
             SourceScale = sourceScale;
             DestinationScale = destinationScale;
+            SpeedLimit = speedLimit;
         }
     }
 
     public sealed partial class Journey
     {
         public const int RuinCapacity = 15;
+        public const int RuinDisciplineCount = 9;
         public const float RuinHeightLimit = 1.65f;
         public const float RuinEntryAltitude = .072f;
         public const int RuinRoomCount = RuinAtlas.RoomCount;
@@ -32,9 +35,9 @@ namespace Echoes
         private static readonly string[] RuinObjectLabels = { "心脏", "大脑", "手机", "电脑", "宝箱" };
 
         private RuinRoom[] ruinRooms;
-        private int ruinSeed, ruinVisited, ruinRoomId, ruinLoops, ruinSteerHeld, ruinSteerTap;
-        private ulong ruinFinds, ruinFindsExtra, ruinOpenLow, ruinOpenHigh;
-        private float ruinHeartAt, ruinSteeringSpeed, ruinSteerTapTime, ruinPassageSpeed;
+        private int ruinSeed, ruinVisited, ruinRoomId, ruinLoops, ruinSteerHeld;
+        private ulong ruinFinds, ruinFindsExtra, ruinOpenLow, ruinOpenHigh, ruinExhibitOrder;
+        private float ruinHeartAt, ruinSteeringSpeed, ruinPassageSpeed;
         private RuinTransferMetrics ruinTransferMetrics;
         private bool ruinHeartSeen;
         private string ruinHint;
@@ -44,6 +47,38 @@ namespace Echoes
         private RuinRoom CurrentRuinRoom => ruinRooms == null ? null : ruinRooms[ruinRoomId];
         public int RuinRoomId => ruinRoomId;
         public int RuinVisualSeed => ruinSeed;
+        public int RuinDiscipline => RuinDisciplineFor(ruinRoomId);
+        public int RuinDisciplinesSeen
+        {
+            get
+            {
+                int count = 0;
+                for (int room = 0; room < RuinRoomCount; room++)
+                {
+                    int stored = StoredRuinDiscipline(room);
+                    if (stored < RuinDisciplineCount) count = Math.Max(count, stored + 1);
+                }
+                return count;
+            }
+        }
+
+        public int RuinDisciplineFor(int room)
+        {
+            int assigned = StoredRuinDiscipline(room);
+            if (assigned >= 0 && assigned < RuinDisciplineCount) return assigned;
+            int seen = RuinDisciplinesSeen;
+            return seen < RuinDisciplineCount ? seen : room % RuinDisciplineCount;
+        }
+
+        private int StoredRuinDiscipline(int room) => (int)((ruinExhibitOrder >> (room * 4)) & 15UL) - 1;
+
+        private void AssignRuinDiscipline(int room)
+        {
+            int stored = StoredRuinDiscipline(room);
+            if (stored >= 0 && stored < RuinDisciplineCount) return;
+            int shift = room * 4;
+            ruinExhibitOrder = (ruinExhibitOrder & ~(15UL << shift)) | ((ulong)(RuinDisciplineFor(room) + 1) << shift);
+        }
         public string RuinRoomName => CurrentRuinRoom?.Name ?? "";
         public int RuinLayer => CurrentRuinRoom?.Layer ?? 0;
         public int RuinRoomStyle => CurrentRuinRoom?.Style ?? 0;
@@ -99,7 +134,7 @@ namespace Echoes
             ruinRooms = null;
             ruinRoomId = ruinVisited = 0;
             ruinLoops = 0;
-            ruinFinds = ruinFindsExtra = ruinOpenLow = ruinOpenHigh = 0;
+            ruinFinds = ruinFindsExtra = ruinOpenLow = ruinOpenHigh = ruinExhibitOrder = 0;
             ruinHeartSeen = false;
             ruinHeartAt = float.NegativeInfinity;
             RuinVisitedCount = RuinHearts = RuinBrains = RuinPhones = RuinComputers = RuinChests = 0;
@@ -122,6 +157,9 @@ namespace Echoes
         {
             ClearRuinLoot();
             ruinRoomId = room;
+            // Room zero anchors the sequence when upgrading an older checkpoint.
+            AssignRuinDiscipline(0);
+            AssignRuinDiscipline(room);
             if ((ruinVisited & (1 << room)) == 0)
             {
                 ruinVisited |= 1 << room;
@@ -145,30 +183,17 @@ namespace Echoes
         public void SetRuinSteering(bool left, bool right)
         {
             ruinSteerHeld = left == right ? 0 : left ? -1 : 1;
-            if (left && right) ruinSteerTapTime = 0;
         }
 
         private void StopRuinSteering()
         {
-            RuinSteering = ruinSteeringSpeed = ruinSteerTapTime = 0;
-            ruinSteerTap = ruinSteerHeld = 0;
+            RuinSteering = ruinSteeringSpeed = 0;
+            ruinSteerHeld = 0;
         }
 
         private void RuinTouch(int option)
         {
-            RuinPortal portal = FindRuinPortal(option == 0 ? RuinDirection.Left : RuinDirection.Right);
-            if (portal != null)
-            {
-                TravelRuins(portal);
-                return;
-            }
-            if (option == 1 && RuinCanTake)
-            {
-                TakeRuinCache(RuinSearchTarget);
-                return;
-            }
-            ruinSteerTap = option == 0 ? -1 : 1;
-            ruinSteerTapTime = .17f;
+            if (option == 1 && RuinCanTake) TakeRuinCache(RuinSearchTarget);
         }
 
         private float RuinReach(RuinDirection direction)
@@ -196,7 +221,7 @@ namespace Echoes
                     (preview > 1 || Flight.Height >= Math.Max(.35f, portal.Altitude - .71f * reach));
             if (portal.Direction == RuinDirection.Lower)
                 return lateral <= 1.12f * reach && Flight.Height <= portal.Altitude + .63f * reach;
-            return lateral <= 1.22f * reach && Math.Abs(Flight.Height - portal.Altitude) <= .63f * reach;
+            return lateral <= Math.Min(1.90f, 1.22f * reach) && Math.Abs(Flight.Height - portal.Altitude) <= .63f * reach;
         }
 
         private RuinPortal FindRuinPortal(RuinDirection direction)
@@ -245,13 +270,14 @@ namespace Echoes
                 Revision++;
             }
 
-            // Vertical branches respond to the player's movement in their own capture areas.
-            RuinPortal vertical = Gesture == Hand.Open ? FindRuinPortal(RuinDirection.Upper) : null;
-            if (vertical == null && (Flight.Speed < -.035f || wasDescending && Flight.Height <= .03f))
-                vertical = FindRuinPortal(RuinDirection.Lower);
-            if (vertical != null)
+            RuinPortal route = ruinSteerHeld == 0 ? null :
+                FindRuinPortal(ruinSteerHeld < 0 ? RuinDirection.Left : RuinDirection.Right);
+            if (route == null && Gesture == Hand.Open) route = FindRuinPortal(RuinDirection.Upper);
+            if (route == null && (Flight.Speed < -.035f || wasDescending && Flight.Height <= .03f))
+                route = FindRuinPortal(RuinDirection.Lower);
+            if (route != null)
             {
-                TravelRuins(vertical);
+                TravelRuins(route);
                 return;
             }
 
@@ -295,12 +321,16 @@ namespace Echoes
 
         private void UpdateRuinSteering(float dt)
         {
-            int steer = ruinSteerHeld != 0 ? ruinSteerHeld : ruinSteerTapTime > 0 ? ruinSteerTap : 0;
-            ruinSteerTapTime = Math.Max(0, ruinSteerTapTime - dt);
-            float desired = RuinSideSpeed * steer;
-            ruinSteeringSpeed += (desired - ruinSteeringSpeed) * Follow(dt, steer == 0 ? 16 : 10);
-            if (Math.Abs(ruinSteeringSpeed) < .005f) ruinSteeringSpeed = 0;
-            float lane = RuinLane + ruinSteeringSpeed * dt;
+            const float easingAtWalls = .24f;
+            const float coastGrip = 5.3f;
+            const float turnGrip = 6.8f;
+            float space = RuinSideLimit - RuinLane * ruinSteerHeld;
+            float wanted = RuinSideSpeed * ruinSteerHeld * Clamp(space / easingAtWalls);
+            float previous = ruinSteeringSpeed;
+            // Releasing keeps lateral momentum. Reversing first slows it through zero.
+            ruinSteeringSpeed += (wanted - ruinSteeringSpeed) * Follow(dt, ruinSteerHeld == 0 ? coastGrip : turnGrip);
+            if (Math.Abs(ruinSteeringSpeed) < .004f) ruinSteeringSpeed = 0;
+            float lane = RuinLane + (previous + ruinSteeringSpeed) * .5f * dt;
             RuinLane = Math.Max(-RuinSideLimit, Math.Min(RuinSideLimit, lane));
             if (lane != RuinLane) ruinSteeringSpeed = 0;
             RuinSteering = ruinSteeringSpeed / RuinSideSpeed;
@@ -322,7 +352,6 @@ namespace Echoes
             float lateral = ruinSteeringSpeed * 2.45f;
             float vertical = Flight.Speed * 3.30f;
             ruinPassageSpeed = (float)Math.Sqrt(forward * forward + lateral * lateral + vertical * vertical);
-            ruinSteerTapTime = 0;
             if (!portal.Opened)
             {
                 OpenRuinGate(portal);
@@ -336,6 +365,8 @@ namespace Echoes
         private void AdvanceRuinTransfer(float dt)
         {
             float distance = ruinTransferMetrics.Distance;
+            float bank = Clamp(Age / .85f);
+            RuinSteering = RuinPassageStartLateralSpeed / RuinSideSpeed * (1 - bank * bank * (3 - 2 * bank));
             float sourceVoice = RuinVoiceSpeed * ruinTransferMetrics.SourceScale;
             float arrivalVoice = RuinVoiceSpeed * ruinTransferMetrics.DestinationScale;
             float cruise = Math.Max(sourceVoice, Math.Min(10.2f, Math.Max(3.6f, distance * .085f)));
@@ -344,6 +375,8 @@ namespace Echoes
             float glide = outside * outside * (3 - 2 * outside);
             float arrival = Math.Max(1.2f, arrivalVoice);
             float target = arrival + (cruise - arrival) * glide;
+            if (ruinTransferMetrics.SpeedLimit != null)
+                target = Math.Min(target, Math.Max(.85f, ruinTransferMetrics.SpeedLimit(Progress)));
             float oldSpeed = ruinPassageSpeed;
             ruinPassageSpeed = ApproachRuinSpeed(oldSpeed, target, 2.9f * dt, 4.2f * dt);
             float traveled = (oldSpeed + ruinPassageSpeed) * .5f * dt;
@@ -364,7 +397,7 @@ namespace Echoes
         {
             RefreshRuinLootContact();
             RuinSearchTarget = RuinNearbyClue = null;
-            float nearest = float.PositiveInfinity, nearestClue = 5.2f;
+            float nearest = float.PositiveInfinity, nearestClue = 7.3f;
             foreach (var item in CurrentRuinRoom.Objects)
             {
                 float depth = item.Depth - Distance;

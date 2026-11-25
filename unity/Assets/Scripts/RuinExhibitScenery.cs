@@ -4,131 +4,214 @@ using Random = System.Random;
 
 namespace Echoes
 {
+    internal static class RuinDisciplineExhibits
+    {
+        private static readonly string[] Names = {
+            "物理", "数学", "工业", "建筑", "文学", "计算机", "教育", "医学", "心理学"
+        };
+
+        public static string Name(int discipline) => Names[Normalize(discipline)];
+
+        internal static int Normalize(int discipline) => discipline >= 0 && discipline < Names.Length ? discipline : 0;
+    }
+
     internal sealed partial class WorldSet
     {
+        private enum Exhibit
+        {
+            GreatWall, Giza, Arena, Temple, SteppedTemple, Press, Train, Astrolabe, Orbiter, Tablet, Ship,
+            LightPrism, Pendulum, GeometricProof, ConicSections, BoundCodex, PunchedCard, LogicCircuit,
+            Microchip, LessonSlate, Classroom, Microscope, XRay, Perception, MemoryMap, ReactionTime
+        }
+
         private sealed class ExhibitDisplay
         {
             public Transform Root, Body, Halo, Title;
-            public MeshRenderer HaloRenderer, LetterRenderer;
+            public MeshFilter Model, Letters;
+            public MeshRenderer HaloRenderer;
             public float Depth, Height, Side, Size, Phase;
+        }
+
+        private sealed class ExhibitGallery
+        {
+            public readonly ExhibitDisplay[] Displays = new ExhibitDisplay[7];
+            public int Room = -1, Discipline = -1;
+            public RuinPortal FirstMouth;
         }
 
         private static readonly string[] ExhibitTitles = {
             "GREAT WALL", "GIZA", "COLOSSEUM", "PARTHENON", "CHICHEN ITZA", "PRINTING PRESS",
-            "STEAM TRAIN", "ASTROLABE", "ORBITAL LAB", "SEISMOSCOPE", "CUNEIFORM", "SAILING SHIP"
+            "STEAM TRAIN", "ASTROLABE", "ORBITAL LAB", "EPIC TABLET", "SAILING SHIP",
+            "LIGHT SPECTRUM", "PENDULUM", "GEOMETRIC PROOF", "CONIC SECTIONS", "BOUND CODEX",
+            "PUNCHED CARDS", "LOGIC CIRCUIT", "MICROCHIP", "OPEN LESSON", "CLASSROOM",
+            "MICROSCOPE", "X RAY", "PERCEPTION", "MEMORY MAP", "REACTION TIME"
+        };
+
+        private static readonly Exhibit[][] DisciplineModels = {
+            new[] { Exhibit.LightPrism, Exhibit.Pendulum, Exhibit.Orbiter },
+            new[] { Exhibit.GeometricProof, Exhibit.ConicSections, Exhibit.Astrolabe },
+            new[] { Exhibit.Train, Exhibit.Press, Exhibit.Ship },
+            new[] { Exhibit.GreatWall, Exhibit.Giza, Exhibit.Arena, Exhibit.Temple, Exhibit.SteppedTemple },
+            new[] { Exhibit.Tablet, Exhibit.BoundCodex },
+            new[] { Exhibit.PunchedCard, Exhibit.LogicCircuit, Exhibit.Microchip },
+            new[] { Exhibit.LessonSlate, Exhibit.Classroom },
+            new[] { Exhibit.Microscope, Exhibit.XRay },
+            new[] { Exhibit.Perception, Exhibit.MemoryMap, Exhibit.ReactionTime }
+        };
+
+        private static readonly Color[] DisciplineLight = {
+            new Color(.45f,.86f,1f), new Color(.74f,.70f,1f), new Color(1f,.62f,.32f),
+            new Color(.97f,.82f,.49f), new Color(.95f,.62f,.72f), new Color(.44f,.98f,.81f),
+            new Color(.92f,.94f,.55f), new Color(.53f,.89f,.73f), new Color(.83f,.62f,.97f)
         };
         private static readonly Color LimeStone = new Color(.91f,.86f,.72f);
         private static readonly Color PaleJade = new Color(.53f,.81f,.69f);
         private static readonly Color FiredBronze = new Color(.77f,.50f,.28f);
         private static readonly Color ExhibitBlue = new Color(.35f,.68f,.93f);
         private static readonly Color SlateInk = new Color(.105f,.15f,.21f);
-        private readonly ExhibitDisplay[] floatingExhibits = new ExhibitDisplay[12];
+
+        private ExhibitGallery sourceExhibits = new ExhibitGallery(), arrivingExhibits = new ExhibitGallery();
         private Mesh[] archiveSculptures, archiveTitles;
         private Mesh archiveOrbit, archiveLabel;
         private Material archiveSculptureMaterial;
-        private int exhibitionRoom = -1;
-        private float exhibitionLength;
-        private RuinPortal exhibitionFirstMouth;
 
-        private void DrawRuinExhibits(Journey journey, float time)
+        private void DrawRuinExhibits(Journey journey, float time, Vector3 viewer)
         {
             if (archiveSculptures == null) BuildRuinExhibitions();
             int room = journey.RuinRoomId;
-            float length = journey.RuinRoomLength;
-            RuinPortal firstMouth = journey.RuinPortals.Count > 0 ? journey.RuinPortals[0] : null;
-            if (room != exhibitionRoom || length != exhibitionLength || firstMouth != exhibitionFirstMouth)
+            if (arrivingExhibits.Room == room && sourceExhibits.Room != room)
+                (sourceExhibits, arrivingExhibits) = (arrivingExhibits, sourceExhibits);
+
+            var entrance = journey.Phase == Stage.RuinTransfer ? journey.RuinEntrance : null;
+            bool atMouth = entrance == null || ruinVisualDistance < ruinVisualMouth + 9f;
+            if (atMouth)
+                DrawExhibitGallery(journey, sourceExhibits, room, journey.Distance, time, viewer);
+            else
+                HideExhibitGallery(sourceExhibits);
+
+            if (entrance != null && ruinVisualDistance >= ruinVisualArrival - 11f)
             {
-                ArrangeRuinExhibitions(journey);
-                exhibitionRoom = room;
-                exhibitionLength = length;
-                exhibitionFirstMouth = firstMouth;
+                int destination = entrance.TargetRoom;
+                float length = journey.RuinRoomLengthFor(destination);
+                float depth = -3.7f + RuinTrack.DepthForMetres(destination, length, ruinVisualDistance - ruinVisualArrival);
+                DrawExhibitGallery(journey, arrivingExhibits, destination, Mathf.Min(0, depth), time, viewer);
+            }
+            else
+                HideExhibitGallery(arrivingExhibits);
+        }
+
+        private void DrawExhibitGallery(Journey journey, ExhibitGallery gallery, int room, float depth, float time, Vector3 viewer)
+        {
+            int discipline = RuinDisciplineExhibits.Normalize(journey.RuinDisciplineFor(room));
+            var mouths = journey.RuinPortalsFor(room);
+            RuinPortal firstMouth = mouths.Count > 0 ? mouths[0] : null;
+            if (room != gallery.Room || discipline != gallery.Discipline || firstMouth != gallery.FirstMouth)
+            {
+                ArrangeRuinExhibitions(journey, gallery, room, discipline);
+                gallery.Room = room;
+                gallery.Discipline = discipline;
+                gallery.FirstMouth = firstMouth;
             }
 
-            var eye = RuinTrack.Frame(room,length,journey.Distance-2.15f);
-            Vector3 viewer = tunnelRoot.TransformPoint(eye.Point(journey.RuinLane*2.45f,2.35f));
-            Color tint = Color.Lerp(new Color(.73f,.88f,.95f),RuinGalleryAccentFor(journey.RuinRoomStyle,room),.46f);
-            foreach (ExhibitDisplay exhibit in floatingExhibits)
+            float length = journey.RuinRoomLengthFor(room);
+            Color tint = DisciplineLight[discipline];
+            foreach (ExhibitDisplay exhibit in gallery.Displays)
             {
-                if (exhibit == null || float.IsPositiveInfinity(exhibit.Depth)) continue;
-                float delta = RuinTrack.Offset(exhibit.Depth, journey.Distance, length);
-                bool nearby = delta >= -8 && delta <= 40;
+                if (float.IsPositiveInfinity(exhibit.Depth)) continue;
+                float delta = RuinTrack.Offset(exhibit.Depth, depth, length);
+                bool nearby = delta >= -7 && delta <= 36;
                 exhibit.Root.gameObject.SetActive(nearby);
                 if (!nearby) continue;
                 var path = RuinTrack.Frame(room, length, exhibit.Depth);
-                float cycle = time * (.68f + .095f * Mathf.Sin(exhibit.Phase)) + exhibit.Phase;
-                exhibit.Root.localPosition = path.Point(exhibit.Side * (3.77f + .12f * Mathf.Sin(cycle*.68f)),
-                    exhibit.Height + .20f * Mathf.Sin(cycle) + .065f * Mathf.Sin(cycle*1.61f));
-                exhibit.Root.localRotation = path.Rotation * Quaternion.Euler(0, exhibit.Side * -11, 0);
-                exhibit.Body.localRotation = Quaternion.Euler(4.5f * Mathf.Cos(cycle*.76f),
-                    23 * Mathf.Sin(cycle*.58f) + exhibit.Side * 15, 4 * Mathf.Sin(cycle*1.12f));
-                exhibit.Halo.localRotation = Quaternion.Euler(15 + 7 * Mathf.Sin(cycle*.47f), time*17 + exhibit.Phase*38, 9);
-                exhibit.Halo.localScale = Vector3.one * exhibit.Size * (1 + .036f * Mathf.Sin(cycle*1.2f));
-                Light(exhibit.HaloRenderer,tint,.23f+.16f*Mathf.Pow(.5f+.5f*Mathf.Sin(cycle*1.2f),2));
-                Vector3 sight = exhibit.Title.position-viewer;
+                float cycle = time * (.58f + .07f * Mathf.Sin(exhibit.Phase)) + exhibit.Phase;
+                exhibit.Root.localPosition = path.Point(exhibit.Side * (3.51f + .09f * Mathf.Sin(cycle * .68f)),
+                    exhibit.Height + .15f * Mathf.Sin(cycle) + .045f * Mathf.Sin(cycle * 1.61f));
+                float lensRoom = Mathf.InverseLerp(1.20f, 4.9f, Vector3.Distance(exhibit.Root.position, viewer));
+                exhibit.Root.localScale = Vector3.one * Mathf.SmoothStep(.08f, 1, lensRoom);
+                exhibit.Root.localRotation = path.Rotation * Quaternion.Euler(0, exhibit.Side * -10f, 0);
+                exhibit.Body.localRotation = Quaternion.Euler(3 * Mathf.Cos(cycle * .76f),
+                    16 * Mathf.Sin(cycle * .58f) + exhibit.Side * 10, 2 * Mathf.Sin(cycle * 1.12f));
+                exhibit.Halo.localRotation = Quaternion.Euler(15 + 7 * Mathf.Sin(cycle * .47f), time * 12 + exhibit.Phase * 38, 9);
+                exhibit.Halo.localScale = Vector3.one * exhibit.Size * (1 + .036f * Mathf.Sin(cycle * 1.2f));
+                Light(exhibit.HaloRenderer, tint, .23f + .16f * Mathf.Pow(.5f + .5f * Mathf.Sin(cycle * 1.2f), 2));
+                Vector3 sight = exhibit.Title.position - viewer;
                 sight.y = 0;
-                if (sight.sqrMagnitude>.01f) exhibit.Title.rotation=Quaternion.LookRotation(sight);
+                if (sight.sqrMagnitude > .01f) exhibit.Title.rotation = Quaternion.LookRotation(sight);
             }
         }
 
-        private void ArrangeRuinExhibitions(Journey journey)
+        private void ArrangeRuinExhibitions(Journey journey, ExhibitGallery gallery, int room, int discipline)
         {
-            int room = journey.RuinRoomId;
-            float length = journey.RuinRoomLength;
-            int count = journey.RuinRoomStyle == 5 ? 8 : floatingExhibits.Length;
+            float length = journey.RuinRoomLengthFor(room);
+            int count = journey.RuinRoomStyleFor(room) == 5 ? 4 : discipline == 3 ? 7 : 6;
             var random = new Random(74443 + room * 92717);
+            Exhibit[] collection = DisciplineModels[discipline];
+            int displayed = 0;
             for (int i = 0; i < count; i++)
             {
-                ExhibitDisplay exhibit = floatingExhibits[i];
-                int model = room == 0 ? i : (i + room*5) % archiveSculptures.Length;
-                // The first sculpture in the entrance hall counterbalances the inscription on the left.
-                exhibit.Side = ((i+(room==0 ? 1 : 0)) & 1) == 0 ? -1 : 1;
-                float span = length - 11.4f;
-                float target = 4.7f + span * i / (count - 1f);
-                float previous = i < 2 ? 0 : floatingExhibits[i - 2].Depth;
-                if (float.IsInfinity(previous)) previous = i < 4 ? 0 : floatingExhibits[i - 4].Depth;
-                if (float.IsInfinity(previous)) previous = 0;
-                exhibit.Depth = ExhibitSafeDepth(journey,target,exhibit.Side,previous);
-                exhibit.Height = 2.45f + .92f * (float)random.NextDouble() + .17f*Mathf.Sin(i*1.7f);
-                exhibit.Phase = (float)random.NextDouble()*Mathf.PI*2;
+                ExhibitDisplay exhibit = gallery.Displays[i];
+                exhibit.Side = ((i + (room == 0 ? 1 : 0)) & 1) == 0 ? -1 : 1;
+                float target = 5.0f + (length - 13.0f) * i / (count - 1f);
+                float previous = i < 2 ? 0 : gallery.Displays[i - 2].Depth;
+                if (float.IsInfinity(previous)) previous = i < 4 ? 0 : gallery.Displays[i - 4].Depth;
+                exhibit.Depth = ExhibitSafeDepth(journey, room, target, exhibit.Side, float.IsInfinity(previous) ? 0 : previous);
+                if (float.IsPositiveInfinity(exhibit.Depth)) continue;
+                int model = (int)collection[displayed++ % collection.Length];
+                exhibit.Height = 3.02f + .58f * (float)random.NextDouble();
+                exhibit.Phase = (float)random.NextDouble() * Mathf.PI * 2;
                 Mesh sculpture = archiveSculptures[model];
                 var size = sculpture.bounds.size;
-                exhibit.Size = 2.84f/Mathf.Max(size.x,size.y*1.13f,size.z*1.15f);
-                exhibit.Body.GetComponent<MeshFilter>().sharedMesh = sculpture;
+                exhibit.Size = 2.54f / Mathf.Max(size.x, size.y * 1.16f, size.z * 1.15f);
+                exhibit.Model.sharedMesh = sculpture;
                 exhibit.Body.localScale = Vector3.one * exhibit.Size;
                 exhibit.Body.localPosition = -sculpture.bounds.center * exhibit.Size;
-                exhibit.Title.localPosition = new Vector3(-exhibit.Side*.69f,-.76f,-1.11f);
-                exhibit.LetterRenderer.GetComponent<MeshFilter>().sharedMesh = archiveTitles[model];
+                exhibit.Title.localPosition = new Vector3(-exhibit.Side * .55f, -.85f, -.91f);
+                exhibit.Letters.sharedMesh = archiveTitles[model];
             }
-            for (int i = count; i < floatingExhibits.Length; i++)
-            {
-                floatingExhibits[i].Depth = float.PositiveInfinity;
-                floatingExhibits[i].Root.gameObject.SetActive(false);
-            }
+            for (int i = count; i < gallery.Displays.Length; i++)
+                gallery.Displays[i].Depth = float.PositiveInfinity;
+            foreach (var display in gallery.Displays)
+                if (float.IsPositiveInfinity(display.Depth)) display.Root.gameObject.SetActive(false);
         }
 
-        private static float ExhibitSafeDepth(Journey journey, float wanted, float side, float previous)
+        private static void HideExhibitGallery(ExhibitGallery gallery)
         {
+            foreach (var display in gallery.Displays)
+                if (display.Root.gameObject.activeSelf) display.Root.gameObject.SetActive(false);
+        }
+
+        private static float ExhibitSafeDepth(Journey journey, int room, float wanted, float side, float previous)
+        {
+            float length = journey.RuinRoomLengthFor(room);
             float closest = wanted, best = float.NegativeInfinity;
-            for (int sample = 0; sample < 13; sample++)
+            bool first = wanted <= 5.05f;
+            for (int sample = 0; sample < 17; sample++)
             {
-                float offset = ((sample + 1) / 2) * ((sample & 1) == 0 ? -.66f : .66f);
-                float tryDepth = Mathf.Clamp(wanted + offset, 3.4f, journey.RuinRoomLength - 6.5f);
+                float offset = ((sample + 1) / 2) * ((sample & 1) == 0 ? -.58f : .58f);
+                float tryDepth = Mathf.Clamp(wanted + offset, 3.45f, length - 6.5f);
                 float clearance = tryDepth - previous;
-                foreach (RuinPortal mouth in journey.RuinPortals)
+                foreach (RuinPortal mouth in journey.RuinPortalsFor(room))
                 {
                     bool vertical = IsVerticalRuinGate(mouth.Direction);
                     if (mouth.Lane == side || vertical)
                     {
-                        float separation = Mathf.Abs(RuinTrack.Offset(mouth.Depth, tryDepth, journey.RuinRoomLength));
-                        clearance = Mathf.Min(clearance, separation - (vertical ? 1.55f : 0));
+                        float separation = Mathf.Abs(RuinTrack.Offset(mouth.Depth, tryDepth, length));
+                        clearance = Mathf.Min(clearance, separation - (vertical ? 1.46f : 0));
                     }
                 }
-                float score = Mathf.Min(3.5f,clearance) - Mathf.Abs(offset)*.10f;
+                foreach (RuinObject find in journey.RuinObjectsFor(room))
+                {
+                    if (find.Lane != side) continue;
+                    float separation = Mathf.Abs(RuinTrack.Offset(find.Depth, tryDepth, length));
+                    clearance = Mathf.Min(clearance, separation - .06f);
+                }
+                if (clearance < 1.20f) continue;
+                float score = Mathf.Min(first ? 2.05f : 3.25f, clearance) - Mathf.Abs(offset) * (first ? .22f : .11f);
                 if (score <= best) continue;
                 closest = tryDepth;
                 best = score;
             }
-            return best > 1.37f ? closest : float.PositiveInfinity;
+            return float.IsNegativeInfinity(best) ? float.PositiveInfinity : closest;
         }
 
         private void BuildRuinExhibitions()
@@ -142,31 +225,38 @@ namespace Echoes
             }
             archiveSculptures = new Mesh[ExhibitTitles.Length];
             archiveTitles = new Mesh[ExhibitTitles.Length];
-            for (int model=0; model<archiveSculptures.Length; model++)
+            for (int model = 0; model < archiveSculptures.Length; model++)
             {
-                archiveSculptures[model] = MakeExhibitSculpture(model);
+                archiveSculptures[model] = MakeExhibitSculpture((Exhibit)model);
                 archiveTitles[model] = BuildExhibitTitle(ExhibitTitles[model]);
             }
             archiveOrbit = BuildExhibitHalo();
             var plaque = Geometry();
-            plaque.Box(Vector3.zero,new Vector3(2.20f,.31f,.044f),Quaternion.identity,SlateInk);
-            plaque.Box(new Vector3(0,-.16f,-.028f),new Vector3(2.22f,.018f,.023f),Quaternion.identity,ExhibitBlue);
+            plaque.Box(Vector3.zero, new Vector3(2.20f, .31f, .044f), Quaternion.identity, SlateInk);
+            plaque.Box(new Vector3(0, -.16f, -.028f), new Vector3(2.22f, .018f, .023f), Quaternion.identity, ExhibitBlue);
             archiveLabel = plaque.Finish("Suspended archive plaque");
-            for (int i=0;i<floatingExhibits.Length;i++)
+            PopulateExhibitGallery(sourceExhibits, material);
+            PopulateExhibitGallery(arrivingExhibits, material);
+        }
+
+        private void PopulateExhibitGallery(ExhibitGallery gallery, Material material)
+        {
+            for (int i = 0; i < gallery.Displays.Length; i++)
             {
-                Transform anchor = Group("Floating civilization achievement",tunnelRoot);
-                Transform body = RuinPiece("Historical sculpture",archiveSculptures[0],material,anchor);
-                Transform halo = RuinPiece("Suspended scanning arcs",archiveOrbit,glow,anchor);
-                Transform title = Group("Floating glass caption",anchor);
-                RuinPiece("Smoked archive plaque",archiveLabel,material,title);
-                Transform textObject = RuinPiece("Inscribed achievement",archiveTitles[0],glow,title);
-                floatingExhibits[i] = new ExhibitDisplay {
-                    Root=anchor, Body=body, Halo=halo, Title=title,
-                    HaloRenderer=halo.GetComponent<MeshRenderer>(),
-                    LetterRenderer=textObject.GetComponent<MeshRenderer>()
+                Transform anchor = Group("Floating civilization achievement", tunnelRoot);
+                Transform body = RuinPiece("Historical sculpture", archiveSculptures[0], material, anchor);
+                Transform halo = RuinPiece("Suspended scanning arcs", archiveOrbit, glow, anchor);
+                Transform title = Group("Floating glass caption", anchor);
+                RuinPiece("Smoked archive plaque", archiveLabel, material, title);
+                Transform textObject = RuinPiece("Inscribed achievement", archiveTitles[0], glow, title);
+                gallery.Displays[i] = new ExhibitDisplay {
+                    Root = anchor, Body = body, Halo = halo, Title = title,
+                    Model = body.GetComponent<MeshFilter>(), Letters = textObject.GetComponent<MeshFilter>(),
+                    HaloRenderer = halo.GetComponent<MeshRenderer>(), Depth = float.PositiveInfinity
                 };
-                Light(body.GetComponent<MeshRenderer>(), Color.white, .48f);
-                Light(floatingExhibits[i].LetterRenderer, new Color(.80f,.94f,1), .42f);
+                Light(body.GetComponent<MeshRenderer>(), Color.white, .52f);
+                Light(textObject.GetComponent<MeshRenderer>(), new Color(.80f,.94f,1), .42f);
+                anchor.gameObject.SetActive(false);
             }
         }
 
@@ -197,25 +287,39 @@ namespace Echoes
             return orbit.Finish("Broken holographic orbit and sparks");
         }
 
-        private Mesh MakeExhibitSculpture(int model)
+        private Mesh MakeExhibitSculpture(Exhibit model)
         {
-            var form=Geometry();
+            var form = Geometry();
             switch (model)
             {
-                case 0: ExhibitGreatWall(form); break;
-                case 1: ExhibitGiza(form); break;
-                case 2: ExhibitArena(form); break;
-                case 3: ExhibitTemple(form); break;
-                case 4: ExhibitSteppedTemple(form); break;
-                case 5: ExhibitPress(form); break;
-                case 6: ExhibitTrain(form); break;
-                case 7: ExhibitAstrolabe(form); break;
-                case 8: ExhibitOrbiter(form); break;
-                case 9: ExhibitSeismoscope(form); break;
-                case 10: ExhibitTablet(form); break;
-                case 11: ExhibitShip(form); break;
+                case Exhibit.GreatWall: ExhibitGreatWall(form); break;
+                case Exhibit.Giza: ExhibitGiza(form); break;
+                case Exhibit.Arena: ExhibitArena(form); break;
+                case Exhibit.Temple: ExhibitTemple(form); break;
+                case Exhibit.SteppedTemple: ExhibitSteppedTemple(form); break;
+                case Exhibit.Press: ExhibitPress(form); break;
+                case Exhibit.Train: ExhibitTrain(form); break;
+                case Exhibit.Astrolabe: ExhibitAstrolabe(form); break;
+                case Exhibit.Orbiter: ExhibitOrbiter(form); break;
+                case Exhibit.Tablet: ExhibitTablet(form); break;
+                case Exhibit.Ship: ExhibitShip(form); break;
+                case Exhibit.LightPrism: ExhibitPrism(form); break;
+                case Exhibit.Pendulum: ExhibitPendulum(form); break;
+                case Exhibit.GeometricProof: ExhibitProof(form); break;
+                case Exhibit.ConicSections: ExhibitConics(form); break;
+                case Exhibit.BoundCodex: ExhibitCodex(form); break;
+                case Exhibit.PunchedCard: ExhibitPunchedCard(form); break;
+                case Exhibit.LogicCircuit: ExhibitLogic(form); break;
+                case Exhibit.Microchip: ExhibitChip(form); break;
+                case Exhibit.LessonSlate: ExhibitLesson(form); break;
+                case Exhibit.Classroom: ExhibitClassroom(form); break;
+                case Exhibit.Microscope: ExhibitMicroscope(form); break;
+                case Exhibit.XRay: ExhibitRadiograph(form); break;
+                case Exhibit.Perception: ExhibitPerception(form); break;
+                case Exhibit.MemoryMap: ExhibitMemory(form); break;
+                case Exhibit.ReactionTime: ExhibitReaction(form); break;
             }
-            return form.Finish("Floating archive · "+ExhibitTitles[model]);
+            return form.Finish("Floating archive · " + ExhibitTitles[(int)model]);
         }
 
         private static void ExhibitGreatWall(WorldMesh form)
@@ -447,26 +551,6 @@ namespace Echoes
             ExhibitBeam(form,new Vector3(.05f,.48f,-.116f),new Vector3(.28f,.76f,-.269f),.023f,foil);
             var bowl=Quaternion.Euler(-34,23,-9);
             ExhibitCircle(form,new Vector3(.28f,.76f,-.269f),.216f,.146f,bowl*Vector3.right,bowl*Vector3.up,.029f,LimeStone,22);
-        }
-
-        private static void ExhibitSeismoscope(WorldMesh form)
-        {
-            Vector3 basePoint=new Vector3(0,-.62f,0);
-            form.Rock(basePoint,new Vector3(.49f,.088f,.49f),LimeStone,.37f,3,17,.07f);
-            form.Rock(new Vector3(0,-.11f,0),new Vector3(.533f,.48f,.532f),FiredBronze,.17f,9,32,.035f);
-            ExhibitCircle(form,new Vector3(0,.239f,0),.429f,.429f,Vector3.right,Vector3.forward,.036f,LimeStone,35);
-            ExhibitCircle(form,new Vector3(0,-.372f,0),.427f,.427f,Vector3.right,Vector3.forward,.014f,PaleJade,29);
-            form.Rock(new Vector3(0,.382f,0),new Vector3(.268f,.106f,.264f),WorldMesh.Shade(FiredBronze,.84f),.62f,5,16,.067f);
-            for (int point=0;point<8;point++)
-            {
-                float a=point*Mathf.PI/4;
-                Vector3 outward=new Vector3(Mathf.Sin(a),0,Mathf.Cos(a));
-                form.Tube(new[]{outward*.40f+Vector3.up*.16f,outward*.544f+Vector3.up*.20f,outward*.629f+Vector3.up*.085f},
-                    new[]{.061f,.059f,.044f},9,PaleJade);
-                form.Rock(outward*.643f+Vector3.up*.058f,new Vector3(.041f,.039f,.041f),LimeStone,.079f*point,4,10,.035f);
-                form.Rock(outward*.632f+Vector3.down*.55f,new Vector3(.105f,.067f,.085f),WorldMesh.Shade(PaleJade,.82f),
-                    point*.12f,4,13,.09f);
-            }
         }
 
         private static void ExhibitTablet(WorldMesh form)

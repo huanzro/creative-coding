@@ -45,7 +45,8 @@ namespace Echoes
         private readonly bool[] physicalTouchDown = new bool[2];
         private readonly bool[] browserTouch = new bool[2];
         private Frame remote = new Frame();
-        private const string SaveKey = "EchoesUnity.Checkpoint.Ruins.8";
+        private const string SaveKey = "EchoesUnity.Checkpoint.Ruins.9";
+        private const string PreviousRuinLootSaveKey = "EchoesUnity.Checkpoint.Ruins.8";
         private const string PreviousGallerySaveKey = "EchoesUnity.Checkpoint.Ruins.7";
         private const string PreviousCircuitSaveKey = "EchoesUnity.Checkpoint.Ruins.6";
         private const string PreviousRuinsSaveKey = "EchoesUnity.Checkpoint.Ruins.5";
@@ -154,7 +155,7 @@ namespace Echoes
             bool rightHeld = keyboard && Input.GetKey(KeyCode.B);
             if (keyboard && Input.GetKeyDown(KeyCode.A) && (!journey.InForest || !rightHeld)) TrackTouch(0, true, false);
             if (keyboard && Input.GetKeyDown(KeyCode.B) && (!journey.InForest || !leftHeld)) TrackTouch(1, true, false);
-            ResolveHeldSteering(leftHeld || view.ForestScreenTouchHeld(0), rightHeld || view.ForestScreenTouchHeld(1));
+            ResolveHeldSteering(leftHeld || view.ScreenTouchHeld(0), rightHeld || view.ScreenTouchHeld(1));
             if (!paused) journey.Step(journey.IsOpening ? Time.unscaledDeltaTime : dt, inputReady ? voice : 0, inputReady);
             UpdateMazeMap(keyboard);
             view.Advance(journey);
@@ -262,7 +263,8 @@ namespace Echoes
             var state = Snapshot();
             view.DrawControls(state.title, state.message, state.left, state.right, state.voice,
                 option => Choose(option.ToString()), Select, () => Retry(""), () => Restore(""),
-                () => Pause(paused ? "0" : "1"), paused, characterOnly, journey.ForestMazeWalkArea, journey.InForest,
+                () => Pause(paused ? "0" : "1"), paused, characterOnly, journey.ForestMazeWalkArea,
+                journey.InForest || journey.InRuins && journey.Phase == Stage.RuinExplore && !journey.RuinLootOpen,
                 ToggleSettings, settings ? DrawSettings : (Action<GUIStyle, GUIStyle>)null);
         }
 
@@ -526,10 +528,11 @@ namespace Echoes
         {
             RuinPortal portal = game.RuinEntrance;
             RuinTrackConnection path = WorldSet.RuinConnection(game, portal);
-            float distance = path.TravelMetres(WorldSet.RuinPassageStart(game));
+            RuinRouteFrame start = WorldSet.RuinPassageStart(game);
+            float distance = path.TravelMetres(start);
             float source = RuinTrack.RouteMetresPerDepth(game.RuinRoomId, game.RuinRoomLength);
             float destination = RuinTrack.RouteMetresPerDepth(portal.TargetRoom, game.RuinRoomLengthFor(portal.TargetRoom));
-            return new RuinTransferMetrics(distance, source, destination);
+            return new RuinTransferMetrics(distance, source, destination, progress => path.SafeTransferSpeed(start, progress));
         }
 
         private void TrackTouch(int option, bool down, bool physical)
@@ -591,9 +594,10 @@ namespace Echoes
         public void Restore(string unused)
         {
             string save = PlayerPrefs.GetString(SaveKey,
-                PlayerPrefs.GetString(PreviousGallerySaveKey,
-                    PlayerPrefs.GetString(PreviousCircuitSaveKey,
-                        PlayerPrefs.GetString(PreviousRuinsSaveKey, PlayerPrefs.GetString(PreviousSaveKey, "")))));
+                PlayerPrefs.GetString(PreviousRuinLootSaveKey,
+                    PlayerPrefs.GetString(PreviousGallerySaveKey,
+                        PlayerPrefs.GetString(PreviousCircuitSaveKey,
+                            PlayerPrefs.GetString(PreviousRuinsSaveKey, PlayerPrefs.GetString(PreviousSaveKey, ""))))));
             if (string.IsNullOrEmpty(save)) return;
             try
             {

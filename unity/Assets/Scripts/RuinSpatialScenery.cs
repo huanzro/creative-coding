@@ -11,6 +11,7 @@ namespace Echoes
             public readonly Dictionary<int,int> ClearanceSlots = new Dictionary<int,int>();
             public readonly Dictionary<ulong,Transform> CrossingWalls = new Dictionary<ulong,Transform>();
             public readonly Dictionary<ulong,Transform> CrossingFloors = new Dictionary<ulong,Transform>();
+            public readonly Dictionary<ulong,Transform> CrossingInlays = new Dictionary<ulong,Transform>();
             public readonly Dictionary<int,RuinConnectorView> Branches = new Dictionary<int,RuinConnectorView>();
         }
 
@@ -83,7 +84,8 @@ namespace Echoes
             int current=j.RuinRoomId;
             int next=j.Phase==Stage.RuinTransfer && j.RuinEntrance!=null ? j.RuinEntrance.TargetRoom : -1;
             bool transfer=next>=0;
-            bool inside=transfer && ruinVisualDistance>=Mathf.Max(0,ruinVisualMouth-2.5f);
+            bool inside=transfer && ruinVisualDistance>=Mathf.Max(0,ruinVisualMouth-3.55f);
+            bool lining=transfer && ruinVisualDistance>=Mathf.Max(0,ruinVisualMouth-8.2f);
             bool entering=inside && ruinVisualDistance>=Mathf.Max(ruinVisualMouth+3f,ruinVisualArrival-16f);
             EnsureRuinEnvelope(j,current);
             if(transfer) EnsureRuinEnvelope(j,next);
@@ -109,13 +111,15 @@ namespace Echoes
                 ulong floorCut=floorReady ? 0 : cut;
                 foreach(var panel in envelope.CrossingFloors)
                     panel.Value.gameObject.SetActive((panel.Key & floorCut)==0);
+                foreach(var strip in envelope.CrossingInlays)
+                    strip.Value.gameObject.SetActive((strip.Key & floorCut)==0);
                 foreach(var branch in pair.Value.Branches)
                 {
                     bool selected=transfer && source && branch.Key==j.RuinEntrance.Id;
                     bool showMouth=j.RuinRetryState==RuinRetryPhase.Inactive &&
                         (destination || source && (!inside || selected));
                     branch.Value.Entrance.gameObject.SetActive(showMouth);
-                    branch.Value.Interior.gameObject.SetActive(showMouth && selected && inside);
+                    branch.Value.Interior.gameObject.SetActive(showMouth && selected && lining);
                 }
             }
         }
@@ -133,6 +137,7 @@ namespace Echoes
             // Group panels by the exact connectors that pass through them.
             var crossingWalls=new Dictionary<ulong,WorldMesh>();
             var crossingFloors=new Dictionary<ulong,WorldMesh>();
+            var crossingInlays=new Dictionary<ulong,WorldMesh>();
             var accents=new WorldMesh(ruinSpatialMeshes);
             Color material=RuinGalleryStoneFor(style,room);
             Color hue=RuinGalleryAccentFor(style,room);
@@ -187,8 +192,13 @@ namespace Echoes
                     if(side<0) floor.Quad(outsideA,outsideB,insideB,insideA,slab);
                     else floor.Quad(insideA,insideB,outsideB,outsideA,slab);
                     if(step%4!=3 || cutStart>0 || cutEnd>0)
-                        RuinBar(accents,a.Point(side*Mathf.Max(1.54f,cutStart+.18f),.004f),
+                    {
+                        WorldMesh rail=accents;
+                        if(floorCut!=0 && !crossingInlays.TryGetValue(floorCut,out rail))
+                            crossingInlays.Add(floorCut,rail=new WorldMesh(ruinSpatialMeshes));
+                        RuinBar(rail,a.Point(side*Mathf.Max(1.54f,cutStart+.18f),.004f),
                             b.Point(side*Mathf.Max(1.54f,cutEnd+.18f),.004f),.029f,.025f,hue);
+                    }
                 }
             }
             foreach(RuinPortal portal in openings)
@@ -203,6 +213,12 @@ namespace Echoes
                     pair.Value.Finish("Archive crossing floors"),tunnelStone,created.Gallery));
             var strips=RuinPiece("Continuous curb lights",accents.Finish("Track inlay"),glow,created.Gallery).GetComponent<MeshRenderer>();
             Light(strips,Color.white,.69f);
+            foreach(var pair in crossingInlays)
+            {
+                Transform inlay=RuinPiece("Fitted landing lights",pair.Value.Finish("Archive crossing lights"),glow,created.Gallery);
+                created.CrossingInlays.Add(pair.Key,inlay);
+                Light(inlay.GetComponent<MeshRenderer>(),Color.white,.69f);
+            }
 
             foreach(RuinPortal portal in openings)
             {
@@ -241,7 +257,7 @@ namespace Echoes
                     {
                         // Allow more room as the final shaft widens into the gallery and the camera follows.
                         float progress=(incoming ? .86f : .827f)*i/44;
-                        Vector3 next=path.Frame(progress).Position;
+                        Vector3 next=path.CentreAt(progress);
                         if(source==activeRoom && IsVerticalRuinGate(portal.Direction) && progress<.13f)
                         {
                             previous=next;

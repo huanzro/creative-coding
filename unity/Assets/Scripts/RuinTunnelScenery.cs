@@ -30,7 +30,7 @@ namespace Echoes
             public Mesh Structure, Rim, Door, Signal, Palm;
         }
 
-        public void DrawRuinTunnel(Journey journey, bool active, float time)
+        public void DrawRuinTunnel(Journey journey, bool active, float time, Vector3 viewer)
         {
             if (!active)
             {
@@ -69,7 +69,7 @@ namespace Echoes
                 Light(axonSignals[i], RuinGalleryAccentFor(style,journey.RuinRoomId), .52f + .26f * Mathf.Sin(phase * 5));
             }
             DrawRuinGalleryStyle(journey,archiveTime);
-            DrawRuinExhibits(journey,archiveTime);
+            DrawRuinExhibits(journey,archiveTime,viewer);
             DrawRuinArtifacts(journey, archiveTime);
             DrawRuinRetry(journey, time);
         }
@@ -427,13 +427,10 @@ namespace Echoes
                     continue;
                 }
                 DrawRuinNiche(niches++, item, frame, journey, time, gap);
-                if (item.Collected || item == journey.RuinLootSource || item.Reveal <= .17f) continue;
-                float reveal = Mathf.InverseLerp(.17f, .88f, item.Reveal);
-                float reach = Mathf.SmoothStep(0, 1, reveal);
+                if (item.Collected || item == journey.RuinLootSource || item.Reveal <= .18f) continue;
+                float reveal = Mathf.InverseLerp(.18f, .78f, item.Reveal);
                 int side = item.Lane < 0 ? -1 : 1;
-                // Moving toward the front corner clears the screen from the trailing camera.
-                Vector3 relic = frame.Point(side * (RuinNicheLateral - reach * .78f), height + reach * .11f)
-                    + frame.Forward * (.26f - reach * .86f);
+                Vector3 relic = RuinCacheDisplay(frame, side, reveal);
                 archiveObjects.UpdateArtifact(artifacts++, (int)item.Kind, relic, time, reveal, heading + side * 23);
             }
             HideRuinNichesFrom(niches);

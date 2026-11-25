@@ -146,6 +146,9 @@ namespace Echoes
                 if (Mathf.Abs(RuinTrack.Offset(portal.Depth, depth, length)) < clearDepth)
                     return false;
             }
+            foreach (RuinObject item in journey.RuinObjectsFor(room))
+                if (Mathf.Abs(RuinTrack.Offset(item.Depth, depth, length)) < 1.10f)
+                    return false;
             return true;
         }
 

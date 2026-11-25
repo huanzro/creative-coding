@@ -27,7 +27,8 @@ namespace Echoes
             string level = journey.RuinLayer == 0 ? "中层" : journey.RuinLayer > 0
                 ? $"上层 +{journey.RuinLayer}" : $"下层 {journey.RuinLayer}";
             Paint(new Rect(26, 130, 332, 35), InkGlass);
-            GUI.Label(new Rect(43, 134, 310, 27), $"{level}   ·   {journey.RuinRoomName}", body);
+            string discipline = RuinDisciplineExhibits.Name(journey.RuinDiscipline);
+            GUI.Label(new Rect(43, 134, 310, 27), $"{discipline}展厅  ·  {level}  ·  {journey.RuinRoomName}", body);
             if (journey.Phase == Stage.RuinExplore && !journey.RuinLootOpen)
             {
                 const float firstHint = 173;
@@ -36,8 +37,8 @@ namespace Echoes
                 {
                     var (way, action, tint) = portal.Direction switch
                     {
-                        RuinDirection.Left => ("← 左侧弯道", "按 A 进入", GlassBlue),
-                        RuinDirection.Right => ("→ 右侧弯道", "按 B 进入", GlassBlue),
+                        RuinDirection.Left => ("← 左侧弯道", "朝左滑入", GlassBlue),
+                        RuinDirection.Right => ("→ 右侧弯道", "朝右滑入", GlassBlue),
                         RuinDirection.Upper => ("↑ 上行坡道", "张手进入", MemoryViolet),
                         _ => ("↓ 下行坡道", "下降进入", Mint)
                     };
@@ -47,9 +48,9 @@ namespace Echoes
                 if (journey.RuinSearchTarget != null && (!journey.RuinCanChoosePassage || journey.RuinCanTake))
                     DrawRuinHint(portal == null ? firstHint : firstHint + 36,
                         journey.RuinCanTake ? journey.RuinTakeLabel : "靠近墙龛了，停声查看", Amber, journey.RuinCanTake);
-                else if (!journey.RuinCanChoosePassage && journey.RuinSearchTarget == null && journey.RuinNearbyClue is RuinObject clue)
+                else if (journey.RuinNearbyClue is RuinObject clue)
                     DrawRuinHint(portal == null ? firstHint : firstHint + 36,
-                        clue.Lane < 0 ? "← 左侧墙缝有微光" : "→ 右侧墙缝有微光", Amber, false);
+                        clue.Lane < 0 ? "← 左侧有亮着的暗龛" : "→ 右侧有亮着的暗龛", Amber, true);
             }
 
             if (journey.RuinLootOpen) DrawRuinLoot(journey);
