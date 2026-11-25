@@ -11,6 +11,7 @@ Shader "Hidden/Echoes/ForestRunoff"
         Cull Off
         ZWrite Off
         Blend SrcAlpha OneMinusSrcAlpha
+        ColorMask RGB
         Pass
         {
             CGPROGRAM

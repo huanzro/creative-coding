@@ -13,6 +13,7 @@ Shader "Hidden/Echoes/MachineGlass"
     {
         Tags { "Queue"="Transparent" "RenderType"="Transparent" }
         Blend SrcAlpha OneMinusSrcAlpha
+        ColorMask RGB
         Cull Off
         ZWrite Off
         Pass

@@ -141,10 +141,10 @@ namespace Echoes
 
         private static float CharacterY(float altitude) => Height * SpiritFlight.ScreenY(altitude);
 
-        private float ProjectionOverlayGain(bool split) => split && ProjectionGradient ?
+        private float ProjectionOverlayGain => ProjectionGradient ?
             ProjectionLighting.CenterGain(ProjectionFalloff) / ProjectionLighting.DefaultCenterGain : 1;
 
-        public void DrawStage(Journey journey, SpiritFrame frame, bool splitProjection)
+        public void DrawStage(Journey journey, SpiritFrame frame, bool splitProjection, bool previewWorld = false)
         {
             if (Event.current.type != EventType.Repaint) return;
             Matrix4x4 matrix = BeginFrame(ScreenViewport);
@@ -156,13 +156,13 @@ namespace Echoes
                 return;
             }
             var color = palette[journey.Chapter];
-            bool spatial = (UseWorld || frame.forest || frame.ruins) && world != null && world.Ready;
+            bool spatial = (UseWorld || frame.forest || frame.ruins || previewWorld) && world != null && world.Ready;
             if (spatial) Paint(new Rect(0,0,Width,Height),Color.white,world.Texture);
             else DrawLegacyBackground(journey, frame, color);
             if (!frame.forest && !frame.ruins) DrawChapterFeedback(journey, color);
             if (splitProjection && !spatial)
                 Paint(new Rect(100, -100, 1080, 940), new Color(0, 0, 0, .35f), glow);
-            float overlayGain = spatial ? ProjectionOverlayGain(splitProjection) : 1;
+            float overlayGain = spatial ? ProjectionOverlayGain : 1;
             float strength = (splitProjection ? .38f : .87f) * overlayGain;
             var center = new Vector2(CenterX, CharacterY(frame.altitude));
             var origin = new Vector2(CenterX, CharacterY(frame.releaseAltitude));
@@ -362,7 +362,7 @@ namespace Echoes
             Paint(new Rect(26, 650, 1228, 50), new Color(.02f, .05f, .09f, .86f));
             if (GUI.Button(new Rect(42, 658, 164, 34), left, button)) choose(0);
             if (GUI.Button(new Rect(213, 658, 164, 34), right, button)) choose(1);
-            GUI.Label(new Rect(393, 651, 310, 25), mazeWalking ? "松开空格走 · 按住停步 · Z/X 加速" : "空格握拳 · 松开张手 · Z轻声 · X加速", body);
+            GUI.Label(new Rect(393, 651, 310, 25), mazeWalking ? "A/B 转向 · 松开空格走 · 按住停" : "空格握拳 · 松开张手 · Z轻声 · X加速", body);
             Paint(new Rect(396, 680, 270, 4), new Color(1, 1, 1, .2f));
             Paint(new Rect(396, 680, volume * 270, 4), new Color(.81f, .85f, 1));
             if (GUI.Button(new Rect(687, 658, 76, 34), paused ? "继续" : "暂停", button)) pause();

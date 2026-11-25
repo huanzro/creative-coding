@@ -84,6 +84,17 @@ function FlyFlat($game, $depth, $height, $lane) {
     }
 }
 
+function Aim-MazeExit($game, $exit) {
+    $node=$game.ForestMaze.Nodes[$game.ForestMazeNode]
+    $door=$game.ForestMaze.Nodes[$exit]
+    $heading=[Math]::Atan2($door.X-$node.X,$door.Z-$node.Z) * 180 / [Math]::PI
+    $angle=($heading-$game.ForestMazeHeading+540)%360-180
+    $game.SetHand([Echoes.Hand]::Fist)
+    $game.SetMazeSteering($angle -lt 0, $angle -gt 0)
+    for ($tick=0; $tick -lt [Math]::Round([Math]::Abs($angle)/2.24); $tick++) { $game.Step(.02,0) }
+    $game.SetMazeSteering($false,$false)
+    $game.SetHand([Echoes.Hand]::Open)
+}
 function EnterLeft($game) {
     FlyFlat $game 112 .76 -1
     Assert ($game.Branch -eq 'Left' -and $game.ForestCenter -lt -1 -and $game.ForestCenter -gt -2) 'The shared route commits beside the actual left opening.'
@@ -92,8 +103,7 @@ function EnterLeft($game) {
     $start = $game.Time
     for ($i=0; $i -lt 6200 -and $game.Phase -ne 'ForestPlanting'; $i++) {
         if ($game.MazeMotion -eq 'Choosing') {
-            $direction = [int]($game.ForestMazeRight -eq $game.ForestMazeNode + 1)
-            Assert ($game.Touch($direction)) 'The fork should accept the route along the spine.'
+            Aim-MazeExit $game ($game.ForestMazeNode + 1)
         }
         if ($game.Phase -eq 'ForestExplore') { $game.Flight.Reset(.35,$game.ForestHeightLimit) }
         $game.Step(.02,1)
@@ -262,15 +272,15 @@ $marked = $false
 for ($i=0; $i -lt 4200 -and $canopy.MazeMotion -ne 'WaitingAtWall'; $i++) {
     if ($canopy.MazeMotion -eq 'Choosing') {
         $at=$canopy.ForestMazeNode
-        $wallLeft=ReachesWall $maze $at $canopy.ForestMazeLeft
-        $wallRight=ReachesWall $maze $at $canopy.ForestMazeRight
-        if ($wallLeft -or $wallRight) {
+        $corridors=$maze.Connections($at)
+        $tunnel=$corridors | ForEach-Object { $_.Other($at) } | Where-Object { (ReachesWall $maze $at $_) } | Select-Object -First 1
+        if ($null -ne $tunnel) {
             $checkpointX=$canopy.ForestMazeX
             $checkpointZ=$canopy.ForestMazeZ
             $marked=$true
-            [void]$canopy.Touch([int]$wallRight)
+            Aim-MazeExit $canopy $tunnel
         } else {
-            [void]$canopy.Touch([int]($canopy.ForestMazeRight -eq $canopy.ForestMazeNode + 1))
+            Aim-MazeExit $canopy ($at + 1)
         }
     }
     if ($canopy.Phase -eq 'ForestExplore') { $canopy.Flight.Reset(.31,$canopy.ForestHeightLimit) }
@@ -290,7 +300,9 @@ Assert ($canopy.MazeMotion -eq 'Retracing' -and ($canopy.ForestMazeX -ne $wallX 
 for ($i=0; $i -lt 1000 -and $canopy.Phase -eq 'ForestLoop'; $i++) { $canopy.Step(.02,0) }
 Assert ($canopy.MazeMotion -eq 'Choosing' -and [Math]::Abs($canopy.ForestMazeX - $checkpointX) -lt .05 -and
     [Math]::Abs($canopy.ForestMazeZ - $checkpointZ) -lt .05) 'The character returns to the last choice, not the start of the maze.'
-Assert ($canopy.TurnAroundForest()) 'The same turn is available by long press from a choice.'
+$from=$canopy.ForestMazeNode
+$reverse=$maze.Connections($from)[0].Other($from)
+Aim-MazeExit $canopy $reverse
 Step $canopy 1.05 1
 $x=$canopy.ForestMazeX
 $z=$canopy.ForestMazeZ

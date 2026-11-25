@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace Echoes
 {
-    public sealed class EchoesPlayer : MonoBehaviour
+    public sealed partial class EchoesPlayer : MonoBehaviour
     {
         private readonly Journey journey = new Journey();
         private EchoesView view;
@@ -43,9 +43,7 @@ namespace Echoes
         private const string FalloffKey = "EchoesUnity.Projection.Falloff";
         private const string GradientKey = "EchoesUnity.Projection.Gradient";
         private bool projectionSettings, changedTuning;
-        private const float TurnHoldSeconds = .72f;
-        private readonly float[] touchBegan = new float[4];
-        private readonly bool[] pendingTouch = new bool[4];
+        private readonly bool[] physicalTouchDown = new bool[2];
         private Frame remote = new Frame();
         private const string SaveKey = "EchoesUnity.Checkpoint.Ruins.7";
         private const string PreviousCircuitSaveKey = "EchoesUnity.Checkpoint.Ruins.6";
@@ -145,12 +143,13 @@ namespace Echoes
                 ? noHand || !keyboard ? Hand.Missing : Input.GetKey(KeyCode.Space) ? Hand.Fist : Hand.Open
                 : liveHand;
             journey.SetHand(gesture);
-            if (keyboard && Input.GetKeyDown(KeyCode.A)) TrackTouch(0, true, false);
-            if (keyboard && Input.GetKeyDown(KeyCode.B)) TrackTouch(1, true, false);
-            if (keyboard && Input.GetKeyUp(KeyCode.A)) TrackTouch(0, false, false);
-            if (keyboard && Input.GetKeyUp(KeyCode.B)) TrackTouch(1, false, false);
-            ResolveHeldTouches(now, keyboard);
+            bool leftHeld = keyboard && Input.GetKey(KeyCode.A);
+            bool rightHeld = keyboard && Input.GetKey(KeyCode.B);
+            if (keyboard && Input.GetKeyDown(KeyCode.A) && (!journey.ForestMazeWalkArea || !rightHeld)) TrackTouch(0, true, false);
+            if (keyboard && Input.GetKeyDown(KeyCode.B) && (!journey.ForestMazeWalkArea || !leftHeld)) TrackTouch(1, true, false);
+            ResolveMazeSteering(leftHeld, rightHeld);
             if (!paused) journey.Step(journey.IsOpening ? Time.unscaledDeltaTime : dt, inputReady ? voice : 0, inputReady);
+            UpdateMazeMap(keyboard);
             view.Advance(journey);
             openingSound.Follow(journey.IsOpening ? journey.OpeningTime : -1, paused);
             travelSound.Follow(journey, paused);
@@ -209,6 +208,7 @@ namespace Echoes
         }
 
         private SpiritFrame LocalSpirit => SpiritFrame.Read(journey, cast);
+        private bool ShowProjectionCalibration => settings && projectionSettings;
 
         private bool StageSplit
         {
@@ -227,7 +227,8 @@ namespace Echoes
             if (view == null) return;
             SpiritFrame frame = projection ? remote.spirit : LocalSpirit;
             view.UpdateSpirit(frame);
-            if (!projection && !characterOnly) view.UpdateWorld(journey, frame, StageSplit);
+            if (!projection && (!characterOnly || ShowProjectionCalibration))
+                view.UpdateWorld(journey, frame, StageSplit, ShowProjectionCalibration);
         }
 
         private void OnGUI()
@@ -238,11 +239,13 @@ namespace Echoes
                 return;
             }
             SpiritFrame spirit = LocalSpirit;
-            if (characterOnly) view.DrawProjection(spirit, mirror, true);
+            if (characterOnly && !ShowProjectionCalibration) view.DrawProjection(spirit, mirror, true);
             else
             {
-                view.DrawStage(journey, spirit, StageSplit);
+                view.DrawStage(journey, spirit, StageSplit, ShowProjectionCalibration);
             }
+            if (!settings && !characterOnly && journey.ForestMazeActive)
+                DrawMazeMapControls();
             if (Application.platform == RuntimePlatform.WebGLPlayer) return;
             if (journey.IsOpening)
             {
@@ -336,7 +339,7 @@ namespace Echoes
         private void DrawProjectionSettings(GUIStyle label, GUIStyle button)
         {
             GUI.Label(new Rect(20, 14, 315, 28), "拟全息投影校准", label);
-            bool gradient = GUI.Toggle(new Rect(20, 55, 257, 28), view.ProjectionGradient, "启用人物周围渐亮（双屏）");
+            bool gradient = GUI.Toggle(new Rect(20, 55, 257, 28), view.ProjectionGradient, "启用人物周围渐亮");
             if (gradient != view.ProjectionGradient)
             {
                 view.ProjectionGradient = gradient;
@@ -353,9 +356,8 @@ namespace Echoes
             view.ProjectionFalloff = TuningSlider(283, "渐亮速率", FalloffKey, view.ProjectionFalloff,
                 ProjectionLighting.MinimumFalloff, ProjectionLighting.MaximumFalloff, label);
             DrawLightingCurve(338, "背景亮度倍率", "到人物的距离", true, label);
-            GUI.Label(new Rect(20, 476, 482, 42), !view.ProjectionGradient ? "渐亮已关闭，可在上方重新启用。" : StageSplit ?
-                $"人物背后保留 {ProjectionLighting.CenterGain(view.ProjectionFalloff):0%} 背景亮度。最低档为纯黑。" :
-                "全屏亮度调节三维主画面。打开独立人物窗口即可预览渐亮。", label);
+            GUI.Label(new Rect(20, 476, 482, 42), !view.ProjectionGradient ? "渐亮已关闭，可在上方重新启用。" :
+                $"三维主画面实时预览。人物背后保留 {ProjectionLighting.CenterGain(view.ProjectionFalloff):0%} 背景亮度。", label);
             if (!GUI.Button(new Rect(20, 521, 141, 30), "恢复默认", button)) return;
             view.ScreenBrightness = view.ProjectionFalloff = ProjectionLighting.DefaultValue;
             view.ProjectionGradient = true;
@@ -479,56 +481,26 @@ namespace Echoes
 
         private void TrackTouch(int option, bool down, bool physical)
         {
-            if (paused || !inputReady || !Application.isFocused)
+            bool active = !paused && inputReady && Application.isFocused;
+            if (physical)
             {
-                if (!down) pendingTouch[option + (physical ? 2 : 0)] = false;
-                return;
+                bool held = active && down;
+                if (physicalTouchDown[option] == held) return;
+                physicalTouchDown[option] = held;
+                if (journey.ForestMazeWalkArea && physicalTouchDown[1-option]) return;
             }
-            TrackReadyTouch(option,down,physical,Time.unscaledTime);
+            if (active && down) Touch(option, physical);
         }
 
-        private void TrackReadyTouch(int option, bool down, bool physical, float now)
-        {
-            int index = option + (physical ? 2 : 0);
-            if (!down)
-            {
-                bool turnBack = pendingTouch[index] && now - touchBegan[index] >= TurnHoldSeconds;
-                pendingTouch[index] = false;
-                if (turnBack) journey.TurnAroundForest();
-                return;
-            }
-            if (pendingTouch[index]) return;
-            // The down edge always chooses immediately. Holding adds a separate turn-back action.
-            Array.Clear(pendingTouch,0,pendingTouch.Length);
-            if (journey.ForestCanTurnAround)
-            {
-                pendingTouch[index] = true;
-                touchBegan[index] = now;
-            }
-            Touch(option, physical);
-        }
-
-        private void ResolveHeldTouches(float now, bool keyboard)
+        private void ResolveMazeSteering(bool left, bool right)
         {
             bool active = Application.isFocused && !paused && inputReady;
             bool physicalReady = false;
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
             physicalReady = exhibit.Ready;
 #endif
-            ResolveTouchHolds(now, active && keyboard, active && physicalReady);
-        }
-
-        private void ResolveTouchHolds(float now, bool keyboardReady, bool physicalReady)
-        {
-            bool allowTurn = journey.ForestCanTurnAround;
-            for (int i = 0; i < pendingTouch.Length; i++)
-            {
-                if (!allowTurn || !(i < 2 ? keyboardReady : physicalReady)) pendingTouch[i] = false;
-                if (!pendingTouch[i] || now - touchBegan[i] < TurnHoldSeconds) continue;
-                Array.Clear(pendingTouch, 0, pendingTouch.Length);
-                journey.TurnAroundForest();
-                break;
-            }
+            if (!active || !physicalReady) Array.Clear(physicalTouchDown, 0, physicalTouchDown.Length);
+            journey.SetMazeSteering(active && (left || physicalTouchDown[0]), active && (right || physicalTouchDown[1]));
         }
 
         private void Touch(int option, bool physical)

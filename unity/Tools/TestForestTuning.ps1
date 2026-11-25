@@ -49,54 +49,23 @@ Assert ($fast.MazeWalkScale -eq [Echoes.Journey]::MinimumMazeWalkScale) 'The spe
 $fast.MazeWalkScale = [single]::NaN
 Assert ($fast.MazeWalkScale -eq [Echoes.Journey]::MinimumMazeWalkScale) 'An invalid speed preserves the current setting.'
 
-$turned = @(0, 0)
-foreach ($seed in 541..547) {
-    for ($button = 0; $button -lt 2; $button++) {
-        $maze = New-Maze $seed 1.30
-        for ($tick = 0; $tick -lt 800 -and $maze.MazeMotion -ne 'Choosing'; $tick++) { $maze.Step(.02, .65) }
-        Assert ($maze.MazeMotion -eq 'Choosing') 'The initial junction waits for a choice.'
-
-        $node = $maze.ForestMaze.Nodes[$maze.ForestMazeNode]
-        $left = $maze.ForestMaze.Nodes[$maze.ForestMazeLeft]
-        $right = $maze.ForestMaze.Nodes[$maze.ForestMazeRight]
-        $facing = $maze.ForestMazeHeading
-        $leftAngle = Get-SignedTurn $facing (Get-ExitHeading $node $left)
-        $rightAngle = Get-SignedTurn $facing (Get-ExitHeading $node $right)
-        Assert ($leftAngle -lt $rightAngle) 'A and B follow the visible opening order.'
-        $exit = if ($button -eq 0) { $left } else { $right }
-        $heading = Get-ExitHeading $node $exit
-        $travelBeforeTurn = $maze.ForestMazeTravel
-        Assert ($maze.Touch($button) -and $maze.ForestMazeTarget -eq $exit.Id) 'The input selects the intended physical passage.'
-
-        if ([Math]::Abs((Get-SignedTurn $facing $heading)) -gt 1) {
-            Assert ($maze.MazeMotion -eq 'FacingPassage') 'A nonstraight entrance starts a stationary turn.'
-            $maze.Step(.12, 1)
-            Assert ([Math]::Abs((Get-SignedTurn $facing $maze.ForestMazeHeading)) -gt .01 -and
-                [Math]::Abs((Get-SignedTurn $maze.ForestMazeHeading $heading)) -gt .5) 'The actor turns progressively toward the opening.'
-            for ($tick = 0; $tick -lt 60 -and $maze.MazeMotion -eq 'FacingPassage'; $tick++) {
-                Assert ($maze.ForestMazeTravel -eq $travelBeforeTurn -and $maze.ForestMazeSpeed -eq 0) 'Sound cannot move the actor sideways through a junction during the turn.'
-                $maze.Step(.02, 1)
-            }
-            Assert ($maze.MazeMotion -eq 'Walking' -and $maze.ForestMazeTravel -eq $travelBeforeTurn -and
-                [Math]::Abs((Get-SignedTurn $maze.ForestMazeHeading $heading)) -lt .01) 'The actor finishes facing the physical entrance before stepping.'
-            $turned[$button]++
-        }
-
-        $maze.Step(.02, .65)
-        Assert ($maze.ForestMazeTravel -gt $travelBeforeTurn) 'Once aligned, sound advances into the chosen passage.'
-        $stepX = $maze.ForestMazeX - $node.X
-        $stepZ = $maze.ForestMazeZ - $node.Z
-        Assert (($stepX * ($exit.X - $node.X) + $stepZ * ($exit.Z - $node.Z)) -gt 0) 'The movement vector points into the selected opening.'
-    }
-}
-Assert ($turned[0] -gt 0 -and $turned[1] -gt 0) 'The suite exercises stationary turns in both directions.'
-
 foreach ($button in 0..1) {
     $maze = New-Maze 541 1.30
     for ($tick=0; $tick -lt 850 -and $maze.MazeMotion -ne 'Choosing'; $tick++) { $maze.Step(.02, .45) }
     Assert ($maze.MazeMotion -eq 'Choosing') 'Reach the first fork with a grounded actor.'
     $atFork = $maze.ForestMazeTravel
-    Assert ($maze.Touch($button)) 'Select a passage before falling silent.'
+    $room = $maze.ForestMaze.Nodes[$maze.ForestMazeNode]
+    $passages = @($maze.ForestMaze.Connections($room.Id) | ForEach-Object { $_.Other($room.Id) } | Where-Object { $_ -ne $maze.ForestMaze.Entry })
+    $exit = $maze.ForestMaze.Nodes[$passages[$button]]
+    $degrees = Get-SignedTurn $maze.ForestMazeHeading (Get-ExitHeading $room $exit)
+    $maze.SetHand([Echoes.Hand]::Fist)
+    $maze.SetMazeSteering($degrees -lt 0, $degrees -gt 0)
+    for ($tick=0; $tick -lt [Math]::Round([Math]::Abs($degrees)/2.24); $tick++) { $maze.Step(.02,0) }
+    $maze.SetMazeSteering($false,$false)
+    Assert ($maze.ForestMazeTarget -eq -1 -and $maze.ForestMazeTravel -eq $atFork) 'Aim in place without automatically choosing a tunnel.'
+    $maze.SetHand([Echoes.Hand]::Open)
+    $maze.Step(.02,0)
+    Assert ($maze.ForestMazeTarget -eq $exit.Id) 'Walking from the stationary fork selects the nearest heading.'
     for ($tick=0; $tick -lt 390; $tick++) { $maze.Step(.02, 0) }
     Assert ($maze.ForestMazeTravel -gt $atFork + 7) 'The silent open hand keeps walking after the old four-meter doorway limit.'
     $maze.SetHand([Echoes.Hand]::Fist)
@@ -110,8 +79,9 @@ foreach ($button in 0..1) {
     for ($tick=0; $tick -lt 3000 -and $maze.MazeMotion -ne 'Choosing'; $tick++) { $maze.Step(.02, 0) }
     Assert ($maze.MazeMotion -eq 'Choosing') 'The silent walk reaches the next branching room.'
     $nextFork = $maze.ForestMazeTravel
+    $maze.SetHand([Echoes.Hand]::Fist)
     for ($tick=0; $tick -lt 125; $tick++) { $maze.Step(.02, .65) }
-    Assert ($maze.ForestMazeTravel -eq $nextFork) 'The next junction still waits for the player to choose.'
+    Assert ($maze.ForestMazeTravel -eq $nextFork) 'Keeping the fist closed lets the player stay at the next junction.'
 }
 
 $privateProperty = [System.Reflection.BindingFlags]'Instance,Public,NonPublic'

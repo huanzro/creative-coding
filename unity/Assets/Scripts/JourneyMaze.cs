@@ -8,16 +8,19 @@ namespace Echoes
         internal const float MazeEntranceDepth = 124;
         private const float MazeTurnSeconds = .96f;
         private const float MazeBacktrackSpeed = 2.28f;
-        private const float MazeChoiceApproach = ForestMaze.RoomRadius + .65f;
-        private const float MazeChoiceCommit = 1.50f;
-        internal const string MazeWalkHint = "张手沿通道前进，握拳停步，声音加速。到岔口再按 A/B 选路。";
+        private const float MazeTurnRate = 112f, MazeTapAngle = 12f;
+        private const float MazeThroatLength = 2.0f, MazeApproachLength = 4.5f;
+        private const float MazeReverseAngle = 108f, MazeForwardAngle = 72f;
+        internal const string MazeWalkHint = "A/B 转向，张手走、握拳停。声音加速，岔口沿朝向进入通道。";
         public const float MinimumMazeWalkScale = .65f, DefaultMazeWalkScale = 1.30f, MaximumMazeWalkScale = 2f;
         private readonly List<int> mazePath = new List<int>();
         private int mazeFrom, mazeTarget = -1, mazeIncoming = -1, mazeReturnIndex, mazeReturnStop;
         private float mazeAlong, mazeYaw, mazeTurnFrom, mazeTurnTo, mazeTurnAge, mazeTurnDuration;
         private float mazeX, mazeY, mazeZ, mazeSpeed, mazeTravel;
         private float mazeWallHeading, mazeWallOffset, mazeGateStarted;
-        private int mazeQueuedRoom = -1, mazeQueuedFrom = -1, mazeQueuedButton, mazeRedirect = -1;
+        private int mazeSteering;
+        private float mazeThroatRemaining;
+        private bool mazeAlignToPassage, mazeTurnHeld, mazeMayReverse;
         private float mazeWalkScale = DefaultMazeWalkScale;
         private ForestMazeMotion mazeMotion;
 
@@ -45,23 +48,29 @@ namespace Echoes
         public ForestMazeMotion MazeMotion => mazeMotion;
         public int ForestMazeNode => mazeFrom;
         public int ForestMazeTarget => mazeTarget;
-        public int ForestMazeLeft { get; private set; } = -1;
-        public int ForestMazeRight { get; private set; } = -1;
-        public bool ForestCanTurnAround => Started && Gesture != Hand.Missing && ForestMazeActive &&
-            Phase == Stage.ForestExplore && mazeMotion != ForestMazeMotion.ApproachingWall &&
-            (mazeTarget >= 0 && mazeAlong > .005f || mazeIncoming >= 0);
+        internal bool CanSteerMaze => Started && Gesture != Hand.Missing && ForestMazeWalkArea &&
+            (Phase == Stage.ForestExplore || Phase == Stage.ForestLoop && mazeMotion == ForestMazeMotion.Retracing);
+        internal float ForestMazePassageHeading => mazeTarget >= 0 ? ForestMaze.Heading(mazeFrom, mazeTarget) : mazeYaw;
 
         private bool AtMazeRoots => ForestMazeActive && Distance >= ClearingDepth;
-        private float MazeWalkingPace => Gesture == Hand.Open ? mazeWalkScale * (.98f + 2.55f * Voice) : 0;
-        private bool CanQueueMazeReturnTouch => ForestMazeActive && Phase == Stage.ForestLoop &&
-            mazeMotion == ForestMazeMotion.Retracing && mazeReturnIndex == mazeReturnStop && NearMazeChoice();
+        private float MazeWalkingPace => Gesture == Hand.Open
+            ? mazeWalkScale * Math.Min(.98f + 2.55f * Voice, ForestMaze.MaximumSpeed / DefaultMazeWalkScale) : 0;
+
+        // Both held inputs cancel. Rotation is independent of the gesture used to walk.
+        public void SetMazeSteering(bool left, bool right)
+        {
+            mazeSteering = (right ? 1 : 0) - (left ? 1 : 0);
+            mazeTurnHeld = left || right;
+            if (mazeTurnHeld) mazeAlignToPassage = false;
+        }
 
         private void InitializeMaze()
         {
             mazePath.Clear();
             mazeTarget = mazeIncoming = -1;
-            ClearMazeChoice();
-            mazeQueuedRoom = mazeQueuedFrom = mazeRedirect = -1;
+            mazeSteering = 0;
+            mazeThroatRemaining = 0;
+            mazeAlignToPassage = mazeTurnHeld = mazeMayReverse = false;
             mazeFrom = 0;
             mazeX = mazeY = mazeZ = mazeAlong = mazeYaw = mazeTurnAge = mazeSpeed = mazeTravel = 0;
             mazeMotion = ForestMazeMotion.Walking;
@@ -131,33 +140,15 @@ namespace Echoes
             forestLaneSpeed = 0;
             Flight.Reset(Math.Min(Flight.Height,ForestHeightLimit),ForestHeightLimit);
             InitializeMaze();
-            OfferMazeExits();
+            SetMazeRoom();
             mazeSpeed = MazeWalkingPace;
         }
 
         private void AdvancePhysicalMaze(float dt)
         {
             if (AtMazeRoots) return;
-            if (mazeMotion == ForestMazeMotion.FacingPassage)
-            {
-                if (StepMazeTurn(dt)) mazeMotion = ForestMazeMotion.Walking;
-                return;
-            }
-            if (mazeMotion == ForestMazeMotion.Choosing)
-            {
-                if (mazeTurnAge < mazeTurnDuration) StepMazeTurn(dt);
-                return;
-            }
-            if (mazeMotion == ForestMazeMotion.ReturningToChoice)
-            {
-                UpdateMazeSpeed(Gesture == Hand.Open ? MazeBacktrackSpeed * mazeWalkScale : 0, dt);
-                float retreat = Math.Min(mazeAlong,mazeSpeed * dt);
-                mazeAlong -= retreat;
-                mazeTravel += retreat;
-                MoveOnMazeEdge();
-                if (mazeAlong <= 0) StartMazeEdge(mazeRedirect);
-                return;
-            }
+            StepMazeSteering(dt);
+
             if (mazeMotion == ForestMazeMotion.ApproachingWall)
             {
                 float remaining = ForestMaze.WallContactRadius - mazeWallOffset;
@@ -167,22 +158,66 @@ namespace Echoes
                 if (mazeWallOffset >= ForestMaze.WallContactRadius - .001f) BeginDeadEnd();
                 return;
             }
+
             if (mazeTarget < 0)
             {
-                OfferMazeExits();
-                return;
+                if (MazeWalkingPace <= 0)
+                {
+                    mazeSpeed = 0;
+                    return;
+                }
+                StartMazeEdge(ForestMaze.ClosestExit(mazeFrom, mazeYaw, -1));
             }
 
-            UpdateMazeSpeed(MazeWalkingPace, dt);
+            float deviation = Math.Abs(ForestMaze.DeltaAngle(mazeYaw, ForestMazePassageHeading));
+            if (deviation < MazeForwardAngle) mazeMayReverse = true;
+            if (!mazeMayReverse && !mazeTurnHeld) mazeAlignToPassage = true;
+            bool aimingAtFork = ForestMaze.Nodes[mazeTarget].Kind == ForestMazeNodeKind.Junction &&
+                CurrentMazeEdgeLength - mazeAlong <= MazeApproachLength;
+            if (!aimingAtFork && mazeMayReverse && !mazeAlignToPassage && mazeThroatRemaining <= 0 &&
+                Gesture == Hand.Open && deviation > MazeReverseAngle)
+                ReverseMazeEdge();
+
+            float beforeRoom = ForestMaze.Nodes[mazeTarget].Kind == ForestMazeNodeKind.Junction
+                ? Lerp(.43f, 1, Clamp((CurrentMazeEdgeLength - mazeAlong) / MazeApproachLength)) : 1;
+            UpdateMazeSpeed(MazeWalkingPace * beforeRoom, dt);
             if (mazeSpeed <= 0) return;
+            AlignMazeWalk(dt);
+            mazeThroatRemaining = Math.Max(0, mazeThroatRemaining - mazeSpeed * dt);
             if (TraverseMazeEdge(mazeSpeed * dt))
             {
                 ReachMazeNode();
                 return;
             }
-            if (mazeAlong >= MazeChoiceCommit && ForestMazeLeft >= 0) ClearMazeChoice();
             if (mazeFrom == ForestMaze.Entry && mazeAlong >= 1.75f)
                 CloseMazeGate();
+        }
+
+        private void StepMazeSteering(float dt)
+        {
+            if (mazeSteering == 0 || !CanSteerMaze) return;
+            mazeAlignToPassage = false;
+            mazeYaw = ForestMaze.DeltaAngle(0, mazeYaw + mazeSteering * MazeTurnRate * dt);
+        }
+
+        private void AlignMazeWalk(float dt)
+        {
+            if (!mazeAlignToPassage || Gesture != Hand.Open || mazeSteering != 0) return;
+            float delta = ForestMaze.DeltaAngle(mazeYaw, ForestMazePassageHeading);
+            float step = MoveTowards(0, delta, 185f * dt);
+            mazeYaw = ForestMaze.DeltaAngle(0, mazeYaw + step);
+            if (Math.Abs(delta - step) < .01f) mazeAlignToPassage = false;
+        }
+
+        private void ReverseMazeEdge()
+        {
+            float remaining = CurrentMazeEdgeLength - mazeAlong;
+            int back = mazeFrom;
+            mazeFrom = mazeTarget;
+            mazeTarget = back;
+            mazeAlong = remaining;
+            mazeThroatRemaining = 0;
+            mazeMayReverse = false;
         }
 
         private void UpdateMazeSpeed(float target, float dt) =>
@@ -203,25 +238,21 @@ namespace Echoes
             mazeZ = center.Z + mazeWallOffset * (float)Math.Cos(heading);
         }
 
+        private float CurrentMazeEdgeLength =>
+            EdgeLength(ForestMaze.Nodes[mazeFrom], ForestMaze.Nodes[mazeTarget]);
+
         private bool TraverseMazeEdge(float step)
         {
-            ForestMazeNode start=ForestMaze.Nodes[mazeFrom], end=ForestMaze.Nodes[mazeTarget];
-            float length=EdgeLength(start,end);
-            float advanced=Math.Min(step,Math.Max(0,length-mazeAlong));
-            mazeAlong+=advanced;
-            mazeTravel+=advanced;
-            MoveOnMazeEdge();
-            return mazeAlong>=length;
-        }
-
-        private void MoveOnMazeEdge()
-        {
-            ForestMazeNode start=ForestMaze.Nodes[mazeFrom], end=ForestMaze.Nodes[mazeTarget];
-            float length=EdgeLength(start,end);
-            float t=Clamp(mazeAlong/length);
-            mazeX=Lerp(start.X,end.X,t);
-            mazeY=Lerp(start.Y,end.Y,t);
-            mazeZ=Lerp(start.Z,end.Z,t);
+            ForestMazeNode start = ForestMaze.Nodes[mazeFrom], end = ForestMaze.Nodes[mazeTarget];
+            float length = CurrentMazeEdgeLength;
+            float advanced = Math.Min(step, Math.Max(0, length - mazeAlong));
+            mazeAlong += advanced;
+            mazeTravel += advanced;
+            float t = Clamp(mazeAlong / length);
+            mazeX = Lerp(start.X, end.X, t);
+            mazeY = Lerp(start.Y, end.Y, t);
+            mazeZ = Lerp(start.Z, end.Z, t);
+            return mazeAlong >= length;
         }
 
         private void ReachMazeNode()
@@ -252,131 +283,37 @@ namespace Echoes
                 mazeMotion = ForestMazeMotion.ApproachingWall;
                 return;
             }
-            OfferMazeExits();
+            SetMazeRoom();
         }
 
-        private void OfferMazeExits()
+        private void SetMazeRoom()
         {
-            ForestMaze.OrderedExits(mazeFrom, mazeIncoming, out int left, out int right);
-            ClearMazeChoice();
-            if (right < 0)
-            {
-                StartMazeEdge(left);
-                return;
-            }
-
-            ForestMazeLeft = left;
-            ForestMazeRight = right;
-            float approach = ForestMaze.ArrivalHeading(mazeFrom, mazeIncoming);
-            int nearestExit = ForestMaze.ClosestExit(mazeFrom, approach, mazeIncoming);
-            mazeMotion = ForestMazeMotion.Choosing;
-            mazeSpeed = 0;
-            mazeTurnAge = mazeTurnDuration;
-            float nearest = ForestMaze.Heading(mazeFrom, nearestExit);
-            double angle = Math.Abs(ForestMaze.DeltaAngle(mazeYaw, nearest)) * Math.PI / 180;
-            if (angle >= Math.PI / 2 || ForestMaze.RoomRadius * Math.Sin(angle) >= ForestMaze.PassageHalf)
-                ArmMazeTurn(nearest);
-            Message = "在岔口按 A 走左侧入口，按 B 走右侧入口。长按可沿来路回头。";
-            if (mazeQueuedRoom == mazeFrom && mazeQueuedFrom == mazeIncoming)
-            {
-                int selected = mazeQueuedButton == 0 ? left : right;
-                mazeQueuedRoom = mazeQueuedFrom = -1;
-                StartMazeEdge(selected);
-            }
+            mazeMotion = ForestMaze.Nodes[mazeFrom].Kind == ForestMazeNodeKind.Junction
+                ? ForestMazeMotion.Choosing : ForestMazeMotion.Walking;
+            Message = mazeMotion == ForestMazeMotion.Choosing
+                ? "转向想走的入口，张手沿最接近朝向的隧道前进。"
+                : MazeWalkHint;
         }
 
         private void StartMazeEdge(int next)
         {
             mazeTarget = next;
             mazeAlong = 0;
-            mazeRedirect = -1;
-            mazeMotion = BeginPassageTurn() ? ForestMazeMotion.FacingPassage : ForestMazeMotion.Walking;
+            mazeThroatRemaining = MazeThroatLength;
+            mazeMayReverse = false;
+            mazeAlignToPassage = !mazeTurnHeld;
+            mazeMotion = ForestMazeMotion.Walking;
             Message = MazeWalkHint;
-        }
-
-        private void SetMazeEdge(int next)
-        {
-            mazeTarget = next;
-            mazeAlong = 0;
-            ClearMazeChoice();
-        }
-
-        private void ClearMazeChoice()
-        {
-            ForestMazeLeft = ForestMazeRight = -1;
-        }
-
-        private bool BeginPassageTurn()
-        {
-            float heading = ForestMaze.Heading(mazeFrom, mazeTarget);
-            float angle = Math.Abs(ForestMaze.DeltaAngle(mazeYaw, heading));
-            if (angle < .001f)
-            {
-                mazeYaw = heading;
-                return false;
-            }
-            ArmMazeTurn(heading, .36f + .70f * angle / 180f);
-            return true;
         }
 
         private bool TouchMaze(int option)
         {
-            if (!ForestMazeActive || AtMazeRoots) return false;
-            if (ForestMazeLeft >= 0)
-                SelectMazeExit(option == 0 ? ForestMazeLeft : ForestMazeRight);
-            else if (NearMazeChoice() && (Phase != Stage.ForestLoop || CanQueueMazeReturnTouch))
+            if (!ForestMazeWalkArea) return false;
+            if (CanSteerMaze)
             {
-                mazeQueuedRoom = mazeTarget;
-                mazeQueuedFrom = mazeFrom;
-                mazeQueuedButton = option;
+                mazeAlignToPassage = false;
+                mazeYaw = ForestMaze.DeltaAngle(0, mazeYaw + (option == 0 ? -MazeTapAngle : MazeTapAngle));
             }
-            return true;
-        }
-
-        private bool NearMazeChoice() => mazeTarget >= 0 &&
-            ForestMaze.Nodes[mazeTarget].Kind == ForestMazeNodeKind.Junction &&
-            EdgeLength(ForestMaze.Nodes[mazeFrom], ForestMaze.Nodes[mazeTarget]) - mazeAlong <= MazeChoiceApproach;
-
-        private void SelectMazeExit(int next)
-        {
-            if (mazeMotion == ForestMazeMotion.ReturningToChoice)
-            {
-                mazeRedirect = next;
-                return;
-            }
-            if (next == mazeTarget) return;
-            if (mazeAlong > .005f)
-            {
-                mazeRedirect = next;
-                mazeSpeed = 0;
-                mazeMotion = ForestMazeMotion.ReturningToChoice;
-            }
-            else StartMazeEdge(next);
-        }
-
-        public bool TurnAroundForest()
-        {
-            if (!ForestCanTurnAround) return false;
-            mazeQueuedRoom = mazeQueuedFrom = -1;
-            if (ForestMazeLeft >= 0)
-            {
-                SelectMazeExit(mazeIncoming);
-                ClearMazeChoice();
-                return true;
-            }
-            if (mazeTarget>=0 && mazeAlong>.005f)
-            {
-                float length=EdgeLength(ForestMaze.Nodes[mazeFrom],ForestMaze.Nodes[mazeTarget]);
-                int back=mazeFrom;
-                mazeFrom=mazeTarget;
-                mazeTarget=back;
-                mazeAlong=length-mazeAlong;
-            }
-            else SetMazeEdge(mazeIncoming);
-            ArmMazeTurn(ForestMaze.Heading(mazeFrom, mazeTarget));
-            mazeReturnIndex=-1;
-            mazeMotion=ForestMazeMotion.TurningBack;
-            Change(Stage.ForestLoop,"");
             return true;
         }
 
@@ -397,7 +334,7 @@ namespace Echoes
             {
                 case ForestMazeMotion.WaitingAtWall:
                     if (Age<1f) return;
-                    SetMazeEdge(ForestMaze.ClosestExit(mazeFrom, mazeYaw, -1));
+                    StartMazeEdge(ForestMaze.ClosestExit(mazeFrom, mazeYaw, -1));
                     ArmMazeTurn(ForestMaze.Heading(mazeFrom, mazeTarget));
                     mazeMotion=ForestMazeMotion.TurningBack;
                     return;
@@ -412,6 +349,7 @@ namespace Echoes
                     mazeMotion=ForestMazeMotion.Retracing;
                     return;
                 case ForestMazeMotion.Retracing:
+                    StepMazeSteering(dt);
                     UpdateMazeSpeed(Gesture == Hand.Open ? MazeBacktrackSpeed * mazeWalkScale : 0, dt);
                     if (mazeSpeed <= 0) return;
                     if (mazeWallOffset > 0)
@@ -429,8 +367,9 @@ namespace Echoes
                     mazeFrom = mazeTarget;
                     if (mazeReturnIndex > mazeReturnStop)
                     {
-                        SetMazeEdge(mazePath[--mazeReturnIndex]);
-                        if (BeginPassageTurn()) mazeMotion = ForestMazeMotion.TurningBack;
+                        StartMazeEdge(mazePath[--mazeReturnIndex]);
+                        ArmMazeTurn(ForestMazePassageHeading);
+                        mazeMotion = ForestMazeMotion.TurningBack;
                         return;
                     }
                     mazeTarget = -1;
@@ -438,7 +377,7 @@ namespace Echoes
                     mazePath.RemoveRange(mazeReturnStop + 1, mazePath.Count - mazeReturnStop - 1);
                     mazeIncoming = previous;
                     Change(Stage.ForestExplore, "");
-                    OfferMazeExits();
+                    SetMazeRoom();
                     return;
             }
         }

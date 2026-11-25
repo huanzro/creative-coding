@@ -11,6 +11,7 @@ Shader "Hidden/Echoes/Spirit3D"
         _StageKey ("Directional light of the set", Vector) = (0,0,0,0)
         _PaintedAtlas ("Character color atlas", 2D) = "white" {}
         _UsePaintedAtlas ("Use character color atlas", Float) = 0
+        _StageCoverage ("Stage background coverage", Float) = 1
     }
     SubShader
     {
@@ -30,6 +31,7 @@ Shader "Hidden/Echoes/Spirit3D"
             float4 _StageKey;
             sampler2D _PaintedAtlas;
             float _UsePaintedAtlas;
+            float _StageCoverage;
             struct Vertex
             {
                 float4 position : POSITION;
@@ -152,7 +154,7 @@ Shader "Hidden/Echoes/Spirit3D"
                 float flyFalloff = rcp(1 + dot(toFly, toFly) * 17);
                 float bounce = .40 + .60 * saturate(dot(normal, normalize(toFly + .0001)));
                 color += _SceneLight.rgb * (flyFalloff * bounce * _ContactLight.w * .42);
-                return float4(saturate(color), 1);
+                return float4(saturate(color), _StageCoverage);
             }
             ENDCG
         }
