@@ -32,6 +32,8 @@ namespace Echoes
         private static readonly int PoolColor = Shader.PropertyToID("_EchoesPoolColor");
         private static readonly int Footfall = Shader.PropertyToID("_EchoesFootfall");
         private static readonly int TerrainSink = Shader.PropertyToID("_EchoesTerrainSink");
+        private static readonly int ProjectionProfile = Shader.PropertyToID("_ProjectionProfile");
+        private static readonly int ProjectionGrade = Shader.PropertyToID("_ProjectionGrade");
 
         private static readonly Vector3 SkyKey = new Vector3(-.57f,.55f,-.53f).normalized;
         private static readonly Vector3 ForestKey = new Vector3(.58f,.70f,.39f).normalized;
@@ -87,7 +89,7 @@ namespace Echoes
         }
 
         public void Render(Journey journey, SpiritFrame frame, SpiritRig spirit, bool split, int period, float speed,
-            Vector2 amber, Vector2 scarlet)
+            Vector2 amber, Vector2 scarlet, float brightness, float falloff, bool projectionGradient)
         {
             if (set==null) return;
             bool opening=frame.openingTime>=0;
@@ -214,6 +216,10 @@ namespace Echoes
                 if (ruins && journey.RuinRetryState==RuinRetryPhase.Impact)
                     fade *= 1-.22f*OpeningStoryboard.Window(journey.Age,.41f,.45f,.49f,.65f);
                 lens.SetVector("_Lens",new Vector4(fade,opening?1:.25f,0,0));
+                Vector2 center = new Vector2(Mathf.Clamp01(screen.x), 1-Mathf.Clamp01(screen.y));
+                float core = ProjectionLighting.CoreRadius(body);
+                lens.SetVector(ProjectionProfile, new Vector4(center.x,center.y,core,ProjectionLighting.Spread(falloff)));
+                lens.SetVector(ProjectionGrade, new Vector4(brightness,projectionGradient ? 1 : 0,ProjectionLighting.CoreGain,camera.aspect));
                 RenderTexture before=RenderTexture.active;
                 Graphics.Blit(scene,graded,lens);
                 RenderTexture.active=before;

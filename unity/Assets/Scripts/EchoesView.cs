@@ -27,6 +27,19 @@ namespace Echoes
         private Font interfaceFont;
         public int TimeOfDay { get; set; }
         public float ScrollSpeed { get; set; } = 1;
+        private float screenBrightness = ProjectionLighting.DefaultValue, projectionFalloff = ProjectionLighting.DefaultValue;
+        public float ScreenBrightness
+        {
+            get => screenBrightness;
+            set => screenBrightness = ProjectionLighting.ClampBrightness(value);
+        }
+        public float ProjectionFalloff
+        {
+            get => projectionFalloff;
+            set => projectionFalloff = ProjectionLighting.ClampFalloff(value);
+        }
+        public bool ProjectionGradient { get; set; } = true;
+        internal float ProjectionCoreRadius => ProjectionLighting.CoreRadius(world?.ActorBody ?? 162);
         private static readonly Color[] Sky = {
             new Color32(35,26,46,255), new Color32(18,33,62,255),
             new Color32(8,14,37,255), new Color32(70,40,52,255)

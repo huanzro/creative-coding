@@ -28,7 +28,8 @@ namespace Echoes
                 amber = Vector2.Scale(center+OpeningFlyOffset(time,shot,false)*(162*shot.Actor.z),scale);
                 red = Vector2.Scale(center+OpeningFlyOffset(time,shot,true)*(162*shot.Actor.z),scale);
             }
-            world.Render(journey,frame,spirit,split,TimeOfDay,ScrollSpeed,amber,red);
+            world.Render(journey,frame,spirit,split,TimeOfDay,ScrollSpeed,amber,red,
+                ScreenBrightness,ProjectionFalloff,split && ProjectionGradient);
             if (frame.openingTime >= 0 && !world.Ready) UpdatePlates(frame.openingTime);
         }
 

@@ -14,6 +14,9 @@ Shader "Hidden/Echoes/WorldLens"
             sampler2D _MainTex;
             float4 _MainTex_TexelSize;
             float4 _Lens;
+            // Actor UV and radii in units of output height. Brightness and radial gain stay independent.
+            float4 _ProjectionProfile;
+            float4 _ProjectionGrade;
 
             float3 highlights(float2 uv)
             {
@@ -34,7 +37,13 @@ Shader "Hidden/Echoes/WorldLens"
                 float vignette=smoothstep(.18,.61,length(q));
                 baseColor=baseColor/(.86+.24*baseColor);
                 float grain = frac(sin(dot(floor(uv/_MainTex_TexelSize.xy),float2(12.9898,78.233)))*43758.5453)-.5;
-                return float4(saturate((baseColor+grain*.008)*(1-vignette*(.31+_Lens.y*.035))*_Lens.x),1);
+                float3 color=(baseColor+grain*.008)*(1-vignette*(.31+_Lens.y*.035)*(1-_ProjectionGrade.y));
+                float headroom=1-saturate(max(color.r,max(color.g,color.b)));
+                float exposure=min(1,_ProjectionGrade.x)+max(0,_ProjectionGrade.x-1)*headroom*headroom;
+                float2 fromActor=(uv-_ProjectionProfile.xy)*float2(_ProjectionGrade.w,1);
+                float edge=smoothstep(_ProjectionProfile.z,_ProjectionProfile.z+_ProjectionProfile.w,length(fromActor));
+                float radial=lerp(1,lerp(_ProjectionGrade.z,1,edge),_ProjectionGrade.y);
+                return float4(saturate(color*exposure*radial*_Lens.x),1);
             }
             ENDCG
         }

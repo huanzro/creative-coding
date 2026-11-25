@@ -39,7 +39,10 @@ namespace Echoes
         private const string MazeKey = "EchoesUnity.Forest.MazeScale";
         private const string WebKey = "EchoesUnity.Forest.WebRange";
         private const string MawKey = "EchoesUnity.Forest.MawRange";
-        private bool changedForestSettings;
+        private const string BrightnessKey = "EchoesUnity.Projection.Brightness";
+        private const string FalloffKey = "EchoesUnity.Projection.Falloff";
+        private const string GradientKey = "EchoesUnity.Projection.Gradient";
+        private bool projectionSettings, changedTuning;
         private const float TurnHoldSeconds = .72f;
         private readonly float[] touchBegan = new float[4];
         private readonly bool[] pendingTouch = new bool[4];
@@ -90,6 +93,9 @@ namespace Echoes
             preview = Application.platform != RuntimePlatform.WebGLPlayer;
             view = new EchoesView();
             view.UseWorld = PlayerPrefs.GetInt("EchoesUnity.World3D", 1) != 0;
+            view.ScreenBrightness = PlayerPrefs.GetFloat(BrightnessKey, ProjectionLighting.DefaultValue);
+            view.ProjectionFalloff = PlayerPrefs.GetFloat(FalloffKey, ProjectionLighting.DefaultValue);
+            view.ProjectionGradient = PlayerPrefs.GetInt(GradientKey, 1) != 0;
             cast = Mathf.Clamp(PlayerPrefs.GetInt("EchoesUnity.Cast", 0), 0, CastNames.Length - 1);
             if (FindObjectOfType<AudioListener>() == null)
                 gameObject.AddComponent<AudioListener>();
@@ -252,7 +258,14 @@ namespace Echoes
 
         private void DrawSettings(GUIStyle label, GUIStyle button)
         {
-            GUI.Label(new Rect(20, 14, 530, 28), "游戏设置 · Unity Play Mode", label);
+            if (GUI.Button(new Rect(354, 12, 148, 31), projectionSettings ? "返回游戏设置" : "投影校准", button))
+                projectionSettings = !projectionSettings;
+            if (projectionSettings)
+            {
+                DrawProjectionSettings(label, button);
+                return;
+            }
+            GUI.Label(new Rect(20, 14, 315, 28), "游戏设置 · Unity Play Mode", label);
             GUI.Label(new Rect(20, 56, 85, 27), "背景时段", label);
             view.TimeOfDay = GUI.SelectionGrid(new Rect(110, 54, 394, 31), view.TimeOfDay,
                 new[] { "自动", "薄暮", "蓝调", "月夜", "破晓" }, 5, button);
@@ -310,38 +323,109 @@ namespace Echoes
                 PlayerPrefs.Save();
             }
             GUI.Label(new Rect(20, 448, 285, 26), "森林 · 速度与捕捉范围", label);
-            journey.ForestLateralScale = ForestSlider(473, "左右移速", LateralKey, journey.ForestLateralScale,
+            journey.ForestLateralScale = TuningSlider(473, "左右移速", LateralKey, journey.ForestLateralScale,
                 Journey.MinForestLateralScale, Journey.MaxForestLateralScale, label);
-            journey.MazeWalkScale = ForestSlider(496, "迷宫行走速度", MazeKey, journey.MazeWalkScale,
+            journey.MazeWalkScale = TuningSlider(496, "迷宫行走速度", MazeKey, journey.MazeWalkScale,
                 Journey.MinimumMazeWalkScale, Journey.MaximumMazeWalkScale, label);
-            journey.ForestWebRange = ForestSlider(519, "蛛网捕捉范围", WebKey, journey.ForestWebRange,
+            journey.ForestWebRange = TuningSlider(519, "蛛网捕捉范围", WebKey, journey.ForestWebRange,
                 Journey.MinForestCaptureRange, Journey.MaxForestCaptureRange, label);
-            journey.ForestMawRange = ForestSlider(542, "食人花捕捉范围", MawKey, journey.ForestMawRange,
+            journey.ForestMawRange = TuningSlider(542, "食人花捕捉范围", MawKey, journey.ForestMawRange,
                 Journey.MinForestCaptureRange, Journey.MaxForestCaptureRange, label);
         }
 
-        private float ForestSlider(float y,string title,string key,float value,float min,float max,GUIStyle label)
+        private void DrawProjectionSettings(GUIStyle label, GUIStyle button)
         {
-            GUI.Label(new Rect(20,y,223,24), title+"  "+value.ToString("0.00")+"×",label);
+            GUI.Label(new Rect(20, 14, 315, 28), "拟全息投影校准", label);
+            bool gradient = GUI.Toggle(new Rect(20, 55, 257, 28), view.ProjectionGradient, "启用人物周围渐亮（双屏）");
+            if (gradient != view.ProjectionGradient)
+            {
+                view.ProjectionGradient = gradient;
+                PlayerPrefs.SetInt(GradientKey, gradient ? 1 : 0);
+                changedTuning = true;
+            }
+#if UNITY_EDITOR
+            if (!editorProjection && GUI.Button(new Rect(309, 53, 193, 31), "打开独立人物窗口", button))
+                CharacterWindowRequested?.Invoke();
+#endif
+            view.ScreenBrightness = TuningSlider(98, "全屏亮度", BrightnessKey, view.ScreenBrightness,
+                ProjectionLighting.MinimumBrightness, ProjectionLighting.MaximumBrightness, label, "");
+            DrawLightingCurve(153, "输出亮度", "原画亮度", false, label);
+            view.ProjectionFalloff = TuningSlider(283, "渐亮速率", FalloffKey, view.ProjectionFalloff,
+                ProjectionLighting.MinimumFalloff, ProjectionLighting.MaximumFalloff, label);
+            DrawLightingCurve(338, "背景亮度倍率", "到人物的距离", true, label);
+            GUI.Label(new Rect(20, 476, 482, 42), StageSplit ?
+                "渐亮速率越大，亮度越早恢复。人物窗保持黑底。" :
+                "全屏亮度调节三维主画面。打开独立人物窗口即可预览渐亮。", label);
+            if (!GUI.Button(new Rect(20, 521, 141, 30), "恢复默认", button)) return;
+            view.ScreenBrightness = view.ProjectionFalloff = ProjectionLighting.DefaultValue;
+            view.ProjectionGradient = true;
+            PlayerPrefs.DeleteKey(BrightnessKey);
+            PlayerPrefs.DeleteKey(FalloffKey);
+            PlayerPrefs.DeleteKey(GradientKey);
+            changedTuning = true;
+        }
+
+        private void DrawLightingCurve(float y, string vertical, string horizontal, bool radial, GUIStyle label)
+        {
+            var plot = new Rect(22, y, 478, 98);
+            GUI.Label(new Rect(plot.x, plot.y-26, 240, 25), vertical, label);
+            GUI.Label(new Rect(plot.xMax-116, plot.yMax+1, 118, 25), horizontal + " →", label);
+            if (Event.current.type != EventType.Repaint) return;
+            var previousColor = GUI.color;
+            var previousMatrix = GUI.matrix;
+            Texture2D pixel = Texture2D.whiteTexture;
+            GUI.color = new Color(.055f,.095f,.14f);
+            GUI.DrawTexture(plot,pixel);
+            GUI.color = new Color(.17f,.24f,.32f);
+            for (int i=0; i<=4; i++)
+            {
+                GUI.DrawTexture(new Rect(plot.x+i*plot.width/4,plot.y,1,plot.height),pixel);
+                GUI.DrawTexture(new Rect(plot.x,plot.y+i*plot.height/4,plot.width,1),pixel);
+            }
+            GUI.color = radial ? new Color(.62f,.86f,1) : new Color(1,.83f,.51f);
+            Vector2 last = default;
+            const int segments = 48;
+            for (int i=0; i<=segments; i++)
+            {
+                float t = i/(float)segments;
+                float level = radial ? ProjectionLighting.RadialGain(t*1.24f,view.ProjectionCoreRadius,view.ProjectionFalloff) :
+                    ProjectionLighting.Tone(t,view.ScreenBrightness);
+                Vector2 next = new Vector2(plot.x+t*plot.width,plot.yMax-level*plot.height);
+                if (i > 0)
+                {
+                    Vector2 direction = next-last;
+                    GUI.matrix = previousMatrix * Matrix4x4.TRS(last,
+                        Quaternion.Euler(0,0,Mathf.Atan2(direction.y,direction.x)*Mathf.Rad2Deg),Vector3.one);
+                    GUI.DrawTexture(new Rect(0,-1,direction.magnitude+1,2),pixel);
+                }
+                last = next;
+            }
+            GUI.matrix = previousMatrix;
+            GUI.color = previousColor;
+        }
+
+        private float TuningSlider(float y,string title,string key,float value,float min,float max,GUIStyle label,string unit = "×")
+        {
+            GUI.Label(new Rect(20,y,223,24), title+"  "+value.ToString("0.00")+unit,label);
             float next=GUI.HorizontalSlider(new Rect(249,y+7,247,19),value,min,max);
             if (Mathf.Approximately(next,value)) return value;
             next=Mathf.Clamp(Mathf.Round(next*100)/100,min,max);
             PlayerPrefs.SetFloat(key,next);
-            changedForestSettings=true;
+            changedTuning=true;
             return next;
         }
 
         private void ToggleSettings()
         {
             settings = !settings;
-            if (!settings) SaveForestSettings();
+            if (!settings) SaveTuning();
         }
 
-        private void SaveForestSettings()
+        private void SaveTuning()
         {
-            if (!changedForestSettings) return;
+            if (!changedTuning) return;
             PlayerPrefs.Save();
-            changedForestSettings=false;
+            changedTuning=false;
         }
 
 #if UNITY_EDITOR
@@ -488,7 +572,7 @@ namespace Echoes
 
         private void OnDisable()
         {
-            SaveForestSettings();
+            SaveTuning();
 #if UNITY_EDITOR
             if (Active == this) Active = null;
 #endif
