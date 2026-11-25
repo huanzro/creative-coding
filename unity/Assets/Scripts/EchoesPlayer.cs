@@ -190,6 +190,9 @@ namespace Echoes
 
         private Frame Snapshot()
         {
+            string message = journey.Message;
+            if (journey.ForestMazeWalkArea && journey.Phase == Stage.ForestExplore && string.IsNullOrEmpty(message))
+                message = Journey.MazeWalkHint;
             return new Frame {
                 chapter = journey.Chapter, round = journey.StarCount, lesson = journey.Lesson, choice = journey.ForestRoute,
                 flock = journey.InRuins ? journey.RuinInventory : journey.InForest ? journey.ForestLights : journey.Plants,
@@ -200,7 +203,7 @@ namespace Echoes
                 waiting = !inputReady || !journey.Started, paused = paused, preview = preview,
                 title = journey.IsOpening ? "序幕" : journey.Lesson >= 0 ? "回声庭院 · 试玩" : Titles[journey.Chapter],
                 message = !journey.IsOpening && !paused && inputReady && journey.Gesture == Hand.Missing
-                    ? "请把手放回画面，张开手继续。 " + journey.Message : journey.Message,
+                    ? "请把手放回画面，张开手继续。 " + message : message,
                 left = journey.LeftLabel, right = journey.RightLabel, phase = journey.Phase.ToString(), spirit = LocalSpirit
             };
         }
@@ -249,7 +252,7 @@ namespace Echoes
             var state = Snapshot();
             view.DrawControls(state.title, state.message, state.left, state.right, state.voice,
                 option => Choose(option.ToString()), Select, () => Retry(""), () => Restore(""),
-                () => Pause(paused ? "0" : "1"), paused, characterOnly,
+                () => Pause(paused ? "0" : "1"), paused, characterOnly, journey.ForestMazeWalkArea,
                 ToggleSettings, settings ? DrawSettings : (Action<GUIStyle, GUIStyle>)null);
         }
 

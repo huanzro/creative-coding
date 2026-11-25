@@ -140,8 +140,12 @@ public static class MazeNavigationChecks
             Require(game.ForestMazeTarget == doors[1 - previous] && Length(game.ForestMazeX-room.X, game.ForestMazeZ-room.Z) < .002,
                 seed, room.Id, "retargeting chooses the opposing physical doorway from the original room");
             FaceAndWalk(game, room, doors[1 - previous], seed, true);
-            for (int i = 0; i < 140; i++) game.Step(Tick, 0);
-            float throughDoor = (float)Length(game.ForestMazeX-room.X, game.ForestMazeZ-room.Z);
+            double throughDoor = Length(game.ForestMazeX-room.X, game.ForestMazeZ-room.Z);
+            for (int i = 0; i < 240 && throughDoor <= ForestMaze.RoomRadius + .1f; i++)
+            {
+                game.Step(Tick, 0);
+                throughDoor = Length(game.ForestMazeX-room.X, game.ForestMazeZ-room.Z);
+            }
             Require(throughDoor > ForestMaze.RoomRadius && game.ForestMazeTarget == doors[1-previous], seed, room.Id,
                 "the selected path carries the quiet actor through the modeled doorway");
             game.Touch(previous);
@@ -293,7 +297,6 @@ public static class MazeNavigationChecks
         Set(game, "mazeAlong", length - distance);
         Set(game, "mazeQueuedRoom", -1);
         Set(game, "mazeQueuedFrom", -1);
-        Set(game, "mazeClearDoor", false);
         Set(game, "mazeWallOffset", 0f);
         Set(game, "mazeYaw", Heading(from, room));
         Set(game, "mazeSpeed", 0f);

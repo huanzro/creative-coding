@@ -127,7 +127,7 @@ namespace Echoes
             forestForkMaze = new ForestMaze(forestSeed);
         public float ForestFlightSpeed => !InForest || IsForestSequence || Phase == Stage.ForestPlanting ? 0 :
             ForestMazeActive ? ForestMazeSpeed : Section == ForestSection.Shaft ? 5.1f + 2.65f * Voice + ForestShaftProgress * .85f :
-            LeftMazeApproach ? Lerp(ForestApproachPace, LeftMazeApproachPace, ForestMazeApproachBlend) :
+            LeftMazeApproach ? Lerp(ForestApproachPace, MazeWalkingPace, ForestMazeApproachBlend) :
             ForestApproachPace;
         private float ForestApproachPace => ForestAirborne ? 4.35f + 4.15f * Voice :
             (Distance >= ForestForkPromptDepth && Distance < VestibuleDepth || Section == ForestSection.Brain) &&
@@ -135,8 +135,6 @@ namespace Echoes
         private const float ForestForkPromptDepth = 100;
         public bool LeftMazeApproach => InForest && Branch == ForestBranch.Left && !ForestMazeActive;
         public float ForestMazeApproachBlend => Branch == ForestBranch.Left ? Smooth((Distance - 115) / (MazeEntranceDepth - 115)) : 0;
-        private float LeftMazeApproachPace => MazeWalkScale * (Gesture == Hand.Fist ? 0 : ForestAirborne ? .92f + Voice * 2.48f :
-            Voice < .08f ? 0 : .75f + Voice * 2.65f);
         public float ForestShaftProgress => Branch==ForestBranch.Right ? Clamp((Distance-ShaftDepth)/(HeartDepth-ShaftDepth)) : 0;
         public float ForestHeightLimit => ForestMazeActive ? .69f :
             LeftMazeApproach ? Lerp(1, .69f, ForestMazeApproachBlend) :

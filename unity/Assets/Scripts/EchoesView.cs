@@ -349,7 +349,7 @@ namespace Echoes
 
         public void DrawControls(string heading, string message, string left, string right, float volume,
             Action<int> choose, Action<string> select, Action retry, Action restore, Action pause, bool paused,
-            bool characterOnly, Action toggleSettings, Action<GUIStyle, GUIStyle> settings)
+            bool characterOnly, bool mazeWalking, Action toggleSettings, Action<GUIStyle, GUIStyle> settings)
         {
             PrepareInterface();
             Matrix4x4 matrix = BeginFrame(ScreenViewport);
@@ -362,7 +362,7 @@ namespace Echoes
             Paint(new Rect(26, 650, 1228, 50), new Color(.02f, .05f, .09f, .86f));
             if (GUI.Button(new Rect(42, 658, 164, 34), left, button)) choose(0);
             if (GUI.Button(new Rect(213, 658, 164, 34), right, button)) choose(1);
-            GUI.Label(new Rect(393, 651, 310, 25), "空格握拳 · 松开张手 · Z轻声 · X加速", body);
+            GUI.Label(new Rect(393, 651, 310, 25), mazeWalking ? "松开空格走 · 按住停步 · Z/X 加速" : "空格握拳 · 松开张手 · Z轻声 · X加速", body);
             Paint(new Rect(396, 680, 270, 4), new Color(1, 1, 1, .2f));
             Paint(new Rect(396, 680, volume * 270, 4), new Color(.81f, .85f, 1));
             if (GUI.Button(new Rect(687, 658, 76, 34), paused ? "继续" : "暂停", button)) pause();

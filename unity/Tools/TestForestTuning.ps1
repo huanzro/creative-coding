@@ -91,6 +91,29 @@ foreach ($seed in 541..547) {
 }
 Assert ($turned[0] -gt 0 -and $turned[1] -gt 0) 'The suite exercises stationary turns in both directions.'
 
+foreach ($button in 0..1) {
+    $maze = New-Maze 541 1.30
+    for ($tick=0; $tick -lt 850 -and $maze.MazeMotion -ne 'Choosing'; $tick++) { $maze.Step(.02, .45) }
+    Assert ($maze.MazeMotion -eq 'Choosing') 'Reach the first fork with a grounded actor.'
+    $atFork = $maze.ForestMazeTravel
+    Assert ($maze.Touch($button)) 'Select a passage before falling silent.'
+    for ($tick=0; $tick -lt 390; $tick++) { $maze.Step(.02, 0) }
+    Assert ($maze.ForestMazeTravel -gt $atFork + 7) 'The silent open hand keeps walking after the old four-meter doorway limit.'
+    $maze.SetHand([Echoes.Hand]::Fist)
+    for ($tick=0; $tick -lt 32; $tick++) { $maze.Step(.02, .65) }
+    $stopped = $maze.ForestMazeTravel
+    for ($tick=0; $tick -lt 32; $tick++) { $maze.Step(.02, .65) }
+    Assert ($maze.ForestMazeTravel -eq $stopped) 'A fist keeps the character stopped even when there is sound.'
+    $maze.SetHand([Echoes.Hand]::Open)
+    $maze.Step(.10, 0)
+    Assert ($maze.ForestMazeTravel -gt $stopped) 'Opening the hand resumes movement while the input is silent.'
+    for ($tick=0; $tick -lt 3000 -and $maze.MazeMotion -ne 'Choosing'; $tick++) { $maze.Step(.02, 0) }
+    Assert ($maze.MazeMotion -eq 'Choosing') 'The silent walk reaches the next branching room.'
+    $nextFork = $maze.ForestMazeTravel
+    for ($tick=0; $tick -lt 125; $tick++) { $maze.Step(.02, .65) }
+    Assert ($maze.ForestMazeTravel -eq $nextFork) 'The next junction still waits for the player to choose.'
+}
+
 $privateProperty = [System.Reflection.BindingFlags]'Instance,Public,NonPublic'
 $distance = [Echoes.Journey].GetProperty('Distance', $privateProperty)
 $lane = [Echoes.Journey].GetProperty('ForestLane', $privateProperty)
@@ -163,4 +186,4 @@ foreach ($kind in @('Web','Maw')) {
         }
     }
 }
-Write-Output 'Passed both continuous forest approaches, fork checkpoint entry, configurable maze pace, oriented turns, committed hidden traps and independent capture ranges.'
+Write-Output 'Passed both continuous forest approaches, fork checkpoint entry, sustained silent maze walking with a fist brake, oriented turns, committed hidden traps and independent capture ranges.'
