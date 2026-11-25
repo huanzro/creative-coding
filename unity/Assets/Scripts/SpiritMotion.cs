@@ -138,7 +138,7 @@ namespace Echoes
             pose.lift += .09f * spinBody;
             pose.flare = .14f * draw + .23f * cast + .69f * Mathf.Sin(trailing * Mathf.PI);
             pose.ribbon = .08f * idle + .28f * flight + .87f * Mathf.Sin(trailing * Mathf.PI);
-            pose.yaw += 360 * Mathf.SmoothStep(0, 1, turn) - 25 * Envelope(frame.turnAge, .10f, .17f, .32f);
+            float turnYaw = 360 * Mathf.SmoothStep(0, 1, turn) - 25 * Envelope(frame.turnAge, .10f, .17f, .32f);
             pose.pivot = Mathf.Sin(turn * Mathf.PI);
             pose.look += -21 * Mathf.Sin(turn * Mathf.PI * 2);
             pose.lean += 6 * spinBody;
@@ -188,8 +188,10 @@ namespace Echoes
                 pose.left = SpiritArm.Blend(pose.left,Hold,demonstrate*.81f);
                 pose.nod += 8*demonstrate-11*offer;
             }
-            if (frame.forest) ActForest(ref pose, frame, closed, reachUp, glide, turn, spinBody);
-            else if (frame.ruins) ActRuins(ref pose, frame, closed, glide, turn);
+            if (frame.forest) ActForest(ref pose, frame, closed, reachUp, glide, spinBody);
+            else if (frame.ruins) ActRuins(ref pose, frame, closed, glide);
+            // Chapter poses establish the travel heading before the full turn is applied.
+            pose.yaw += turnYaw;
             return pose;
         }
 
@@ -212,12 +214,12 @@ namespace Echoes
             pose.extension = frame.starThrust * .67f;
         }
 
-        private static void ActRuins(ref SpiritPose pose, SpiritFrame frame, float closed, float glide, float turn)
+        private static void ActRuins(ref SpiritPose pose, SpiritFrame frame, float closed, float glide)
         {
             float steer = frame.ruinSteering;
             float rest = 1 - Mathf.SmoothStep(0, 1, Mathf.InverseLerp(.016f, .16f, frame.altitude));
             float openGate = Mathf.SmoothStep(0, 1, frame.ruinUnlock) * (1 - closed);
-            pose.yaw = 180 + (pose.yaw - 360 * Mathf.SmoothStep(0, 1, turn)) * .38f + 21 * steer;
+            pose.yaw = 180 + pose.yaw * .38f + 21 * steer;
             pose.lean = pose.lean * (1 - .72f * rest) - steer * 14;
             pose.lift *= 1 - .9f * rest;
             pose.step = Mathf.Lerp(pose.step, Mathf.Sin(pose.time * 12) * Mathf.Abs(steer) * .39f, rest);
@@ -394,12 +396,12 @@ namespace Echoes
         }
 
         private static void ActForest(ref SpiritPose pose, SpiritFrame frame, float closed,
-            float rise, float glide, float turn, float spin)
+            float rise, float glide, float spin)
         {
             float steer = frame.forestSteering;
             float sweep = Envelope(frame.touchAge, .11f, .22f, .69f);
             float resting = 1 - Mathf.Clamp01((frame.altitude + Mathf.Abs(frame.verticalSpeed) * .1f) * 13);
-            pose.yaw = 180 + (pose.yaw - 360 * Mathf.SmoothStep(0, 1, turn)) * .50f + steer * 24;
+            pose.yaw = 180 + pose.yaw * .50f + steer * 24;
             pose.lean = pose.lean * (1 - resting * .85f) - steer * 17;
             pose.lift *= 1 - resting;
             pose.step *= 1 - resting;

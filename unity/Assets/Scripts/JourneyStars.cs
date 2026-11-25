@@ -48,9 +48,11 @@ namespace Echoes
     public sealed partial class Journey
     {
         public const float StarVoiceFloor = .075f, StarMaxSpeed = 1.36f;
+        private const float StarSpinPressure = .64f, StarSpinRearmPressure = .52f, StarSpinCooldown = 2.15f;
         private readonly Queue<int> starStamps = new Queue<int>(12);
         private readonly int[] lastStarMotif = { -1, -1 };
         private readonly float[] lastStampAt = new float[2];
+        private bool starVoiceBoosted, starSpinInterrupted;
 
         public bool InStars => Chapter == 2 && Lesson < 0;
         public int StarPaper { get; private set; }
@@ -61,7 +63,11 @@ namespace Echoes
             ? "食指绘制中。发声向星海深处飞，收起食指即可提笔。"
             : "只伸出食指指向镜头，移动指尖画光。A/B 可从精灵指尖放出图案。";
 
-        public void SetStarPointer(StarTip pointer) => StarPointer = InStars ? pointer : default;
+        public void SetStarPointer(StarTip pointer)
+        {
+            StarPointer = InStars ? pointer : default;
+            if (StarPointer.Valid) starSpinInterrupted = true;
+        }
 
         internal bool TryTakeStarStamp(out int motif)
         {
@@ -75,6 +81,8 @@ namespace Echoes
             StarSpeed = 0;
             StarLastStamp = 0;
             StarPointer = default;
+            starVoiceBoosted = starSpinInterrupted = false;
+            LastSpin = LastRelease = float.NegativeInfinity;
             starStamps.Clear();
             for (int i = 0; i < lastStarMotif.Length; i++)
             {
@@ -102,6 +110,18 @@ namespace Echoes
         private void UpdateStars(float dt)
         {
             float pressure = Clamp((Voice - StarVoiceFloor) / (1 - StarVoiceFloor));
+            if (pressure < StarSpinRearmPressure) starVoiceBoosted = false;
+            else if (pressure >= StarSpinPressure && !starVoiceBoosted)
+            {
+                starVoiceBoosted = true;
+                if (!StarPointer.Valid && PoseTime - LastSpin >= StarSpinCooldown)
+                {
+                    starSpinInterrupted = false;
+                    LastSpin = LastRelease = PoseTime;
+                    ReleaseAltitude = Flight.Height;
+                    Light = 1;
+                }
+            }
             float target = StarMaxSpeed * (float)Math.Pow(pressure, .80);
             float difference = target - StarSpeed;
             float step = dt * (difference >= 0 ? 4.8f : 7.6f);

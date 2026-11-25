@@ -14,11 +14,12 @@ namespace Echoes
 
         private void DrawStarStage(Journey j, SpiritFrame frame, bool spatial, bool split)
         {
+            Vector2 center = spatial ? Vector2.Scale(world.ActorScreen, new Vector2(Width, Height)) :
+                new Vector2(Width * .5f, Height * .56f);
+            float effects = (split ? .36f : .62f) * ProjectionOverlayGain;
             if (!spatial && !split)
-            {
-                var center = new Vector2(Width * .5f, Height * .56f);
-                DrawCharacter(frame, center, center, 142, false, 0, 1, true, 0);
-            }
+                DrawCharacter(frame, center, center, 142, false, 0, 1, true, frame.releaseAge >= 0 ? effects : 0);
+            else DrawReleaseRings(frame.releaseAge, center, center, 1, palette[2], effects);
             PrepareInterface();
             var plate = new Rect(917, 91, 300, 43);
             Paint(plate, new Color(.025f, .041f, .087f, .86f));

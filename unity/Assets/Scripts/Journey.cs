@@ -66,6 +66,8 @@ namespace Echoes
         public float LastRelease { get; private set; }
         public float ReleaseAltitude { get; private set; }
         public float LastSpin { get; private set; }
+        internal bool ShowFlightTurn => !IsForestSequence && Phase != Stage.RuinRetry &&
+            (!InForest || Section != ForestSection.Shaft) && (!InStars || !starSpinInterrupted);
         public float LastTouch { get; private set; }
         public int TouchOption { get; private set; }
         public float Held { get; private set; }

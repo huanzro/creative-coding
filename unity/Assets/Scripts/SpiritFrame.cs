@@ -193,7 +193,7 @@ namespace Echoes
             starTipX = journey.StarPointer.X, starTipY = journey.StarPointer.Y,
             starThrust = journey.StarSpeed / Journey.StarMaxSpeed, starPointing = journey.StarPointer.Valid,
             releaseAge = Age(journey.PoseTime, journey.LastRelease, 2.2f),
-            turnAge = Age(journey.PoseTime, journey.LastSpin, 1.35f),
+            turnAge = journey.ShowFlightTurn ? Age(journey.PoseTime, journey.LastSpin, 1.35f) : -1,
             touchAge = Age(journey.PoseTime, journey.LastTouch, .95f)
         };
 

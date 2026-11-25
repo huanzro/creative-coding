@@ -337,14 +337,7 @@ namespace Echoes
             var color = palette[Mathf.Clamp(frame.chapter, 0, 2)];
             Orb(center.x, center.y, (128 + frame.light * 74) * extent, color,
                 (.13f + frame.charge * .14f + frame.light * .20f) * effects);
-            if (frame.releaseAge >= 0 && frame.releaseAge < 2.2f)
-            {
-                float progress = frame.releaseAge / 2.2f;
-                float strength = Mathf.Pow(1 - progress, 1.45f) * effects;
-                Vector2 lifted = Vector2.Lerp(ringOrigin, center, .62f);
-                Ripple(lifted.x, lifted.y, (76 + progress * 230) * extent, color, strength * .56f);
-                Ripple(ringOrigin.x, ringOrigin.y, (124 + progress * 660) * extent, color, strength * .27f);
-            }
+            DrawReleaseRings(frame.releaseAge, center, ringOrigin, extent, color, effects);
             if (frame.closed) Ripple(center.x, center.y, (75 + frame.charge * 27) * extent,
                 color, (.20f + frame.charge * .26f) * effects);
             Matrix4x4 before = GUI.matrix;
@@ -367,6 +360,16 @@ namespace Echoes
                 }
             }
             GUI.matrix = before;
+        }
+
+        private void DrawReleaseRings(float age, Vector2 center, Vector2 origin, float extent, Color color, float effects)
+        {
+            if (age < 0 || age >= 2.2f || effects <= 0) return;
+            float progress = age / 2.2f;
+            float strength = Mathf.Pow(1 - progress, 1.45f) * effects;
+            Vector2 lifted = Vector2.Lerp(origin, center, .62f);
+            Ripple(lifted.x, lifted.y, (76 + progress * 230) * extent, color, strength * .56f);
+            Ripple(origin.x, origin.y, (124 + progress * 660) * extent, color, strength * .27f);
         }
 
         private void DrawGestureTrails(float time, Vector2 center, float size, Color color, bool mirror, float strength)

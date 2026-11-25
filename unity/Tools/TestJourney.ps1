@@ -801,6 +801,38 @@ Pose $dancer Fist .51 .7
 Pose $dancer Missing .27 .7
 Assert ($dancer.LastRelease -eq $release -and $dancer.Held -eq 0) 'Signal loss must not release the stored charge.'
 
+foreach ($chapter in 0, 1) {
+    $traveler = [Echoes.Journey]::new(81)
+    $traveler.SelectChapter($chapter)
+    Pose $traveler Open .25 0
+    Pose $traveler Fist .35 .3
+    $traveler.SetHand([Echoes.Hand]::Open)
+    $quietRelease = [Echoes.SpiritFrame]::Read($traveler)
+    Assert ($quietRelease.releaseAge -eq 0 -and $quietRelease.turnAge -lt 0) 'A quiet jump emits its ring without a spin.'
+    Pose $traveler Fist .35 .7
+    $traveler.SetHand([Echoes.Hand]::Open)
+    $fastRelease = [Echoes.SpiritFrame]::Read($traveler)
+    Assert ($fastRelease.releaseAge -eq 0 -and $fastRelease.turnAge -eq 0) 'An accelerated jump starts the ring and spin together in the Forest and Ruins.'
+}
+
+$starDancer = [Echoes.Journey]::new(83)
+$starDancer.SelectChapter(2)
+$starDancer.SetStarPointer([Echoes.StarTip]::new(.32,.59))
+Step $starDancer .5 .7
+Assert ([Single]::IsNegativeInfinity($starDancer.LastSpin)) 'A voice boost leaves an active drawing steady.'
+$starDancer.SetStarPointer([Echoes.StarTip]::new(2,2))
+Step $starDancer 2.5 .7
+Assert ([Single]::IsNegativeInfinity($starDancer.LastSpin)) 'Lifting the pen during sustained audio does not create a new boost.'
+Step $starDancer .4 .3
+Step $starDancer .02 .7
+$starSpin = $starDancer.LastSpin
+Assert (([Echoes.SpiritFrame]::Read($starDancer)).turnAge -eq 0 -and $starDancer.LastRelease -eq $starSpin) 'A fresh Star Sea boost starts one spin and ring.'
+$starDancer.SetStarPointer([Echoes.StarTip]::new(.41,.51))
+$starDancer.SetStarPointer([Echoes.StarTip]::new(2,2))
+Assert (([Echoes.SpiritFrame]::Read($starDancer)).turnAge -lt 0) 'A new stroke ends the turn without resuming after pen-up.'
+Step $starDancer 2.5 .7
+Assert ($starDancer.LastSpin -eq $starSpin) 'Sustained strong voice does not repeatedly spin.'
+
 $touch = $enabled = 0
 Assert ([Echoes.ExhibitProtocol]::ReadInputs('EOL3 IN 3 7', [ref]$touch, [ref]$enabled)) 'The serial input still accepts both contacts.'
 Assert ($touch -eq 3 -and $enabled -eq 7) 'Both physical inputs remain distinct.'
