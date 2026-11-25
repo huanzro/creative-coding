@@ -13,7 +13,7 @@ namespace Echoes
         private bool preview, projection, mirror, audioReady, cameraReady, paused, inputReady;
         private bool settings, characterOnly, splitProjection, noHand;
         private int cast;
-        private static readonly string[] CastNames = { "三维精灵", "绿金长裙精灵" };
+        private static readonly string[] CastNames = { "三维精灵", "绿金长裙精灵", "兜帽旅人", "星纹术士" };
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
         private bool typingPort;
 #else
@@ -31,6 +31,7 @@ namespace Echoes
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
         private readonly WindowsExhibit exhibit = new WindowsExhibit();
         private string comPort = "COM3";
+        private int exhibitCue;
 #endif
         private int savedRevision;
         private Frame remote = new Frame();
@@ -132,6 +133,16 @@ namespace Echoes
             openingSound.Follow(journey.IsOpening ? journey.OpeningTime : -1, paused);
             travelSound.Follow(journey, paused);
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+            exhibit.SetForestPalette(journey.InForest);
+            if (exhibitCue != journey.CueId)
+            {
+                exhibitCue = journey.CueId;
+                if (!paused && Application.isFocused && journey.InForest)
+                {
+                    if (journey.Cue == JourneyCue.ForestAmber) exhibit.FlashForest(false, now);
+                    if (journey.Cue == JourneyCue.ForestScarlet) exhibit.FlashForest(true, now);
+                }
+            }
             exhibit.HoldingAuthorization = journey.Phase == Stage.StarsDelegated;
             exhibit.Tick(now, !paused && !journey.IsOpening && Application.isFocused,
                 Mathf.Max(journey.Voice * .42f, journey.WindOutput));
@@ -158,7 +169,8 @@ namespace Echoes
         {
             return new Frame {
                 chapter = journey.Chapter, round = journey.StarCount, lesson = journey.Lesson, choice = journey.ForestRoute,
-                flock = journey.Plants, quota = 2, time = journey.Time,
+                flock = journey.InForest ? journey.ForestLights : journey.Plants,
+                quota = journey.InForest ? journey.ForestPlantsRequired : 2, time = journey.Time,
                 light = journey.Light, charge = journey.Charge, voice = journey.Voice, progress = journey.Progress,
                 closed = journey.Gesture == Hand.Fist, complete = journey.Phase == Stage.Complete,
                 waiting = !inputReady || !journey.Started, paused = paused, preview = preview,
@@ -262,14 +274,14 @@ namespace Echoes
 #endif
             if (GUI.Button(new Rect(218, 309, 138, 30), "预览片头", button)) PlayOpening();
             GUI.Label(new Rect(20, 358, 100, 28), "出场角色", label);
-            int picked = GUI.SelectionGrid(new Rect(116, 356, 388, 31), cast, CastNames, 2, button);
+            int picked = GUI.SelectionGrid(new Rect(116, 350, 388, 62), cast, CastNames, 2, button);
             if (picked != cast)
             {
                 cast = picked;
                 PlayerPrefs.SetInt("EchoesUnity.Cast", cast);
                 PlayerPrefs.Save();
             }
-            bool world = GUI.Toggle(new Rect(20, 398, 212, 29), view.UseWorld, "使用三维关卡背景");
+            bool world = GUI.Toggle(new Rect(20, 420, 300, 27), view.UseWorld, "遗迹和星海使用三维背景");
             if (world != view.UseWorld)
             {
                 view.UseWorld = world;
@@ -330,8 +342,10 @@ namespace Echoes
         private void Touch(int option, bool physical)
         {
             int cueBefore = journey.CueId;
+            bool steering = journey.InForest;
             if (paused || !inputReady || !journey.Touch(option)) return;
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+            if (steering) return;
             bool changed = journey.CueId != cueBefore;
             if (changed && journey.Cue == JourneyCue.Withdraw) exhibit.ClearLamp(1);
             else exhibit.Flash(option, Time.unscaledTime, physical && changed && journey.Cue == JourneyCue.Assist);

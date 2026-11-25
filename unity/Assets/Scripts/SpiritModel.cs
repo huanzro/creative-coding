@@ -48,13 +48,7 @@ namespace Echoes
         {
             this.longDress = longDress;
             commands = target;
-            var pivot = new Vector3(.16f, 0, .015f);
-            Quaternion yaw = Quaternion.Euler(0, pose.yaw, 0);
-            Quaternion attitude = Quaternion.Euler(-pose.pitch, pose.yaw, pose.lean);
-            Vector3 torsoPivot = new Vector3(0, 1.13f, 0);
-            Vector3 translation = new Vector3(pose.shift, pose.lift, 0) + (pivot - yaw * pivot) * pose.pivot;
-            translation += (torsoPivot - attitude * torsoPivot) * pose.centerPivot;
-            root = basis * Matrix4x4.TRS(translation, attitude, Vector3.one);
+            root = basis * PoseTransform(pose);
             joint = root;
             float breathing = 1 + .023f * pose.breath;
             Color bodiceTint = longDress ? Color.Lerp(Silk, Moss, .72f) : Moss;
@@ -95,6 +89,17 @@ namespace Echoes
             }
             DrawDress(pose, accent);
             DrawHead(pose, accent);
+        }
+
+        internal static Matrix4x4 PoseTransform(SpiritPose pose)
+        {
+            var pivot = new Vector3(.16f, 0, .015f);
+            Quaternion yaw = Quaternion.Euler(0, pose.yaw, 0);
+            Quaternion attitude = Quaternion.Euler(-pose.pitch, pose.yaw, pose.lean);
+            var torsoPivot = new Vector3(0, 1.13f, 0);
+            Vector3 translation = new Vector3(pose.shift, pose.lift, 0) + (pivot - yaw * pivot) * pose.pivot;
+            translation += (torsoPivot - attitude * torsoPivot) * pose.centerPivot;
+            return Matrix4x4.TRS(translation, attitude, Vector3.one);
         }
 
         private void DrawArm(int side, SpiritArm arm, Color accent, Vector3[] anchors, int index)

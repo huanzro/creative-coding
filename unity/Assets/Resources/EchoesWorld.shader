@@ -27,7 +27,7 @@ Shader "Hidden/Echoes/WorldSurface"
             float _Surface, _Glow;
             float4 _Tint;
             sampler2D _GrainTex;
-            float4 _Grain, _EchoesFootfall;
+            float4 _Grain, _EchoesFootfall, _EchoesTerrainSink;
             float4 _EchoesAir, _EchoesKey, _EchoesAmbience, _EchoesWeather, _EchoesPool, _EchoesPoolColor;
             struct Vertex { float4 vertex:POSITION; float3 normal:NORMAL; float4 color:COLOR; };
             struct Varying
@@ -76,6 +76,11 @@ Shader "Hidden/Echoes/WorldSurface"
 
             float4 frag(Varying i, fixed side : VFACE) : SV_Target
             {
+                if (_Surface > 3.5 && _EchoesTerrainSink.w > .5)
+                {
+                    float2 fromMouth = i.world.xz - _EchoesTerrainSink.xy;
+                    clip(dot(fromMouth,fromMouth) - _EchoesTerrainSink.z);
+                }
                 float3 n = normalize(i.normal);
                 if (_Surface > 1.5 && _Surface < 2.5 && side < 0) n=-n;
                 float3 eye = _WorldSpaceCameraPos - i.world;

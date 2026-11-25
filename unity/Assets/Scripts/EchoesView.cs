@@ -140,20 +140,32 @@ namespace Echoes
                 return;
             }
             var color = palette[journey.Chapter];
-            bool spatial = UseWorld && world != null && world.Ready;
+            bool spatial = (UseWorld || frame.forest) && world != null && world.Ready;
             if (spatial) Paint(new Rect(0,0,Width,Height),Color.white,world.Texture);
             else DrawLegacyBackground(journey, frame, color);
-            DrawChapterFeedback(journey, color);
+            if (!frame.forest) DrawChapterFeedback(journey, color);
             if (splitProjection && !spatial)
                 Paint(new Rect(100, -100, 1080, 940), new Color(0, 0, 0, .35f), glow);
-            DrawTrace(journey, color, splitProjection ? .20f : .72f);
             float strength = splitProjection ? .38f : .87f;
-            DrawFlightTrail(frame, color, strength, 1, new Rect(0, 0, Width, Height));
-            DrawActiveFirefly(journey, splitProjection);
             var center = new Vector2(CenterX, CharacterY(frame.altitude));
             var origin = new Vector2(CenterX, CharacterY(frame.releaseAltitude));
-            DrawCharacter(frame, center, origin, 162, false, 0, 1, !splitProjection && !spatial, strength);
-            DrawLiveHandoff(frame, center, 162, false, 0, 1, splitProjection ? .24f : 1);
+            float actorSize = 162;
+            if (frame.forest && spatial)
+            {
+                center = Vector2.Scale(world.ActorScreen, new Vector2(Width, Height));
+                origin = center + Vector2.up * Mathf.Clamp(frame.altitude - frame.releaseAltitude, -.7f, .7f) * 92;
+                actorSize = world.ActorBody;
+                strength *= frame.forestDescent < 0 ? .62f : .34f;
+            }
+            else
+            {
+                DrawTrace(journey, color, splitProjection ? .20f : .72f);
+                DrawFlightTrail(frame, color, strength, 1, new Rect(0, 0, Width, Height));
+                DrawActiveFirefly(journey, splitProjection);
+            }
+            DrawCharacter(frame, center, origin, actorSize, false, 0, 1, !splitProjection && !spatial, strength);
+            DrawLiveHandoff(frame, center, actorSize, false, 0, 1, splitProjection ? .24f : 1);
+            if (frame.forest) DrawForestHud(journey);
             EndFrame(matrix);
         }
 
@@ -229,16 +241,17 @@ namespace Echoes
         public void UpdateSpirit(SpiritFrame frame)
         {
             spirit.Render(frame);
-            int scene = frame.openingTime >= 0 ? 3 : frame.chapter;
+            int scene = frame.openingTime >= 0 ? 4 : frame.forest ? 0 : frame.lesson >= 0 ? 3 : frame.chapter;
             if (scene != trailScene || frame.motionTime < flightAt)
             {
                 flightTrace.Clear();
                 flightAt = float.NegativeInfinity;
                 trailScene = scene;
             }
-            if (scene == 3 || frame.motionTime - flightAt < .035f) return;
+            if (frame.openingTime >= 0 || frame.motionTime - flightAt < .035f) return;
             flightAt = frame.motionTime;
-            float power = Mathf.Clamp01(frame.glide * .78f + Mathf.Abs(frame.verticalSpeed) * .41f);
+            float power = frame.forest && !frame.forestAirborne ? 0 :
+                Mathf.Clamp01(frame.glide * .78f + Mathf.Abs(frame.verticalSpeed) * .41f);
             flightTrace.Add(new Vector4(frame.altitude, frame.motionTime, power, frame.voice));
             while (flightTrace.Count > 0 && frame.motionTime - flightTrace[0].y > 2.05f)
                 flightTrace.RemoveAt(0);
@@ -250,7 +263,7 @@ namespace Echoes
 
         private void DrawCharacter(SpiritFrame frame, Vector2 center, Vector2 ringOrigin, float size,
             bool mirror, float rotation, float extent,
-            bool showPortrait, float effects)
+            bool showPortrait, float effects, float visibility = 1)
         {
             var color = palette[Mathf.Clamp(frame.chapter, 0, 2)];
             Orb(center.x, center.y, (128 + frame.light * 74) * extent, color,
@@ -277,8 +290,11 @@ namespace Echoes
                 {
                     float width = size * (spirit.Articulated ? SpiritRig.WidthScale : 2f / 3);
                     float height = size * (spirit.Articulated ? SpiritRig.HeightScale : 1);
+                    Color beforeColor = GUI.color;
+                    GUI.color = Opacity(beforeColor, visibility * beforeColor.a);
                     GUI.DrawTextureWithTexCoords(new Rect(center.x - width / 2, center.y - height / 2, width, height),
                         texture, mirror ? new Rect(1, 0, -1, 1) : new Rect(0, 0, 1, 1), true);
+                    GUI.color = beforeColor;
                 }
             }
             GUI.matrix = before;

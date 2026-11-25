@@ -266,8 +266,10 @@ namespace Echoes
             }
             for (int i=0;i<plantRays.Length;i++)
             {
-                bool ready=journey.Plants>i && opening<0;
+                bool visible=!journey.InForest;
+                bool ready=visible && journey.Plants>i && opening<0;
                 plantRays[i].gameObject.SetActive(ready);
+                plantLamps[i].gameObject.SetActive(visible);
                 float flash=ready ? .54f+.08f*Mathf.Sin(time*3+i) : .13f;
                 Light(plantLamps[i],Warm,flash);
                 for(int j=0;j<2;j++)

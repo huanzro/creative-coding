@@ -160,7 +160,7 @@ namespace Echoes
                 return WorldMesh.Shade(Color.Lerp(clay,moss,trail),.66f+.55f*Mathf.PerlinNoise(p.x*.64f+9,p.z*.54f+9));
             }, p => new Vector2(p.x,p.z-SinkZ).sqrMagnitude < 13.7f);
 
-            for (int lane=0; lane<13; lane++)
+            for (int lane=0; lane<18; lane++)
             for (int side=-1; side<=1; side+=2)
             for (int row=0; row<3; row++)
             {
@@ -172,9 +172,9 @@ namespace Echoes
             Tree(trunks,crowns,new Vector3(4.6f,.23f,10.5f),12.7f,1.04f);
             Tree(trunks,crowns,new Vector3(-6.3f,-.22f,20.9f),16.4f,1.48f);
 
-            for (int i=0; i<420; i++)
+            for (int i=0; i<480; i++)
             {
-                float z=Range(-36,105), x=Range(-24,24);
+                float z=Range(-36,135), x=Range(-24,24);
                 if (Mathf.Abs(x-1.4f*Mathf.Sin(z*.12f))<Range(1.45f,3.25f) || (new Vector2(x,z-SinkZ)).sqrMagnitude<15) continue;
                 float y=Ground(x,z);
                 if (i%3==0) banks.Rock(new Vector3(x,y-.07f,z), new Vector3(Range(.27f,1.74f),Range(.22f,.82f),Range(.34f,1.8f)),
@@ -189,7 +189,7 @@ namespace Echoes
 
             for (int side=-1; side<=1; side+=2)
             {
-                for (int row=0; row<17; row++)
+                for (int row=0; row<49; row++)
                 {
                     float z=-11+row*2.93f;
                     float x = side*Range(2.3f,4.2f)+Mathf.Sin(z*.1f)*1.2f;
@@ -215,6 +215,12 @@ namespace Echoes
                 .16f,1.84f,new Color(.90f,.71f,.42f,.43f),"Sun between the branches");
             LightVolume(new Vector3(4.7f,15.2f,30.1f),new Vector3(-1.1f,.1f,22.25f),
                 .26f,2.89f,new Color(.78f,.65f,.41f,.27f),"Sun across the forest walk");
+            for(int i=0;i<3;i++)
+            {
+                float side=i%2==0?-1:1, z=48+i*27.4f;
+                LightVolume(new Vector3(side*7.1f,15.8f,z+2.7f),new Vector3(side*1.24f,.18f,z),
+                    .19f,1.45f,new Color(.84f,.77f,.52f,.31f),"Canopy light at a clearing");
+            }
 
             for (int i = 0; i < plantRays.Length; i++)
             {

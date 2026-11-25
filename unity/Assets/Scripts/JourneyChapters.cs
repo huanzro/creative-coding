@@ -4,11 +4,9 @@ namespace Echoes
 {
     public sealed partial class Journey
     {
-        private const float FlightSafe = .39f;
-        private static readonly float[] Gusts = { 2.05f, 4.76f };
         private static readonly float[] Reflections = { 1.03f, 1.53f, 1.12f };
         private static readonly float[] StarAltitudes = { .18f, .57f, .27f };
-        private int gustIndex, windMisses, reflectionIndex;
+        private int reflectionIndex;
         private float echoDelay, echoTolerance, quietFor, starReadyAt;
         private bool repairReady, usedSecondBeat, bridgeHelpUsed;
         public int Plants { get; private set; }
@@ -24,8 +22,6 @@ namespace Echoes
         public float TimingWindow => Phase == Stage.RuinRelease ? echoTolerance : .41f;
         public float CurrentStarHeight => StarAltitudes[Math.Min(StarCount, 2)];
         public bool RiskySuggestion => StarCount == 1 && (Mistakes & 2) == 0;
-        public float GustWarning => Phase == Stage.ForestWind && gustIndex < Gusts.Length
-            ? Clamp((Age - Gusts[gustIndex] + .92f) / .92f) : 0;
         public StarPath PathAt(int index) =>
             (uint)index < 3 ? (StarPath)((StarBits >> (index * 2)) & 3) : StarPath.Unfinished;
 
@@ -33,18 +29,13 @@ namespace Echoes
         {
             gentleTime = loudTime = openTime = 0;
             bridgeHelpUsed = false;
-            reflectionIndex = gustIndex = windMisses = 0;
+            reflectionIndex = 0;
             repairReady = usedSecondBeat = false;
             quietFor = 0;
             echoDelay = 1.38f;
             echoTolerance = .53f;
             if (Lesson >= 0) PracticePrompt();
-            else if (Chapter == 0)
-            {
-                if (Plants >= 2) CrossForest();
-                else if (Plants > 0) StartPlanting("第一处根光已经留下。到低处，张手轻声种下第二枚。");
-                else Change(Stage.ForestRoute, "低处根系可以种光。张手轻声进入林间，或按 B 查看上方风廊。");
-            }
+            else if (Chapter == 0) StartForest();
             else if (Chapter == 1)
             {
                 if (RuinResult != RuinPath.Unfinished)
@@ -109,111 +100,6 @@ namespace Echoes
                 Progress = Clamp(Age / 1.36f);
                 if (Progress >= 1) StartOpening();
             }
-        }
-
-        private void ForestTouch(int option)
-        {
-            if (option == 0)
-            {
-                Observe();
-                if (Phase == Stage.ForestRoute)
-                    Message = "两处发暗的根系在低处。张手轻声进林间，或按 B 借道风廊。";
-                else if (Phase == Stage.ForestPlant)
-                    Message = Plants == 0 ? "从第一根亮起的根脉，可以看到后面的两处歇脚点。" :
-                        "第一处已经保留。下一束暖光会沿第二根根脉点亮石桥。";
-                else if (Phase == Stage.ForestWind)
-                    Message = "风来之前草会伏低，红萤闪两下。看到信号就握拳护光。";
-                return;
-            }
-            if (Phase == Stage.ForestRoute)
-            {
-                if (!Authorize("高处风廊已亮起。再按 B 借风走捷径，或张手轻声走低处。")) return;
-                ForestRoute = 2;
-                Flight.Assist();
-                Notify(JourneyCue.Assist);
-                Change(Stage.ForestWind, "进入风廊。两阵风会吹散暖光，红萤闪动时握拳。");
-            }
-            else if (Phase == Stage.ForestCrossing && !bridgeHelpUsed &&
-                Authorize("光桥已显示。再按 B 帮精灵跨越前面一段。"))
-            {
-                bridgeHelpUsed = true;
-                Flight.Assist();
-                Notify(JourneyCue.Assist);
-            }
-        }
-
-        private void StartPlanting(string message)
-        {
-            ForestRoute = 1;
-            Change(Stage.ForestPlant, message);
-        }
-
-        private void CrossForest()
-        {
-            bridgeHelpUsed = false;
-            Change(Stage.ForestCrossing, ForestRoute == 2
-                ? "风停了，保留下来的黄光沿高处铺桥。"
-                : "两根光脉已连通。沿着被点亮的石桥前行，A 可照见落点。");
-        }
-
-        private void UpdateForest(float dt)
-        {
-            bool gentle = Gesture == Hand.Open && Voice >= .12f && Voice <= .46f;
-            switch (Phase)
-            {
-                case Stage.ForestRoute:
-                    heldProgress = gentle ? heldProgress + dt : 0;
-                    Progress = Clamp(heldProgress / .5f);
-                    if (Progress >= 1) StartPlanting("张手、轻声，等精灵滑到低处。让黄萤沿根脉落地。");
-                    break;
-                case Stage.ForestPlant:
-                    bool planting = gentle && Flight.Height <= FlightSafe;
-                    heldProgress = Math.Max(0, heldProgress + dt * (planting ? 1 : -.55f));
-                    Progress = Clamp(heldProgress / (Plants == 0 ? 1.37f : 1.72f));
-                    Walk(dt, planting ? 1.85f : .14f);
-                    if (Progress < 1) break;
-                    Plants++;
-                    Revision++;
-                    Signal(FireflyKind.Amber);
-                    Notify(JourneyCue.Plant);
-                    if (Plants == 2) CrossForest();
-                    else Change(Stage.ForestPlant, "第一束光已经扎根。沿着亮起的根，再种一束。");
-                    break;
-                case Stage.ForestWind:
-                    Walk(dt, 2.55f);
-                    Progress = Clamp(Age / 6.15f);
-                    if (gustIndex < Gusts.Length && Age >= Gusts[gustIndex])
-                    {
-                        gustIndex++;
-                        if (Gesture == Hand.Fist)
-                        {
-                            Signal(FireflyKind.Amber);
-                            Message = gustIndex == 1 ? "第一阵风过去了，张手再次出发。" : "两阵风都已经掠过。";
-                        }
-                        else
-                        {
-                            windMisses++;
-                            Signal(FireflyKind.Scarlet);
-                            Flight.Deflect();
-                            Message = "一束光被吹散了。风廊结束后可以回低处补种。";
-                        }
-                        Notify(JourneyCue.Gust);
-                    }
-                    if (Progress < 1) break;
-                    Plants = Math.Max(Plants, 2 - windMisses);
-                    Revision++;
-                    if (Plants >= 2) CrossForest();
-                    else StartPlanting("回到低处补种。已经留下的根光不必再种。");
-                    break;
-                case Stage.ForestCrossing:
-                    Walk(dt, bridgeHelpUsed ? 3.8f : 2.4f);
-                    heldProgress += dt * (bridgeHelpUsed ? 1.7f : 1);
-                    Progress = Clamp(heldProgress / 3.55f);
-                    if (Progress >= 1) Complete();
-                    break;
-            }
-            if (Phase == Stage.ForestCrossing && Gesture != Hand.Missing)
-                Fireflies.Step(dt, Voice, Flight.Height, Gesture, IsObserving);
         }
 
         private void RuinTouch(int option)

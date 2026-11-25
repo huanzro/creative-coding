@@ -29,3 +29,18 @@ The following CC0 diffuse maps from Poly Haven are used on procedurally built me
 | `Bark.jpg` | [Bark Brown 01](https://polyhaven.com/a/bark_brown_01) |
 | `Stone.jpg` | [Mossy Rock](https://polyhaven.com/a/mossy_rock) |
 | `Ground.jpg` | [Forest Leaves 02](https://polyhaven.com/a/forest_leaves_02) |
+
+## Selectable 3D characters
+
+`unity/Assets/Resources/GuestSpirits/` contains two CC0 1.0 characters from Kay Lousberg's [KayKit Adventurers source](https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0/tree/672074b73ba276876a19e8816ecdc5241817ab47/addons/kaykit_character_pack_adventures). The source license is included as `KayKit-License.txt`. The FBX exports retain their UVs and skin weights, with two hood faces triangulated for Unity import. Animation takes were removed because both models use the game's shared hand, flight and cutscene poses. Both capes follow those poses too.
+
+| Local model | Playable character | Source texture |
+| --- | --- | --- |
+| `RogueHooded.fbx` | 兜帽旅人 | `rogue_texture.png` |
+| `Mage.fbx` | 星纹术士 | `mage_texture.png` |
+
+### Additional models reviewed
+
+- Quaternius Modular Character Outfits – Fantasy has interchangeable humanoid outfits suited to a consistent forest cast, including clothing for further customization. [GitHub asset mirror](https://github.com/agentkaerf/FreeModels) · [Creator's CC0 pack](https://quaternius.com/packs/modularcharacteroutfitsfantasy.html)
+- Quaternius RPG Character Pack offers six textured fantasy characters. Its Ranger and Monk silhouettes could suit an outdoors guide or a ruins caretaker. [GitHub copy of the model files](https://github.com/euuuuuuan/cairnfall-public/tree/main/assets/vendor/quaternius_rpg) · [Creator's CC0 pack](https://quaternius.com/packs/rpgcharacters.html)
+- GDQuest Open 3D Mannequin includes editable Blender artwork and baked animations, with attribution required for reuse of art. The figure is a neutral base for custom costumes and proportion studies. [GDQuest source and licenses](https://github.com/gdquest-demos/godot-3d-mannequin#licenses)

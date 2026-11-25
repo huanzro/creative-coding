@@ -9,6 +9,8 @@ Shader "Hidden/Echoes/Spirit3D"
         _Face ("Face detail mask", Float) = 0
         _Expression ("Lids, expression and gaze", Vector) = (1,0,0,0)
         _StageKey ("Directional light of the set", Vector) = (0,0,0,0)
+        _PaintedAtlas ("Character color atlas", 2D) = "white" {}
+        _UsePaintedAtlas ("Use character color atlas", Float) = 0
     }
     SubShader
     {
@@ -26,6 +28,8 @@ Shader "Hidden/Echoes/Spirit3D"
             float _Fabric, _Face;
             float4 _Expression;
             float4 _StageKey;
+            sampler2D _PaintedAtlas;
+            float _UsePaintedAtlas;
             struct Vertex
             {
                 float4 position : POSITION;
@@ -122,6 +126,8 @@ Shader "Hidden/Echoes/Spirit3D"
                 float grain = 1 + .023 * sin(218 * input.world.x + 81 * input.world.y) *
                     sin(143 * input.world.z - 164 * input.world.y);
                 float3 materialColor = _Tint.rgb;
+                if (_UsePaintedAtlas > .5)
+                    materialColor *= tex2D(_PaintedAtlas, input.cloth).rgb;
                 if (_Face > .5) materialColor = complexion(materialColor, input.local);
                 if (_Fabric > .1)
                 {
@@ -136,6 +142,7 @@ Shader "Hidden/Echoes/Spirit3D"
                     grain *= 1 + .025 * cos(input.cloth.x * 1120) * cos(y * 841);
                 }
                 float shade = lerp(input.shade, 1, step(.1, _Fabric));
+                shade = lerp(shade, 1, _UsePaintedAtlas);
                 float3 color = materialColor * shade *
                     (float3(.41,.43,.50) + diffuse * float3(.61,.55,.47) + cool * float3(.19,.24,.29));
                 color *= grain;

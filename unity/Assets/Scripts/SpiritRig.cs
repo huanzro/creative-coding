@@ -19,6 +19,9 @@ namespace Echoes
         private readonly RenderTexture target;
         private readonly CommandBuffer commands;
         private readonly SpiritModel model;
+        private readonly GuestSpirit[] guests = new GuestSpirit[2];
+        private readonly bool[] guestsLoaded = new bool[2];
+        private GuestSpirit guest;
         private readonly Camera portraitCamera;
         private readonly float[] dance = new float[SpiritDance.TrackCount];
         private readonly Vector3[] anchors = new Vector3[4];
@@ -107,6 +110,8 @@ namespace Echoes
             bool changedCast = previous.cast != frame.cast;
             previous = frame;
             pose = SpiritMotion.Sample(frame, tracked, closed, voice, dance);
+            guest = Guest(frame.cast);
+            guest?.Pose(pose);
             commands.Clear();
             Color tint = Accent[Mathf.Clamp(frame.chapter, 0, Accent.Length - 1)];
             float contact = frame.fireflyPulse * .80f;
@@ -140,18 +145,35 @@ namespace Echoes
         {
             material.SetVector(StageKey, new Vector4(key.x,key.y,key.z,key.sqrMagnitude>.1f?1:0));
             material.SetVector(SceneLight, new Vector4(poseTint.r,poseTint.g,poseTint.b,ambient));
-            model.Draw(pose,poseTint,joints,previous.cast == 1,basis,buffer);
+            if (guest != null) guest.Draw(pose, joints, basis, buffer, material);
+            else model.Draw(pose,poseTint,joints,previous.cast == 1,basis,buffer);
             Vector3 point = joints[1] + basis.MultiplyVector(new Vector3(.08f,.045f,-.135f));
             material.SetVector(ContactLight,new Vector4(point.x,point.y,point.z,poseContact));
         }
 
-        public void DrawInWorld(Camera camera, Vector2 screen, float bodyPixels, float depth, Vector3 key, CommandBuffer buffer)
+        private GuestSpirit Guest(int cast)
+        {
+            int index = cast - 2;
+            if (index < 0 || index >= guests.Length) return null;
+            if (!guestsLoaded[index])
+            {
+                guests[index] = index == 0
+                    ? GuestSpirit.Load("RogueHooded", "rogue_texture", new Color(.91f, 1f, .94f))
+                    : GuestSpirit.Load("Mage", "mage_texture", new Color(.99f, .97f, 1f));
+                guestsLoaded[index] = true;
+            }
+            return guests[index];
+        }
+
+        public void DrawInWorld(Camera camera, Vector2 screen, float bodyPixels, float depth, Vector3 key,
+            CommandBuffer buffer, bool upright = false)
         {
             if (!rendered) return;
             Vector3 point = camera.ViewportToWorldPoint(new Vector3(screen.x,1-screen.y,depth));
             float scale = bodyPixels * HeightScale / 720 *
                 (depth*Mathf.Tan(camera.fieldOfView*.5f*Mathf.Deg2Rad))/(5.6f*Mathf.Tan(15.25f*Mathf.Deg2Rad));
-            Matrix4x4 transform = Matrix4x4.TRS(point,camera.transform.rotation,Vector3.one*scale)
+            Quaternion orientation = upright ? Quaternion.Euler(0, camera.transform.eulerAngles.y, 0) : camera.transform.rotation;
+            Matrix4x4 transform = Matrix4x4.TRS(point,orientation,Vector3.one*scale)
                 * Matrix4x4.Translate(new Vector3(0,-1.16f,0));
             RenderModel(transform,key,sceneAnchors,buffer,.20f);
         }
@@ -182,6 +204,7 @@ namespace Echoes
                 UnityEngine.Object.Destroy(portraitCamera.gameObject);
             }
             model?.Dispose();
+            foreach (var guestModel in guests) guestModel?.Dispose();
             commands?.Dispose();
             if (target != null) { target.Release(); UnityEngine.Object.Destroy(target); }
             if (material != null) UnityEngine.Object.Destroy(material);

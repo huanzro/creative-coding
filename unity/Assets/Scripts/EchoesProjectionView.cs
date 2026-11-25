@@ -37,9 +37,25 @@ namespace Echoes
             }
             else
             {
-                DrawFlightTrail(frame, palette[Mathf.Clamp(frame.chapter, 0, 2)], 1, extent, area, bodySize, sideways);
-                DrawCharacter(frame, center, source, bodySize, mirror, sideways ? -90 : 0, extent, true, 1);
-                DrawLiveHandoff(frame, center, bodySize, mirror, sideways ? -90 : 0, extent, 1);
+                float visibility = 1;
+                if (frame.forest)
+                {
+                    Vector2 axis = sideways ? Vector2.up : Vector2.right;
+                    Vector2 lane = axis * (sideways ? area.height : area.width) * frame.forestLane * (mirror ? -.063f : .063f);
+                    center += lane;
+                    source += lane;
+                    if (frame.forestDescent >= 0)
+                    {
+                        float descent = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(.44f, 1, frame.forestDescent));
+                        Vector2 down = sideways ? Vector2.right * area.width : Vector2.up * area.height;
+                        center += down * (.24f * descent);
+                        visibility = 1 - Mathf.SmoothStep(0, 1, Mathf.InverseLerp(.68f, .98f, frame.forestDescent));
+                    }
+                }
+                if (!frame.forest || frame.forestDescent < 0)
+                    DrawFlightTrail(frame, palette[Mathf.Clamp(frame.chapter, 0, 2)], 1, extent, area, bodySize, sideways);
+                DrawCharacter(frame, center, source, bodySize, mirror, sideways ? -90 : 0, extent, true, visibility, visibility);
+                DrawLiveHandoff(frame, center, bodySize, mirror, sideways ? -90 : 0, extent, visibility);
             }
             GUI.EndGroup();
         }

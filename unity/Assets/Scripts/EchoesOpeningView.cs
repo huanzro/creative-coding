@@ -16,7 +16,7 @@ namespace Echoes
 
         public void UpdateWorld(Journey journey, SpiritFrame frame, bool split)
         {
-            if (frame.openingTime < 0 && !UseWorld) return;
+            if (frame.openingTime < 0 && !frame.forest && !UseWorld) return;
             if (world == null) world = new EchoesWorld();
             Vector2 amber = Vector2.zero, red = Vector2.zero;
             if (frame.openingTime >= 0)

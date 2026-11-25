@@ -16,6 +16,8 @@ namespace Echoes
         private readonly StringBuilder line = new StringBuilder(80);
         private readonly float[] lampBegin = new float[2];
         private readonly float[] lampEnd = { -1, -1 };
+        private readonly float[] lampStrength = new float[2];
+        private bool forestPalette;
         private bool overflow;
         private int sequence, lastMask, lastEnabled;
         private float lastInput, nextWrite;
@@ -62,6 +64,13 @@ namespace Echoes
             }
         }
 
+        public void SetForestPalette(bool enabled)
+        {
+            if (forestPalette == enabled) return;
+            forestPalette = enabled;
+            lampEnd[0] = lampEnd[1] = -1;
+        }
+
         public void Tick(float now, bool running, float energy)
         {
             if (!Connected) return;
@@ -79,7 +88,7 @@ namespace Echoes
                 if (!Ready || now < nextWrite) return;
                 nextWrite = now + .1f;
                 int fan = FanEnabled ? (int)Math.Round(Math.Max(0, Math.Min(1, energy)) * 132) : 0;
-                Write(ExhibitProtocol.Output(sequence++, Lamp(0, now), Lamp(1, now), fan, FanSupported));
+                Write(ExhibitProtocol.Output(sequence++, Lamp(0, now), Lamp(1, now), fan, FanSupported, forestPalette));
             }
             catch (Win32Exception error)
             {
@@ -115,7 +124,7 @@ namespace Echoes
                 int bit = 1 << option;
                 if ((changed & bit) == 0) continue;
                 if ((mask & bit) != 0) Pressed?.Invoke(option);
-                else lampEnd[option] = Math.Min(lampEnd[option], Math.Max(lampBegin[option] + .5f, now));
+                else if (!forestPalette) lampEnd[option] = Math.Min(lampEnd[option], Math.Max(lampBegin[option] + .5f, now));
             }
         }
 
@@ -124,6 +133,16 @@ namespace Echoes
             if (!Ready || !LampsEnabled) return;
             lampBegin[option] = now;
             lampEnd[option] = now + (physical ? 1.8f : .5f);
+            lampStrength[option] = 1;
+        }
+
+        public void FlashForest(bool red, float now)
+        {
+            if (!Ready || !LampsEnabled || !forestPalette) return;
+            int index = red ? 1 : 0;
+            lampBegin[index] = now;
+            lampEnd[index] = now + .21f;
+            lampStrength[index] = red ? .52f : .63f;
         }
 
         public void ClearLamp(int option) => lampEnd[option] = -1;
@@ -132,7 +151,10 @@ namespace Echoes
         {
             if (!LampsEnabled) return 0;
             if (option == 1 && HoldingAuthorization) return 1;
-            return lampEnd[option] >= 0 ? Math.Max(0, Math.Min(1, 1 - (now - lampEnd[option]) / .42f)) : 0;
+            if (lampEnd[option] < 0) return 0;
+            float fadeOut = Math.Max(0, Math.Min(1, 1 - (now - lampEnd[option]) / .42f));
+            float fadeIn = forestPalette ? Math.Max(0, Math.Min(1, (now - lampBegin[option]) / .08f)) : 1;
+            return lampStrength[option] * fadeIn * fadeOut;
         }
 
         public void StopOutput()

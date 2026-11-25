@@ -188,7 +188,72 @@ namespace Echoes
                 pose.left = SpiritArm.Blend(pose.left,Hold,demonstrate*.81f);
                 pose.nod += 8*demonstrate-11*offer;
             }
+            if (frame.forest) ActForest(ref pose, frame, closed, reachUp, glide, turn, spinBody);
             return pose;
+        }
+
+        private static void ActForest(ref SpiritPose pose, SpiritFrame frame, float closed,
+            float rise, float glide, float turn, float spin)
+        {
+            float steer = frame.forestSteering;
+            float sweep = Envelope(frame.touchAge, .11f, .22f, .69f);
+            float resting = 1 - Mathf.Clamp01((frame.altitude + Mathf.Abs(frame.verticalSpeed) * .1f) * 13);
+            pose.yaw = 180 + (pose.yaw - 360 * Mathf.SmoothStep(0, 1, turn)) * .50f + steer * 24;
+            pose.lean = pose.lean * (1 - resting * .85f) - steer * 17;
+            pose.lift *= 1 - resting;
+            pose.step *= 1 - resting;
+            var ready = SpiritArm.Blend(Rest, Hold, closed);
+            pose.left = SpiritArm.Blend(pose.left, ready, resting * (1 - sweep));
+            pose.right = SpiritArm.Blend(pose.right, ready, resting * (1 - sweep));
+            pose.left = SpiritArm.Blend(pose.left, Wing, glide * .44f * (1 - spin));
+            pose.right = SpiritArm.Blend(pose.right, Wing, glide * .44f * (1 - spin));
+            if (frame.touch == 0)
+            {
+                pose.left = SpiritArm.Blend(pose.left, Sweep, sweep * .88f);
+                pose.right = SpiritArm.Blend(pose.right, Brace, sweep * .34f);
+                pose.look -= 25 * sweep;
+            }
+            else
+            {
+                pose.right = SpiritArm.Blend(pose.right, Sweep, sweep * .88f);
+                pose.left = SpiritArm.Blend(pose.left, Brace, sweep * .34f);
+                pose.look += 25 * sweep;
+            }
+            pose.tuck += rise * .21f;
+
+            float sow = Envelope(frame.forestPlant, .20f, .57f, 1.28f);
+            pose.left = SpiritArm.Blend(pose.left, Offer, sow * .64f);
+            pose.right = SpiritArm.Blend(pose.right, Sow, sow);
+            pose.settle += sow * .42f;
+            pose.nod += 21 * sow;
+            pose.pitch += 19 * sow;
+            pose.glow = Mathf.Max(pose.glow, .78f * sow);
+
+            if (frame.forestSnareAge >= 0 || frame.forestDescent >= 0)
+                ActForestCapture(ref pose, frame);
+        }
+
+        private static void ActForestCapture(ref SpiritPose pose, SpiritFrame frame)
+        {
+            bool web = frame.forestTrap == ForestTrapKind.Web;
+            bool descent = frame.forestDescent >= 0;
+            float t = descent ? frame.forestDescent * Journey.ForestTransitionDuration : frame.forestSnareAge;
+            float grasp = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(descent ? .24f : 0, descent ? .95f : .32f, t));
+            if (frame.forestRescue)
+                grasp *= 1 - Mathf.SmoothStep(0, 1, Mathf.InverseLerp(1.68f, 2.4f, t));
+            float struggle = Mathf.Sin(t * (web ? 9.5f : 6.4f)) * Mathf.Exp(-t * .76f);
+            float fold = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(.20f, 1.25f, t));
+            pose.yaw = Mathf.Lerp(pose.yaw, web ? 143 : 221, grasp) + 9 * struggle * grasp;
+            pose.look = Mathf.Lerp(pose.look, web ? -20 : 29, grasp);
+            pose.pitch = Mathf.Lerp(pose.pitch, web ? -14 : 33, grasp) + 7 * struggle * grasp;
+            pose.lean = Mathf.Lerp(pose.lean, web ? -18 : 22, grasp) + 17 * struggle * grasp;
+            pose.nod -= 21 * grasp;
+            pose.left = SpiritArm.Blend(pose.left, web ? HoldAbove : Brace, grasp);
+            pose.right = SpiritArm.Blend(pose.right, web ? High : CoverHead, grasp);
+            pose.tuck = Mathf.Max(pose.tuck, grasp * (web ? .50f : .92f));
+            pose.settle += (web ? .07f : .63f) * grasp * fold;
+            pose.ribbon += grasp * (.48f + Mathf.Abs(struggle) * .22f);
+            pose.expression += grasp * .7f;
         }
 
         private static SpiritPose ActOpening(float t)

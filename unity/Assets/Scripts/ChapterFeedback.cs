@@ -8,6 +8,25 @@ namespace Echoes
         private static readonly Color Iris = new Color(.76f,.58f,1);
         private static readonly Color InkGlass = new Color(.018f,.037f,.059f,.78f);
 
+        private void DrawForestHud(Journey j)
+        {
+            if (j.Phase == Stage.ForestTransition) return;
+            PrepareInterface();
+            Paint(new Rect(997, 79, 254, 130), InkGlass);
+            GUI.Label(new Rect(1013, 88, 220, 26), $"随行萤火  {j.ForestLights}", body);
+            GUI.Label(new Rect(1013, 118, 220, 26), $"种下根光  {j.Plants}/{j.ForestPlantsRequired}", body);
+            for (int lane = -1; lane <= 1; lane++)
+            {
+                float x = 1042 + (lane + 1) * 79;
+                bool selected = j.ForestTargetLane == lane;
+                Orb(x, 161, selected ? 14 : 7, selected ? Amber : Mint, selected ? .85f : .48f);
+                string label = lane < 0 ? "左" : lane == 0 ? "中" : "右";
+                GUI.Label(new Rect(x - 8, 172, 26, 24), label, body);
+            }
+            if (j.ForestPlantCharge > 0)
+                Paint(new Rect(1014, 198, 218 * Mathf.Clamp01(j.ForestPlantCharge), 3), Amber);
+        }
+
         private void DrawChapterFeedback(Journey j, Color color)
         {
             PrepareInterface();
