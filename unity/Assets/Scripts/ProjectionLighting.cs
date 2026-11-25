@@ -5,11 +5,15 @@ namespace Echoes
     internal static class ProjectionLighting
     {
         public const float MinimumBrightness = .50f, MaximumBrightness = 1.35f;
+        public const float MinimumLayerBrightness = 0, MaximumLayerBrightness = 1.35f;
         public const float MinimumFalloff = .25f, MaximumFalloff = 4f;
         public const float DefaultValue = 1f, DefaultCenterGain = .44f;
 
         public static float ClampBrightness(float value) =>
             float.IsNaN(value) ? DefaultValue : Mathf.Clamp(value,MinimumBrightness,MaximumBrightness);
+
+        public static float ClampLayerBrightness(float value) =>
+            float.IsNaN(value) ? DefaultValue : Mathf.Clamp(value,MinimumLayerBrightness,MaximumLayerBrightness);
 
         public static float ClampFalloff(float value) =>
             float.IsNaN(value) ? DefaultValue : Mathf.Clamp(value,MinimumFalloff,MaximumFalloff);

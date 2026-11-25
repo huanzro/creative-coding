@@ -62,6 +62,7 @@ namespace Echoes
         private readonly Matrix4x4[] spiderPose=new Matrix4x4[11], pitcherPose=new Matrix4x4[3];
         private readonly Transform sceneRoot, spiderRoot, pitcherRoot;
         private readonly Transform[] spiderParts, pitcherParts;
+        private static readonly int StageLight = Shader.PropertyToID("_StageLight");
 
         private static readonly Color Shell=new Color(.35f,.21f,.16f), Amber=new Color(1,.52f,.16f),
             Petal=new Color(.43f,.21f,.28f), Vein=new Color(.60f,.33f,.28f), Fang=new Color(.84f,.71f,.43f),
@@ -84,11 +85,13 @@ namespace Echoes
             pitcherParts=Attach(pitcher,pitcherRoot);
         }
 
-        public void PoseInWorld(ForestPredatorShot shot,Vector3 actor,Quaternion heading)
+        public void PoseInWorld(ForestPredatorShot shot,Vector3 actor,Quaternion heading,float brightness)
         {
             if(sceneRoot==null) return;
-            sceneRoot.gameObject.SetActive(shot.Visible);
-            if(!shot.Visible) return;
+            bool visible=shot.Visible && brightness>0;
+            sceneRoot.gameObject.SetActive(visible);
+            if(!visible) return;
+            material.SetFloat(StageLight,brightness);
             sceneRoot.localPosition=actor;
             sceneRoot.localRotation=heading;
             sceneRoot.localScale=Vector3.one*.77f;

@@ -29,6 +29,7 @@ namespace Echoes
         private static readonly int Tint = Shader.PropertyToID("_Tint");
         private static readonly int Lit = Shader.PropertyToID("_Glow");
         private static readonly int StageCoverage = Shader.PropertyToID("_StageCoverage");
+        private static readonly int StageLight = Shader.PropertyToID("_StageLight");
 
         public WorldSet(Shader surfaces, Shader skyShader, Shader mistShader)
         {
@@ -118,11 +119,12 @@ namespace Echoes
             return renderer;
         }
 
-        private void Light(MeshRenderer renderer, Color color, float power, bool foreground = false)
+        private void Light(MeshRenderer renderer, Color color, float power, bool foreground = false, float stageLight = 1)
         {
             properties.SetColor(Tint, color);
             properties.SetFloat(Lit, power);
             properties.SetFloat(StageCoverage, foreground ? 0 : 1);
+            properties.SetFloat(StageLight, stageLight);
             renderer.SetPropertyBlock(properties);
         }
 

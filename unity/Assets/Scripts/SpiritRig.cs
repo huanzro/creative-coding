@@ -22,6 +22,7 @@ namespace Echoes
         private readonly CommandBuffer commands;
         private readonly SpiritModel model;
         private ForestPredatorRig predator;
+        private MachineDoorPortrait machineDoor;
         private readonly GuestSpirit[] guests = new GuestSpirit[2];
         private readonly bool[] guestsLoaded = new bool[2];
         private GuestSpirit guest;
@@ -111,6 +112,7 @@ namespace Echoes
                 frame.forest == previous.forest && frame.forestTrap == previous.forestTrap &&
                 frame.forestSnareAge == previous.forestSnareAge && frame.forestFall == previous.forestFall &&
                 frame.forestDescent == previous.forestDescent &&
+                frame.forestDoor == previous.forestDoor && frame.forestDoorAge == previous.forestDoorAge &&
                 frame.cast == previous.cast && frame.fireflyPulse == previous.fireflyPulse) return;
             if (!target.IsCreated() && !target.Create()) return;
 
@@ -121,6 +123,7 @@ namespace Echoes
             voice = Mathf.Lerp(voice, frame.voice, blend);
             lastSample = time;
             bool changedCast = previous.cast != frame.cast;
+            bool changedDoor = frame.forestDoor != previous.forestDoor;
             previous = frame;
             pose = SpiritMotion.Sample(frame, tracked, closed, voice, dance);
             guest = Guest(frame.cast);
@@ -144,28 +147,37 @@ namespace Echoes
             poseContact = contact;
             ForestPredatorShot encounter=ForestPredatorShot.Read(frame);
             float escapeFraming=encounter.MawRescue ? OpeningStoryboard.Window(encounter.Age,6.92f,7.23f,8.39f,9.33f) : 0;
-            portraitCamera.fieldOfView=PortraitFov+5*escapeFraming;
+            bool inDoor = MachineDoorPortrait.Active(frame);
+            var doorShot = new MachineDoorShot(inDoor ? frame.forestDoorAge / Journey.ForestDoorDuration : 0);
+            portraitCamera.fieldOfView = PortraitFov + (inDoor ? MachineDoorPortrait.Framing(doorShot) : 5*escapeFraming);
             var center=new Vector3(0,1.16f,0);
-            Matrix4x4 portraitPose = encounter.Prey(center);
+            Matrix4x4 portraitPose = inDoor
+                ? MachineDoorPortrait.Performer(frame.forestDoor,doorShot,center)
+                : encounter.Prey(center);
             if (frame.forestMaze && !encounter.Visible)
             {
                 portraitPose = Matrix4x4.Translate(center) * Matrix4x4.Rotate(Quaternion.Euler(0,frame.forestMazeHeading,0)) *
                     Matrix4x4.Translate(-center) * portraitPose;
             }
             RenderModel(portraitPose, Vector3.zero, anchors, commands, opening ? .31f : .17f);
-            if(encounter.Visible)
+            if (inDoor)
+            {
+                if (machineDoor == null) machineDoor = new MachineDoorPortrait();
+                machineDoor.Draw(frame,doorShot,portraitPose.MultiplyPoint3x4(center),commands);
+            }
+            else if(encounter.Visible)
             {
                 if(predator==null) predator=new ForestPredatorRig();
                 predator.DrawPortrait(encounter,center,commands);
             }
             portraitCamera.Render();
             rendered = true;
-            if (changedCast)
+            if (changedCast || changedDoor)
             {
                 foreach (var trail in traces) trail.Clear();
                 lastTrail = float.NegativeInfinity;
             }
-            if (!opening)
+            if (!opening && !inDoor)
                 UpdateTrails(time, frame.glide > .10f || frame.turnAge >= 0 || frame.touchAge >= 0 || frame.releaseAge >= 0);
         }
 
@@ -236,6 +248,7 @@ namespace Echoes
             }
             model?.Dispose();
             predator?.Dispose();
+            machineDoor?.Dispose();
             foreach (var guestModel in guests) guestModel?.Dispose();
             commands?.Dispose();
             if (target != null) { target.Release(); UnityEngine.Object.Destroy(target); }

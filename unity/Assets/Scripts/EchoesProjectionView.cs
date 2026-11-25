@@ -36,6 +36,10 @@ namespace Echoes
                 DrawOpeningFireflies(frame.openingTime, shot, center, shotSize, mirror, sideways ? -90 : 0,
                     true, false, extent);
             }
+            else if (frame.forest && frame.forestDoorAge >= 0)
+            {
+                DrawDoorProjection(frame, area, center, bodySize, mirror, sideways, extent);
+            }
             else
             {
                 float visibility = 1;
@@ -46,25 +50,14 @@ namespace Echoes
                     Vector2 lane = axis * (sideways ? area.height : area.width) * frame.forestLane * (mirror ? -.063f : .063f);
                     center += lane;
                     source += lane;
-                    float swallowed = Mathf.Max(frame.forestFall, frame.forestDoorAge / Journey.ForestDoorDuration);
-                    if (swallowed >= 0)
+                    if (frame.forestFall >= 0)
                     {
-                        if(frame.forestFall>=0)
-                        {
-                            Vector2 down = sideways ? Vector2.right * area.width : Vector2.down * area.height;
-                            float travel=frame.forestTrap==ForestTrapKind.Web
-                                ? -.15f*OpeningStoryboard.Ease(.43f,.84f,swallowed)
-                                : .12f*OpeningStoryboard.Ease(.65f,.94f,swallowed);
-                            center+=down*travel;
-                        }
-                        else
-                        {
-                            Vector2 retreat = sideways ? Vector2.right * area.width : Vector2.up * area.height;
-                            center += retreat * (.20f * OpeningStoryboard.Ease(.08f,.81f,swallowed));
-                        }
-                        visibility = 1 - OpeningStoryboard.Ease(.64f,.96f,swallowed);
-                        if (frame.forestDoor == 0 && frame.forestDoorAge >= 0)
-                            bodySize *= Mathf.Lerp(1,.09f,OpeningStoryboard.Ease(.77f,.88f,swallowed));
+                        Vector2 down = sideways ? Vector2.right * area.width : Vector2.down * area.height;
+                        float travel = frame.forestTrap == ForestTrapKind.Web
+                            ? -.15f * OpeningStoryboard.Ease(.43f, .84f, frame.forestFall)
+                            : .12f * OpeningStoryboard.Ease(.65f, .94f, frame.forestFall);
+                        center += down * travel;
+                        visibility = 1 - OpeningStoryboard.Ease(.64f, .96f, frame.forestFall);
                     }
                     if (frame.forestDescent >= 0)
                     {
@@ -109,6 +102,27 @@ namespace Echoes
                 else if (!frame.ruins) DrawLiveHandoff(frame, center, bodySize, mirror, sideways ? -90 : 0, extent, visibility);
             }
             GUI.EndGroup();
+        }
+
+        private void DrawDoorProjection(SpiritFrame frame, Rect area, Vector2 center, float size,
+            bool mirror, bool sideways, float extent)
+        {
+            float progress = frame.forestDoorAge / Journey.ForestDoorDuration;
+            float framing = OpeningStoryboard.Ease(.01f, .22f, progress);
+            Vector2 lateral = sideways ? Vector2.down * area.height : Vector2.right * area.width;
+            center += lateral * frame.forestLane * (mirror ? -.063f : .063f);
+            center = Vector2.Lerp(center, area.center, framing);
+
+            float maxWidth = area.width / (sideways ? SpiritRig.HeightScale : SpiritRig.WidthScale);
+            float maxHeight = area.height / (sideways ? SpiritRig.WidthScale : SpiritRig.HeightScale);
+            float framedSize = Mathf.Min(size, .96f * Mathf.Min(maxWidth, maxHeight));
+            size = Mathf.Lerp(size, framedSize, framing);
+
+            float rotation = sideways ? -90 : 0;
+            float visibility = 1 - OpeningStoryboard.Ease(.93f, 1, progress);
+            float approach = 1 - OpeningStoryboard.Ease(.12f, .34f, progress);
+            DrawCharacter(frame, center, center, size, mirror, rotation, extent, true, .24f * approach, visibility);
+            if (approach > .005f) DrawForestSwarm(frame, center, size, mirror, rotation, approach, false);
         }
 
         private static Vector2 FrameProjectionPosition(SpiritFrame frame, float altitude, Rect area, float size, bool sideways)

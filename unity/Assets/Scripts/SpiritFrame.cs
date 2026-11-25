@@ -71,6 +71,28 @@ namespace Echoes
     }
 
     [Serializable]
+    public struct ForestDoorEcho
+    {
+        internal const float PredictionStart = .57f;
+        public float Lane;
+        public bool Fist;
+
+        private ForestDoorEcho(float lane, Hand hand)
+        { Lane = lane; Fist = hand == Hand.Fist; }
+
+        internal static ForestDoorEcho Prediction(Journey journey)
+        {
+            float latest = journey.ForestEchoLane(0);
+            return new ForestDoorEcho(latest + (latest - journey.ForestEchoLane(.55f)) * .93f,
+                journey.ForestEchoHand(0));
+        }
+
+        internal static ForestDoorEcho Trace(Journey journey, int index) =>
+            new ForestDoorEcho(journey.ForestEchoLane(.19f + index * .091f),
+                journey.ForestEchoHand(.25f + index * .081f));
+    }
+
+    [Serializable]
     public struct SpiritFrame
     {
         public int chapter, touch, cast, lesson;
@@ -88,6 +110,7 @@ namespace Echoes
         public float forestLane, forestSteering, forestSnareAge, forestDescent, forestPlant;
         public int forestReserve, forestEvent, forestDoor;
         public float forestEventAge, forestFall, forestDoorAge;
+        public ForestDoorEcho firstEcho, secondEcho, thirdEcho, fourthEcho;
         public float forestContactLane, forestContactDepth, forestContactHeight;
         public ForestFlyView[] forestFlies;
         public bool ruins;
@@ -101,7 +124,36 @@ namespace Echoes
         public bool starDelegated;
         public bool closed;
 
-        public static SpiritFrame Read(Journey journey, int cast = 0) => new SpiritFrame {
+        public static SpiritFrame Read(Journey journey, int cast = 0)
+        {
+            var frame = ReadFrame(journey,cast);
+            if (frame.forestDoor == 2)
+            {
+                if (journey.Progress >= ForestDoorEcho.PredictionStart)
+                    frame.firstEcho = frame.secondEcho = frame.thirdEcho = frame.fourthEcho = ForestDoorEcho.Prediction(journey);
+                else
+                {
+                    frame.firstEcho = ForestDoorEcho.Trace(journey,0);
+                    frame.secondEcho = ForestDoorEcho.Trace(journey,1);
+                    frame.thirdEcho = ForestDoorEcho.Trace(journey,2);
+                    frame.fourthEcho = ForestDoorEcho.Trace(journey,3);
+                }
+            }
+            return frame;
+        }
+
+        internal ForestDoorEcho ForestDoorEchoAt(int index)
+        {
+            switch (index)
+            {
+                case 1: return secondEcho;
+                case 2: return thirdEcho;
+                case 3: return fourthEcho;
+                default: return firstEcho;
+            }
+        }
+
+        private static SpiritFrame ReadFrame(Journey journey, int cast) => new SpiritFrame {
             chapter = journey.Chapter, time = journey.Time, motionTime = journey.PoseTime, phase = journey.DancePhase,
             cast = cast, lesson = journey.Lesson, fireflyResponse = journey.FireflyResponse, fireflyPulse = journey.FireflyPulse,
             voice = journey.PoseVoice, light = journey.Light, charge = journey.Charge,

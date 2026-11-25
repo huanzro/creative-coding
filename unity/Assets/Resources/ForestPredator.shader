@@ -1,6 +1,10 @@
 Shader "Hidden/Echoes/ForestPredator"
 {
-    Properties { _Projection ("Independent projection", Float) = 0 }
+    Properties
+    {
+        _Projection ("Independent projection", Float) = 0
+        _StageLight ("Main scene brightness", Float) = 1
+    }
     SubShader
     {
         Tags { "RenderType"="Opaque" "Queue"="Geometry" }
@@ -13,7 +17,7 @@ Shader "Hidden/Echoes/ForestPredator"
             #pragma fragment frag
             #include "UnityCG.cginc"
 
-            float _Projection;
+            float _Projection, _StageLight;
             float4 _EchoesAir, _EchoesKey;
             struct Vertex { float4 position : POSITION; float3 normal : NORMAL; float4 color : COLOR; };
             struct Varyings
@@ -52,7 +56,7 @@ Shader "Hidden/Echoes/ForestPredator"
                 tone += amber * float3(.52,.19,.061);
                 float fog = 1-exp(-max(0,distance(_WorldSpaceCameraPos,input.world)-1.3)*_EchoesAir.w);
                 // Predators are foreground performers in the main scene and opaque in the portrait.
-                return float4(lerp(tone,_EchoesAir.rgb,fog*(1-_Projection)*.68),_Projection);
+                return float4(lerp(tone,_EchoesAir.rgb,fog*(1-_Projection)*.68)*_StageLight,_Projection);
             }
             ENDCG
         }

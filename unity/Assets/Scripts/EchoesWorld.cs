@@ -37,6 +37,7 @@ namespace Echoes
         private static readonly int TerrainSink = Shader.PropertyToID("_EchoesTerrainSink");
         private static readonly int ProjectionProfile = Shader.PropertyToID("_ProjectionProfile");
         private static readonly int ProjectionGrade = Shader.PropertyToID("_ProjectionGrade");
+        private static readonly int BackgroundBrightness = Shader.PropertyToID("_BackgroundBrightness");
 
         private static readonly Vector3 SkyKey = new Vector3(-.57f,.55f,-.53f).normalized;
         private static readonly Vector3 ForestKey = new Vector3(.58f,.70f,.39f).normalized;
@@ -92,7 +93,8 @@ namespace Echoes
         }
 
         public void Render(Journey journey, SpiritFrame frame, SpiritRig spirit, bool split, int period, float speed,
-            Vector2 amber, Vector2 scarlet, float brightness, float falloff, bool projectionGradient)
+            Vector2 amber, Vector2 scarlet, float brightness, float falloff, bool projectionGradient,
+            float backgroundBrightness = 1, float spiderBrightness = 1, float mawBrightness = 1)
         {
             if (set==null) return;
             bool opening=frame.openingTime>=0;
@@ -171,7 +173,7 @@ namespace Echoes
                 WorldSet.MachineDoorSink(journey.ForestDoor,journey.Progress) : WorldSet.ForestSink(journey));
             set.DrawMaze(journey,forest,time);
             set.DrawMachine(journey,forest,time,forestActor);
-            set.ForestScenery(journey,forest,time,forestActor,frame.glide,split);
+            set.ForestScenery(journey,forest,time,forestActor,frame.glide,split,spiderBrightness,mawBrightness);
             set.DrawRuinTunnel(journey,ruins,time);
             Vector3 shotActor = opening ? OpeningStoryboard.Sample(time).Actor :
                 new Vector3(.5f,SpiritFlight.ScreenY(frame.altitude),1);
@@ -219,7 +221,7 @@ namespace Echoes
             float? facing=forest && (frame.forestMaze || journey.LeftMazeApproach ||
                 journey.Branch==ForestBranch.Right && journey.Distance<140) ? (float?)WorldSet.ForestHeading(journey) :
                 ruins ? (float?)(Mathf.Atan2(ruinRoute.Forward.x,ruinRoute.Forward.z)*Mathf.Rad2Deg) : null;
-            if (!split) spirit.DrawInWorld(camera,screen,body,depth,key,performer,spatial,facing,projectionGradient && lens!=null);
+            if (!split) spirit.DrawInWorld(camera,screen,body,depth,key,performer,spatial,facing,lens!=null);
 
             camera.Render();
             if (lens!=null)
@@ -236,6 +238,7 @@ namespace Echoes
                 float core = ProjectionLighting.CoreRadius(body);
                 lens.SetVector(ProjectionProfile, new Vector4(center.x,center.y,core,ProjectionLighting.Spread(falloff)));
                 lens.SetVector(ProjectionGrade, new Vector4(brightness,projectionGradient ? 1 : 0,ProjectionLighting.CenterGain(falloff),camera.aspect));
+                lens.SetFloat(BackgroundBrightness,backgroundBrightness);
                 RenderTexture before=RenderTexture.active;
                 Graphics.Blit(scene,graded,lens);
                 RenderTexture.active=before;

@@ -127,27 +127,28 @@ namespace Echoes
 
         public static Vector3 MachineDoorActor(Vector3 start,int door,float progress)
         {
+            var shot = new MachineDoorShot(progress);
             float step = Ease(.01f,.18f,progress);
-            float drop = Ease(.18f,.34f,progress);
+            float drop = shot.Drop;
             Vector3 chamber = MachinePoint(DoorDepth,(door-1)*LaneWidth,-2.06f);
             start.x = Mathf.Lerp(start.x,chamber.x,.72f*step+.27f*drop);
             start.y = Mathf.Lerp(Mathf.Lerp(start.y,MachinePoint(DoorDepth,(door-1)*LaneWidth,.74f).y,step),chamber.y,drop);
             start.z += 1.26f*step+1.94f*drop;
             if (door == 0)
             {
-                float grip = Ease(.45f,.59f,progress)-Ease(.69f,.74f,progress);
+                float grip = shot.Recoil;
                 float slide = Ease(.59f,.79f,progress);
                 return start + new Vector3(.38f*grip,.24f*grip-.31f*slide,-.38f*grip+.24f*slide);
             }
             if (door == 1)
             {
-                float retreat = Ease(.42f,.56f,progress)-Ease(.57f,.68f,progress);
-                float pass = Ease(.60f,.81f,progress);
+                float retreat = shot.RobotRetreat;
+                float pass = shot.RobotPass;
                 return start + new Vector3(-.42f*retreat+.30f*Mathf.Sin(pass*Mathf.PI),
-                    .19f*pass-.98f*Ease(Journey.ForestRecyclerSwallowStart,.95f,progress),-.66f*retreat+.94f*pass);
+                    .19f*pass-.98f*shot.RobotDrop,-.66f*retreat+.94f*pass);
             }
             return start + new Vector3(.20f*Mathf.Sin(progress*12)*Ease(.45f,.72f,progress),
-                -1.35f*Ease(.58f,.91f,progress),.26f*Ease(.39f,.72f,progress));
+                -1.35f*shot.Sink,.26f*Ease(.39f,.72f,progress));
         }
 
         public static Vector3 MachineCableActor(Vector3 start,float progress,int port)
@@ -187,7 +188,7 @@ namespace Echoes
             machinePoolRoom.gameObject.SetActive(inDoor && journey.ForestDoor == 2);
             for(int i=0;i<3;i++)
             {
-                float open=inDoor && journey.ForestDoor==i ? Ease(.14f,.32f,journey.Progress) : 0;
+                float open=inDoor && journey.ForestDoor==i ? new MachineDoorShot(journey.Progress).Threshold : 0;
                 threshold[i].localPosition=doorFrameCentres[i]+new Vector3(0,-.65f*open,-.55f*open);
                 threshold[i].localRotation=Quaternion.Euler(-70*open,0,0);
                 crashPanel[i].localPosition=doorFrameCentres[i]+Vector3.up*(8.0f*open);
@@ -244,11 +245,7 @@ namespace Echoes
             sphere.Rock(Vector3.zero,Vector3.one,Color.white,.21f,10,16,.035f);
             machineSphere = sphere.Finish("Reusable curved machine plate");
             var robot = Geometry();
-            robot.Box(new Vector3(0,.38f,0),new Vector3(.54f,.55f,.64f),Quaternion.Euler(0,45,0),Iron);
-            robot.Box(new Vector3(0,.69f,-.065f),new Vector3(.52f,.24f,.49f),Quaternion.identity,Coal);
-            robot.Box(new Vector3(0,.125f,0),new Vector3(.68f,.20f,.72f),Quaternion.Euler(0,45,0),Bronze);
-            for (int side=-1;side<=1;side+=2)
-                robot.Box(new Vector3(side*.29f,.19f,.015f),new Vector3(.15f,.25f,.67f),Quaternion.identity,Coal);
+            ModelMachineRecycler(robot);
             machineRobotShell = robot.Finish("Crawler sorting unit");
 
             BuildMachineApproach();
@@ -257,6 +254,15 @@ namespace Echoes
             BuildDoorRooms();
             BuildMachineBrain();
             BuildMachineHeart();
+        }
+
+        internal static void ModelMachineRecycler(WorldMesh robot)
+        {
+            robot.Box(new Vector3(0,.38f,0),new Vector3(.54f,.55f,.64f),Quaternion.Euler(0,45,0),Iron);
+            robot.Box(new Vector3(0,.69f,-.065f),new Vector3(.52f,.24f,.49f),Quaternion.identity,Coal);
+            robot.Box(new Vector3(0,.125f,0),new Vector3(.68f,.20f,.72f),Quaternion.Euler(0,45,0),Bronze);
+            for (int side=-1;side<=1;side+=2)
+                robot.Box(new Vector3(side*.29f,.19f,.015f),new Vector3(.15f,.25f,.67f),Quaternion.identity,Coal);
         }
 
         private void BuildMachineApproach()
@@ -620,17 +626,21 @@ namespace Echoes
         {
             var jaw = Geometry();
             var rings = Geometry();
-            Cog(jaw,Vector3.zero,1.04f,.68f,14,Quaternion.identity,metal);
+            ModelMachineCrusher(jaw,metal);
             Ring(rings,Vector3.back*.38f,.54f,.035f,WorldMesh.Shade(HeartAmber,.60f),Quaternion.identity,18,1);
             Transform hub=MachinePart("Rotating press cog",jaw,stone,room);
             MachinePart("Cog collar indicator",rings,glow,hub);
             return hub;
         }
 
-        private Prediction BuildPrediction(int index)
+        internal static void ModelMachineCrusher(WorldMesh mesh,Color metal) =>
+            Cog(mesh,Vector3.zero,1.04f,.68f,14,Quaternion.identity,metal);
+
+        internal static void ModelMachineRing(WorldMesh mesh,Vector3 center,float radius,float thickness,Color metal,Quaternion rotation) =>
+            Ring(mesh,center,radius,thickness,metal,rotation,30,1);
+
+        internal static void ModelMachinePrediction(WorldMesh body)
         {
-            Transform echo=Group("Forecast echo "+index,machinePoolRoom);
-            var body=Geometry();
             Vector3 mid=new Vector3(0,.58f,0);
             body.Rock(mid,new Vector3(.21f,.31f,.14f),Color.white,.42f,7,12,.03f);
             body.Rock(new Vector3(0,1.01f,0),new Vector3(.168f,.195f,.17f),Color.white,.40f,7,12,.035f);
@@ -639,6 +649,13 @@ namespace Echoes
                 body.Tube(new[]{new Vector3(side*.10f,.43f,0),new Vector3(side*.148f,.12f,.015f),
                     new Vector3(side*.15f,.025f,-.085f)},new[]{.080f,.059f,.025f},7,Color.white);
             }
+        }
+
+        private Prediction BuildPrediction(int index)
+        {
+            Transform echo=Group("Forecast echo "+index,machinePoolRoom);
+            var body=Geometry();
+            ModelMachinePrediction(body);
             var shape=MachinePart("Light silhouette",body,machineGlass??glow,echo).GetComponent<MeshRenderer>();
             Transform left=Piece("Echo left arm",machineBar,machineGlass??glow,echo,Vector3.zero);
             Transform right=Piece("Echo right arm",machineBar,machineGlass??glow,echo,Vector3.zero);
@@ -649,12 +666,12 @@ namespace Echoes
         private void AnimateMachineDoor(Journey journey,float time,Vector3 actor)
         {
             float t = journey.Progress;
+            var shot = new MachineDoorShot(t);
             if (journey.ForestDoor == 0)
             {
-                float startup=Ease(.31f,.48f,t);
-                float reverse=Ease(.49f,.63f,t);
-                float press=Ease(.58f,.87f,t);
-                float angle=(startup-reverse)*47+Ease(.37f,.54f,t)*65-Ease(.52f,.89f,t)*230;
+                float reverse=shot.Reverse;
+                float press=shot.Press;
+                float angle=shot.GearAngle;
                 float width=Mathf.Lerp(1.65f,.91f,press);
                 leftCrusher.localPosition = new Vector3(-width,1.04f,.63f);
                 rightCrusher.localPosition = new Vector3(width,1.14f,.65f);
@@ -663,10 +680,10 @@ namespace Echoes
                 pressDeck.localPosition=new Vector3(0,.31f-.54f*press,-.14f-.66f*press);
                 pressDeck.localRotation=Quaternion.Euler(33*press,0,-12*reverse);
                 crusherLight.localPosition = machineGearRoom.InverseTransformPoint(actor)+Vector3.forward*.12f;
-                crusherLight.localScale = new Vector3(.021f,.67f,.067f)*Ease(.80f,.89f,t)*(1-.94f*Ease(.91f,1,t));
+                crusherLight.localScale = new Vector3(.021f,.67f,.067f)*shot.GearSlit;
                 for(int i=0;i<pressSparks.Length;i++)
                 {
-                    float burst=Ease(.84f+i*.002f,.867f+i*.003f,t)*(1-Ease(.89f,.97f,t));
+                    float burst=shot.Spark(i);
                     var spark=pressSparks[i];
                     float angleAt=i*2.39996f;
                     var direction=new Vector3(Mathf.Cos(angleAt)*.40f,Mathf.Sin(angleAt)*.60f,-.44f-(i%4)*.14f);
@@ -680,7 +697,7 @@ namespace Echoes
             }
             if (journey.ForestDoor == 1)
             {
-                float hatchOpen=Ease(.67f,.78f,t)*(1-Ease(.88f,.97f,t));
+                float hatchOpen=shot.Hatch;
                 hatchLeft.localPosition=hatchRight.localPosition=new Vector3(0,.07f,1.39f);
                 hatchLeft.localRotation=Quaternion.Euler(0,0,-79*hatchOpen);
                 hatchRight.localRotation=Quaternion.Euler(0,0,79*hatchOpen);
@@ -689,7 +706,7 @@ namespace Echoes
                 {
                     Recycler unit=recyclers[i];
                     float phase=i*Mathf.PI*2/recyclers.Length;
-                    float creep=Ease(.34f+i*.014f,.67f+i*.017f,t);
+                    float creep=shot.RobotApproach(i);
                     float radius=Mathf.Lerp(2.40f,1.09f,creep);
                     var from=new Vector3(Mathf.Sin(phase)*radius,.038f,Mathf.Cos(phase)*radius+1.21f);
                     if(i==0) from=Vector3.Lerp(new Vector3(-.50f,.04f,2.62f),from, Ease(.24f,.49f,t));
@@ -699,9 +716,8 @@ namespace Echoes
                     toward.y=0;
                     unit.Root.localRotation=Quaternion.LookRotation(toward.sqrMagnitude>.003f?-toward:Vector3.back,Vector3.up);
                     Vector3 shoulder=from+Vector3.up*.55f;
-                    float cue=.52f+(i%4)*.061f;
                     float present=i==0 ? Ease(.35f,.41f,t)*(1-Ease(.44f,.51f,t))*.65f : 0;
-                    float move=Ease(cue,cue+.115f,t)*(1-Ease(cue+.15f,cue+.20f,t));
+                    float move=shot.RobotReach(i);
                     Vector3 contact=target+new Vector3(Mathf.Sin(phase)*.22f,.04f+.18f*Mathf.Sin(i*1.3f),Mathf.Cos(phase)*.19f);
                     Vector3 hand=Vector3.Lerp(shoulder,contact,Mathf.Max(present,move));
                     Vector3 elbow=Vector3.Lerp(shoulder,hand,.58f)+Vector3.up*(.17f+.15f*creep);
@@ -709,13 +725,13 @@ namespace Echoes
                     Link(unit.Lower,elbow,hand,.042f);
                     unit.Grip.localPosition=hand;
                     unit.Grip.localScale=new Vector3(.12f-.038f*move,.072f+.024f*move,.080f);
-                    float alarm=Ease(.43f+i*.009f,.57f+i*.011f,t);
+                    float alarm=shot.RobotAlarm(i);
                     Light(unit.Eye,Color.Lerp(Circuit,Red,alarm),.41f+alarm*.91f+present*.24f);
                 }
                 return;
             }
 
-            float water = Ease(.44f,.91f,t);
+            float water = shot.Water;
             float surface=1.51f*water-.18f;
             poolSurface.localPosition=new Vector3(0,surface,.74f);
             poolSurface.localScale=new Vector3(2.47f,.096f+.082f*water,2.53f);
@@ -726,21 +742,20 @@ namespace Echoes
             poolRipple.localPosition=new Vector3(poolActor.x,surface+.11f,poolActor.z);
             poolRipple.localScale=Vector3.one*(.18f+1.24f*ripple);
             Light(poolRippleLight,Circuit,ripple*.58f);
-            float latest = journey.ForestEchoLane(0), prior = journey.ForestEchoLane(.55f);
-            bool predicts = t>=.57f;
+            bool predicts = t >= ForestDoorEcho.PredictionStart;
+            ForestDoorEcho prediction = predicts ? ForestDoorEcho.Prediction(journey) : default;
             for(int i=0;i<predictions.Length;i++)
             {
                 Prediction echo=predictions[i];
-                float cue=i==0?.34f:.51f+i*.014f;
-                float active=Ease(cue,cue+.13f,t);
+                float active=shot.EchoAppear(i);
                 echo.Root.gameObject.SetActive(active>.012f);
                 if (active<=.012f) continue;
                 float a=i*2.39996f;
                 float radius = i<5 ? .62f+i*.32f : 1.65f+(i%3)*.23f;
-                float imitation = predicts ? Mathf.Clamp(latest+(latest-prior)*.93f+.15f*Mathf.Sin(time*2+i),-1,1) : journey.ForestEchoLane(.19f+i*.091f);
-                bool fist = journey.ForestEchoHand(predicts?0:.25f+i*.081f)==Hand.Fist;
+                ForestDoorEcho motion=predicts ? prediction : ForestDoorEcho.Trace(journey,i);
+                float imitation = predicts ? Mathf.Clamp(motion.Lane+.15f*Mathf.Sin(time*2+i),-1,1) : motion.Lane;
                 float skew = Mathf.Sin(time*2.4f+i)*.24f;
-                float remaining = i==0 ? 1 : 1-Ease(.85f+i*.002f,.97f,t);
+                float remaining = shot.EchoRemain(i);
                 echo.Root.localPosition = new Vector3(Mathf.Sin(a)*radius+.36f*imitation,
                     surface-1.03f+active*1.05f-(1-remaining)*.77f+.045f*Mathf.Sin(time*4f+i),.78f+Mathf.Cos(a)*radius+skew);
                 echo.Root.localScale=Vector3.one*(.55f+active*.49f);
@@ -748,7 +763,7 @@ namespace Echoes
                 Color tint=Color.Lerp(PoolBlue,Circuit,Mathf.Repeat(i*.37f,1));
                 Light(echo.Body,tint,(.72f+water*.47f+skew)*remaining);
                 Vector3 left = new Vector3(-.17f,.77f,0), right = new Vector3(.17f,.77f,0);
-                float raise = fist ? .14f : .42f+.09f*Mathf.Sin(time*7+i);
+                float raise = motion.Fist ? .14f : .42f+.09f*Mathf.Sin(time*7+i);
                 Link(echo.LeftArm,left,new Vector3(-raise,.56f+raise,.08f),.071f);
                 Link(echo.RightArm,right,new Vector3(raise,.56f+raise,-.07f),.071f);
                 Light(echo.LeftLight,tint,.75f*remaining);

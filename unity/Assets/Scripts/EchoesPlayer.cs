@@ -35,6 +35,9 @@ namespace Echoes
         private const string JumpHeightKey = "EchoesUnity.Flight.JumpHeight";
         private const string DoorJumpHeightKey = "EchoesUnity.Flight.DoorJumpHeight";
         private const string BrightnessKey = "EchoesUnity.Projection.Brightness";
+        private const string BackgroundBrightnessKey = "EchoesUnity.Projection.BackgroundBrightness";
+        private const string SpiderBrightnessKey = "EchoesUnity.Projection.ForestSpiderBrightness";
+        private const string MawBrightnessKey = "EchoesUnity.Projection.ForestMawBrightness";
         private const string FalloffKey = "EchoesUnity.Projection.Falloff";
         private const string GradientKey = "EchoesUnity.Projection.Gradient";
         private const string StageScaleKey = "EchoesUnity.Projection.StageScale";
@@ -89,6 +92,9 @@ namespace Echoes
             view = new EchoesView();
             view.UseWorld = PlayerPrefs.GetInt("EchoesUnity.World3D", 1) != 0;
             view.ScreenBrightness = PlayerPrefs.GetFloat(BrightnessKey, ProjectionLighting.DefaultValue);
+            view.BackgroundBrightness = PlayerPrefs.GetFloat(BackgroundBrightnessKey, ProjectionLighting.DefaultValue);
+            view.ForestSpiderBrightness = PlayerPrefs.GetFloat(SpiderBrightnessKey, ProjectionLighting.DefaultValue);
+            view.ForestMawBrightness = PlayerPrefs.GetFloat(MawBrightnessKey, ProjectionLighting.DefaultValue);
             view.ProjectionFalloff = PlayerPrefs.GetFloat(FalloffKey, ProjectionLighting.DefaultValue);
             view.ProjectionGradient = PlayerPrefs.GetInt(GradientKey, 1) != 0;
             view.StageScale = PlayerPrefs.GetFloat(StageScaleKey, 1);
@@ -354,21 +360,32 @@ namespace Echoes
             if (!editorProjection && GUI.Button(new Rect(309, 53, 193, 31), "打开独立人物窗口", button))
                 CharacterWindowRequested?.Invoke();
 #endif
-            view.ScreenBrightness = TuningSlider(98, "全屏亮度", BrightnessKey, view.ScreenBrightness,
+            view.ScreenBrightness = TuningSlider(90, "全屏亮度", BrightnessKey, view.ScreenBrightness,
                 ProjectionLighting.MinimumBrightness, ProjectionLighting.MaximumBrightness, label, "");
-            DrawLightingCurve(153, "输出亮度", "原画亮度", false, label);
-            view.ProjectionFalloff = TuningSlider(283, "渐亮速率", FalloffKey, view.ProjectionFalloff,
+            DrawLightingCurve(139, "输出亮度", "原画亮度", false, label);
+            view.ProjectionFalloff = TuningSlider(232, "渐亮速率", FalloffKey, view.ProjectionFalloff,
                 ProjectionLighting.MinimumFalloff, ProjectionLighting.MaximumFalloff, label);
-            DrawLightingCurve(338, "背景亮度倍率", "到人物的距离", true, label);
-            view.StageScale = TuningSlider(465, "主画面大小", StageScaleKey, view.StageScale,
+            DrawLightingCurve(281, "背景亮度倍率", "到人物的距离", true, label);
+            view.BackgroundBrightness = TuningSlider(379, "背景亮度", BackgroundBrightnessKey, view.BackgroundBrightness,
+                ProjectionLighting.MinimumLayerBrightness, ProjectionLighting.MaximumLayerBrightness, label);
+            view.ForestSpiderBrightness = TuningSlider(410, "蜘蛛动画亮度", SpiderBrightnessKey, view.ForestSpiderBrightness,
+                ProjectionLighting.MinimumLayerBrightness, ProjectionLighting.MaximumLayerBrightness, label);
+            view.ForestMawBrightness = TuningSlider(441, "食人花动画亮度", MawBrightnessKey, view.ForestMawBrightness,
+                ProjectionLighting.MinimumLayerBrightness, ProjectionLighting.MaximumLayerBrightness, label);
+            view.StageScale = TuningSlider(472, "主画面大小", StageScaleKey, view.StageScale,
                 EchoesView.MinimumStageScale, 1, label, "%");
-            GUI.Label(new Rect(20, 493, 482, 27), !view.ProjectionGradient ? "渐亮已关闭，可在上方重新启用。" :
-                $"人物背后保留 {ProjectionLighting.CenterGain(view.ProjectionFalloff):0%} 背景亮度。", label);
-            if (!GUI.Button(new Rect(20, 527, 141, 30), "恢复默认", button)) return;
+            GUI.Label(new Rect(20, 500, 482, 27), view.BackgroundBrightness <= 0 ? "背景已设为纯黑。" :
+                !view.ProjectionGradient ? "渐亮已关闭，可在上方重新启用。" :
+                $"人物背后保留当前背景亮度的 {ProjectionLighting.CenterGain(view.ProjectionFalloff):0%}。", label);
+            if (!GUI.Button(new Rect(20, 533, 141, 30), "恢复默认", button)) return;
             view.ScreenBrightness = view.ProjectionFalloff = ProjectionLighting.DefaultValue;
+            view.BackgroundBrightness = view.ForestSpiderBrightness = view.ForestMawBrightness = ProjectionLighting.DefaultValue;
             view.ProjectionGradient = true;
             view.StageScale = 1;
             PlayerPrefs.DeleteKey(BrightnessKey);
+            PlayerPrefs.DeleteKey(BackgroundBrightnessKey);
+            PlayerPrefs.DeleteKey(SpiderBrightnessKey);
+            PlayerPrefs.DeleteKey(MawBrightnessKey);
             PlayerPrefs.DeleteKey(FalloffKey);
             PlayerPrefs.DeleteKey(GradientKey);
             PlayerPrefs.DeleteKey(StageScaleKey);
@@ -377,7 +394,7 @@ namespace Echoes
 
         private void DrawLightingCurve(float y, string vertical, string horizontal, bool radial, GUIStyle label)
         {
-            var plot = new Rect(22, y, 478, 98);
+            var plot = new Rect(22, y, 478, 64);
             GUI.Label(new Rect(plot.x, plot.y-26, 240, 25), vertical, label);
             GUI.Label(new Rect(plot.xMax-116, plot.yMax+1, 118, 25), horizontal + " →", label);
             if (Event.current.type != EventType.Repaint) return;

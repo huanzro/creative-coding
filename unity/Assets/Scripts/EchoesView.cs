@@ -35,10 +35,28 @@ namespace Echoes
             set => stageScale = float.IsNaN(value) ? 1 : Mathf.Clamp(value, MinimumStageScale, 1);
         }
         private float screenBrightness = ProjectionLighting.DefaultValue, projectionFalloff = ProjectionLighting.DefaultValue;
+        private float backgroundBrightness = ProjectionLighting.DefaultValue;
+        private float forestSpiderBrightness = ProjectionLighting.DefaultValue;
+        private float forestMawBrightness = ProjectionLighting.DefaultValue;
         public float ScreenBrightness
         {
             get => screenBrightness;
             set => screenBrightness = ProjectionLighting.ClampBrightness(value);
+        }
+        public float BackgroundBrightness
+        {
+            get => backgroundBrightness;
+            set => backgroundBrightness = ProjectionLighting.ClampLayerBrightness(value);
+        }
+        public float ForestSpiderBrightness
+        {
+            get => forestSpiderBrightness;
+            set => forestSpiderBrightness = ProjectionLighting.ClampLayerBrightness(value);
+        }
+        public float ForestMawBrightness
+        {
+            get => forestMawBrightness;
+            set => forestMawBrightness = ProjectionLighting.ClampLayerBrightness(value);
         }
         public float ProjectionFalloff
         {
@@ -93,6 +111,9 @@ namespace Echoes
             color.a = alpha;
             return color;
         }
+
+        private Color BackgroundTint(Color color) => new Color(
+            color.r * BackgroundBrightness, color.g * BackgroundBrightness, color.b * BackgroundBrightness, color.a);
 
         private static void Paint(Rect rect, Color color, Texture texture = null)
         {
@@ -215,7 +236,7 @@ namespace Echoes
         private void DrawLegacyBackground(Journey journey, SpiritFrame frame, Color color)
         {
             float distance = lastDistance + atmosphere.Drift;
-            Paint(new Rect(0, 0, Width, Height), new Color(.025f, .045f, .08f));
+            Paint(new Rect(0, 0, Width, Height), BackgroundTint(new Color(.025f, .045f, .08f)));
             if (journey.Chapter == 0)
             {
                 Tiles(far, distance, .20f, 1.55f, -.26f + verticalPan * .35f, 1);
@@ -226,9 +247,10 @@ namespace Echoes
             float period = TimeOfDay > 0 ? TimeOfDay - 1 : Mathf.Clamp01(journey.Time / 90) * 3;
             int index = Mathf.Min(2, Mathf.FloorToInt(period));
             float mix = Mathf.SmoothStep(0, 1, period - index);
-            Paint(new Rect(0, 0, Width, Height), Opacity(Color.Lerp(Sky[index], Sky[index + 1], mix),
-                Mathf.Lerp(Tint[index], Tint[index + 1], mix)));
-            Paint(new Rect(0, 0, Width, Height), new Color(.012f, .039f, .094f, .33f * (1 - atmosphere.Wake)));
+            Paint(new Rect(0, 0, Width, Height), BackgroundTint(Opacity(Color.Lerp(Sky[index], Sky[index + 1], mix),
+                Mathf.Lerp(Tint[index], Tint[index + 1], mix))));
+            Paint(new Rect(0, 0, Width, Height), BackgroundTint(new Color(.012f, .039f, .094f, .33f * (1 - atmosphere.Wake))));
+            color = BackgroundTint(color);
             Paint(new Rect(-300, -30, 1200, 980), Opacity(color, .04f + atmosphere.Wake * .28f), glow);
             Paint(new Rect(540, -330, 1040, 1060), Opacity(color, atmosphere.Wake * .22f + atmosphere.Energy * .15f), glow);
             for (int i = 0; i < 27; i++)
@@ -236,21 +258,21 @@ namespace Echoes
                 float x = Mathf.Repeat(i * 157.7f - distance * Height * (.2f + i % 3 * .15f), Width);
                 float y = Mathf.Repeat(i * 91.3f + Mathf.Sin(journey.Time * .6f + i) * (13 + atmosphere.Energy * 15), Height);
                 float alpha = (.12f + atmosphere.Wake * .49f) * (.48f + .52f * Mathf.Pow(Mathf.Sin(i + journey.Time * .7f), 2));
-                Orb(x, y, 4 + i % 3 + atmosphere.Wake * 2, Color.Lerp(color, new Color(.64f, .77f, .83f), .72f),
+                Orb(x, y, 4 + i % 3 + atmosphere.Wake * 2, Color.Lerp(color, BackgroundTint(new Color(.64f, .77f, .83f)), .72f),
                     alpha * .58f);
             }
             if (journey.EnteredFromOpening && frame.motionTime < 2.4f)
                 DrawOpeningArrival(1 - OpeningStoryboard.Ease(.15f, 2.4f, frame.motionTime));
         }
 
-        private static void Tiles(Texture2D texture, float distance, float speed, float zoom, float y, float opacity)
+        private void Tiles(Texture2D texture, float distance, float speed, float zoom, float y, float opacity)
         {
             if (texture == null || Event.current.type != EventType.Repaint) return;
             float height = Height * zoom;
             float width = height * texture.width / texture.height;
             float offset = distance * Height * speed + width * .22f;
             int start = Mathf.FloorToInt(offset / width);
-            GUI.color = new Color(1, 1, 1, opacity);
+            GUI.color = BackgroundTint(Opacity(Color.white,opacity));
             for (int i = start; i * width - offset < Width; i++)
             {
                 Rect uv = i % 2 == 0 ? new Rect(.0006f, 0, .9988f, 1) : new Rect(.9994f, 0, -.9988f, 1);

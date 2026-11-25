@@ -194,7 +194,7 @@ namespace Echoes
                 starCaption = new GUIStyle(body) { fontSize = 16, wordWrap = false };
                 starRightCaption = new GUIStyle(starCaption) { alignment = TextAnchor.MiddleRight };
             }
-            if (!spatial) Paint(new Rect(0, 0, Width, Height), new Color(.020f, .034f, .105f, .38f));
+            if (!spatial) Paint(new Rect(0, 0, Width, Height), BackgroundTint(new Color(.020f, .034f, .105f, .38f)));
             DrawStarDust(j);
             if (j.Phase == Stage.StarsRoute)
             {
@@ -326,7 +326,7 @@ namespace Echoes
                 float x = Mathf.Repeat(i * 213.7f + Mathf.Sin(t * .15f + i) * 10 - j.Distance * (3 + i % 5), Width);
                 float y = 126 + Mathf.Repeat(i * 173.3f + Mathf.Cos(t * .18f + i) * 8, 483);
                 float shine = .17f + .20f * Mathf.Pow(.5f + .5f * Mathf.Sin(t * (.53f + i % 7 * .13f) + i * 3), 3);
-                Color tint = i % 7 == 0 ? Amber : StarPearl;
+                Color tint = BackgroundTint(i % 7 == 0 ? Amber : StarPearl);
                 Orb(x, y, i % 13 == 0 ? 11 : 2.5f + i % 4, tint, shine * StarGain(new Vector2(x, y), actor));
             }
         }

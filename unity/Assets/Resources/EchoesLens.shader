@@ -1,6 +1,10 @@
 Shader "Hidden/Echoes/WorldLens"
 {
-    Properties { _MainTex ("Scene",2D)="black" {} }
+    Properties
+    {
+        _MainTex ("Scene",2D)="black" {}
+        _BackgroundBrightness ("Scenery brightness", Float) = 1
+    }
     SubShader
     {
         Cull Off ZWrite Off ZTest Always
@@ -17,10 +21,12 @@ Shader "Hidden/Echoes/WorldLens"
             // Actor UV and radii in units of output height. Brightness and radial gain stay independent.
             float4 _ProjectionProfile;
             float4 _ProjectionGrade;
+            float _BackgroundBrightness;
 
             float3 highlights(float2 uv)
             {
-                float3 value=tex2D(_MainTex,uv).rgb;
+                float4 tap=tex2D(_MainTex,uv);
+                float3 value=tap.rgb*lerp(1,_BackgroundBrightness,saturate(tap.a));
                 return max(0,value-.58) * smoothstep(.58,1.18,max(value.r,max(value.g,value.b)));
             }
             float4 frag(v2f_img i):SV_Target
@@ -43,9 +49,11 @@ Shader "Hidden/Echoes/WorldLens"
                 float exposure=min(1,_ProjectionGrade.x)+max(0,_ProjectionGrade.x-1)*headroom*headroom;
                 float2 fromActor=(uv-_ProjectionProfile.xy)*float2(_ProjectionGrade.w,1);
                 float edge=smoothstep(_ProjectionProfile.z,_ProjectionProfile.z+_ProjectionProfile.w,length(fromActor));
-                // The depth-tested actor writes zero coverage. Leave its pixels outside the radial mask.
-                float radial=lerp(1,lerp(_ProjectionGrade.z,1,edge),_ProjectionGrade.y*saturate(scene.a));
-                return float4(saturate(color*exposure*radial*_Lens.x),1);
+                // Performers write zero coverage and keep their own level over the graded scenery.
+                float coverage=saturate(scene.a);
+                float radial=lerp(1,lerp(_ProjectionGrade.z,1,edge),_ProjectionGrade.y*coverage);
+                float backdrop=lerp(1,_BackgroundBrightness,coverage);
+                return float4(saturate(color*exposure*radial*backdrop*_Lens.x),1);
             }
             ENDCG
         }

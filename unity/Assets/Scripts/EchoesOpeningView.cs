@@ -30,7 +30,8 @@ namespace Echoes
                 red = Vector2.Scale(center+OpeningFlyOffset(time,shot,true)*(162*shot.Actor.z),scale);
             }
             world.Render(journey,frame,spirit,split,TimeOfDay,ScrollSpeed,amber,red,
-                ScreenBrightness,ProjectionFalloff,ProjectionGradient);
+                ScreenBrightness,ProjectionFalloff,ProjectionGradient,BackgroundBrightness,
+                ForestSpiderBrightness,ForestMawBrightness);
             if (frame.openingTime >= 0 && !world.Ready) UpdatePlates(frame.openingTime);
         }
 
@@ -102,20 +103,20 @@ namespace Echoes
             var shot = OpeningStoryboard.Sample(time);
             var actor = new Vector2(shot.Actor.x * Width, shot.Actor.y * Height);
             float gain = split ? .43f : 1;
-            Paint(new Rect(0, 0, Width, Height), new Color(.011f, .022f, .030f));
+            Paint(new Rect(0, 0, Width, Height), BackgroundTint(new Color(.011f, .022f, .030f)));
             if (compositePlate != null && time == plateTime && compositePlate.IsCreated())
-                Paint(new Rect(0, 0, Width, Height), Color.white, compositePlate);
+                Paint(new Rect(0, 0, Width, Height), BackgroundTint(Color.white), compositePlate);
             else
             {
                 DrawFilmPlate(openingForest ?? arches, shot.Camera, 1);
                 if (shot.Ruin > .001f) DrawFilmPlate(openingRuins ?? ruins, shot.Camera, shot.Ruin);
                 if (shot.Sky > .001f) DrawFilmPlate(openingSky ?? stars, shot.Camera, shot.Sky);
             }
-            if (shot.Sky > .001f) DrawDistantStars(time, shot.Sky, shot.Rush);
+            if (shot.Sky > .001f) DrawDistantStars(time, shot.Sky * BackgroundBrightness, shot.Rush);
 
             Color air = Color.Lerp(new Color(.10f,.13f,.084f), new Color(.027f,.062f,.106f),
                 Mathf.Max(shot.Ruin, shot.Sky));
-            Paint(new Rect(0, 0, Width, Height), Opacity(air, .055f + .08f * shot.Rush));
+            Paint(new Rect(0, 0, Width, Height), BackgroundTint(Opacity(air, .055f + .08f * shot.Rush)));
             DrawFilmAir(time, shot, actor);
             Paint(new Rect(0, 0, Width, Height), new Color(0, 0, 0, .48f), openingVignette);
             DrawGroundShadow(actor, shot, time, split);
@@ -155,7 +156,7 @@ namespace Echoes
             Paint(new Rect(0, 0, Width, Height), new Color(0, 0, 0, .48f * opacity), openingVignette);
         }
 
-        private static void DrawFilmPlate(Texture2D texture, Vector3 camera, float opacity)
+        private void DrawFilmPlate(Texture2D texture, Vector3 camera, float opacity)
         {
             if (texture == null || opacity <= .002f) return;
             float crop = 1 + Mathf.Max(.044f, camera.z);
@@ -163,13 +164,13 @@ namespace Echoes
             float width = Mathf.Max(Width * crop, height * texture.width / texture.height);
             float x = (Width - width) * (.5f + Mathf.Clamp(camera.x, -1, 1) * .46f);
             float y = (Height - height) * (.5f + Mathf.Clamp(camera.y, -1, 1) * .46f);
-            Paint(new Rect(x, y, width, height), new Color(1, 1, 1, opacity), texture);
+            Paint(new Rect(x, y, width, height), BackgroundTint(Opacity(Color.white,opacity)), texture);
         }
 
         private void DrawFilmAir(float time, OpeningStoryboard.Shot shot, Vector2 actor)
         {
-            Color tint = Color.Lerp(new Color(.88f,.83f,.61f), new Color(.53f,.72f,.84f),
-                Mathf.Max(shot.Ruin, shot.Sky));
+            Color tint = BackgroundTint(Color.Lerp(new Color(.88f,.83f,.61f), new Color(.53f,.72f,.84f),
+                Mathf.Max(shot.Ruin, shot.Sky)));
             float travel = -145 * OpeningStoryboard.Ease(7.6f, 10.7f, time)
                 + 210 * OpeningStoryboard.Ease(12.8f, 16.31f, time)
                 + 95 * OpeningStoryboard.Ease(18.54f, 22f, time)
@@ -196,7 +197,7 @@ namespace Echoes
                     OpeningStoryboard.Window(time, 14.3f, 15.27f, 15.43f, 16.13f) * .70f +
                     OpeningStoryboard.Window(time, 28.68f, 29.48f, 29.73f, 30.77f);
                 Paint(new Rect(-550, 168 - shot.Rush * 260, Width * 1.85f, Height * 1.85f),
-                    new Color(.009f,.024f,.027f, .80f * occlusion), glow);
+                    BackgroundTint(new Color(.009f,.024f,.027f, .80f * occlusion)), glow);
             }
         }
 
