@@ -35,10 +35,10 @@ namespace Echoes
             }
             if(fall>=0)
                 return new ForestPredatorShot(kind,fall*Journey.ForestFallDuration,Ease(.23f,.43f,fall),
-                    Ease(.43f,.66f,fall),Ease(.78f,.99f,fall),Ease(.49f,.70f,fall));
+                    Ease(.43f,.66f,fall),Ease(.78f,.99f,fall),Ease(Journey.ForestFallSwallowStart,.70f,fall));
             if(descent>=0)
                 return new ForestPredatorShot(kind,descent*Journey.ForestTransitionDuration,Ease(.09f,.31f,descent),
-                    Ease(.31f,.57f,descent),Ease(.71f,.995f,descent),Ease(.41f,.64f,descent));
+                    Ease(.31f,.57f,descent),Ease(.71f,.995f,descent),Ease(Journey.ForestDescentSwallowStart,.64f,descent));
             return default;
         }
 

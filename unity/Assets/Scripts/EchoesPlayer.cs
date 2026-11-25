@@ -26,7 +26,6 @@ namespace Echoes
 #endif
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
         private readonly WindowsExhibit exhibit = new WindowsExhibit();
-        private int exhibitCue;
 #endif
         private int savedRevision;
         private const string LateralKey = "EchoesUnity.Forest.LateralScale";
@@ -153,19 +152,9 @@ namespace Echoes
             travelSound.Follow(journey, paused);
             forestAudio.Follow(journey,paused);
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
-            exhibit.SetForestPalette(journey.InForest);
-            if (exhibitCue != journey.CueId)
-            {
-                exhibitCue = journey.CueId;
-                if (!paused && Application.isFocused && journey.InForest)
-                {
-                    if (journey.Cue == JourneyCue.ForestAmber) exhibit.FlashForest(false, now);
-                    if (journey.Cue == JourneyCue.ForestScarlet) exhibit.FlashForest(true, now);
-                }
-            }
             exhibit.HoldingAuthorization = journey.Phase == Stage.StarsDelegated;
-            exhibit.Tick(now, !paused && !journey.IsOpening && Application.isFocused,
-                Mathf.Max(journey.Voice * .42f, journey.WindOutput));
+            exhibit.Tick(now, !paused && !journey.IsOpening, Application.isFocused,
+                Mathf.Max(journey.Voice * .42f, journey.WindOutput), journey);
 #endif
 
             if (!journey.IsOpening && savedRevision != journey.Revision)
@@ -609,7 +598,7 @@ namespace Echoes
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
         private void OnApplicationFocus(bool focused)
         {
-            if (!focused) exhibit.StopOutput();
+            if (!focused) exhibit.SuspendOutput();
         }
 #endif
 

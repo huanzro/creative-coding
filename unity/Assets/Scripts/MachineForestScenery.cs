@@ -144,7 +144,7 @@ namespace Echoes
                 float retreat = Ease(.42f,.56f,progress)-Ease(.57f,.68f,progress);
                 float pass = Ease(.60f,.81f,progress);
                 return start + new Vector3(-.42f*retreat+.30f*Mathf.Sin(pass*Mathf.PI),
-                    .19f*pass-.98f*Ease(.81f,.95f,progress),-.66f*retreat+.94f*pass);
+                    .19f*pass-.98f*Ease(Journey.ForestRecyclerSwallowStart,.95f,progress),-.66f*retreat+.94f*pass);
             }
             return start + new Vector3(.20f*Mathf.Sin(progress*12)*Ease(.45f,.72f,progress),
                 -1.35f*Ease(.58f,.91f,progress),.26f*Ease(.39f,.72f,progress));
@@ -156,7 +156,7 @@ namespace Echoes
             float pull = Ease(.69f,.98f,progress);
             float catchUp = Mathf.Sin(Ease(.58f,.93f,progress)*Mathf.PI);
             return start + new Vector3(origin.x*.22f*catchUp,
-                .25f*catchUp-2.52f*Ease(.79f,1,progress),3.22f*pull);
+                .25f*catchUp-2.52f*Ease(Journey.ForestCableSwallowStart,1,progress),3.22f*pull);
         }
 
         public void DrawMachine(Journey journey,bool forest,float time,Vector3 actor)

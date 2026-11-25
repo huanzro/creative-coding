@@ -66,6 +66,8 @@ namespace Echoes
         private const float DoorDepth = MachineDoorDepth, ShaftDepth = MachineShaftDepth, HeartDepth = MachineHeartDepth;
         private const int PreviousHeartDepth = 208;
         public const float ForestTransitionDuration = 5.2f;
+        internal const float ForestFallSwallowStart = .49f, ForestDescentSwallowStart = .41f;
+        internal const float ForestRecyclerSwallowStart = .81f, ForestCableSwallowStart = .79f;
         public const float ForestDoorDuration = 13.4f;
         public const float ForestMachineUpperFloor = 1.46f;
         public float ForestTransitionTime => ForestTrap == ForestTrapKind.Cable ? 8.8f : ForestTransitionDuration;
@@ -167,6 +169,16 @@ namespace Echoes
         public int ForestThreatPulse { get; private set; }
         public ForestFeatureKind ForestThreatKind { get; private set; }
         public float ForestPlantCharge => Clamp(forestPlantTime / PlantTime);
+        public bool ForestSwallowing
+        {
+            get
+            {
+                if (Phase == Stage.ForestDoor) return ForestDoor == 1 && Progress >= ForestRecyclerSwallowStart;
+                if (Phase == Stage.ForestFalling) return Progress >= ForestFallSwallowStart;
+                return Phase == Stage.ForestTransition &&
+                    Progress >= (ForestTrap == ForestTrapKind.Cable ? ForestCableSwallowStart : ForestDescentSwallowStart);
+            }
+        }
         public int ForestPlantTargetId { get; private set; } = -1;
         public float ForestWindFactor => !ForestAirborne ? 0 :
             Clamp((Flight.Height - .24f) / .66f) * (IsForestSequence ? .35f : 1f);

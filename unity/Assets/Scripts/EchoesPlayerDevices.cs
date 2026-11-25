@@ -96,6 +96,7 @@ namespace Echoes
             GUI.enabled = enabled;
             string status = serialPorts.Length == 0 && !exhibit.Connected
                 ? "Windows 未发现串口。用 USB 数据线连接，再点「刷新端口」。" : exhibit.Status;
+            if (exhibit.Ready && !exhibit.FanSupported) status += " · 低亮度模式";
             GUI.Label(new Rect(20, 364, 484, 65), status, label);
             GUI.enabled = enabled && exhibit.Ready && !paused;
             exhibit.LampsEnabled = GUI.Toggle(new Rect(20, 442, 146, 28), exhibit.LampsEnabled, "启用双灯");
@@ -103,7 +104,11 @@ namespace Echoes
             exhibit.FanEnabled = GUI.Toggle(new Rect(173, 442, 154, 28), exhibit.FanEnabled, "启用风扇");
             GUI.enabled = enabled && exhibit.Connected;
             if (GUI.Button(new Rect(361, 440, 143, 31), "关闭实体输出", button)) exhibit.StopOutput();
+            GUI.enabled = enabled && exhibit.Ready && !exhibit.LampTesting;
+            if (GUI.Button(new Rect(20, 486, 146, 32), "测试双灯", button))
+                exhibit.StartLampTest(Time.unscaledTime);
             GUI.enabled = enabled;
+            GUI.Label(new Rect(181, 481, 323, 65), exhibit.LampTestStatus, label);
         }
 #endif
 

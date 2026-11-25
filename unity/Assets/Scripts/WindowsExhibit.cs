@@ -18,11 +18,15 @@ namespace Echoes
         private readonly StringBuilder line = new StringBuilder(80);
         private readonly float[] lampBegin = new float[2];
         private readonly float[] lampEnd = { -1, -1 };
-        private readonly float[] lampStrength = new float[2];
-        private bool forestPalette;
+        private readonly ForestLampShow forestLamps = new ForestLampShow();
+        private readonly Dictionary<int, int> lampTestPackets = new Dictionary<int, int>();
+        private static readonly LampRgb TestAmber = new LampRgb(27, 17, 0);
+        private static readonly LampRgb TestCyan = new LampRgb(4, 18, 25);
+        private static readonly string[] LampTestSteps = { "左侧黄灯 · D6", "右侧黄灯 · D7", "双侧青灯", "双侧熄灭" };
+        private bool inForest, outputWasLive;
         private bool overflow;
-        private int sequence, lastMask, lastEnabled;
-        private float lastInput, nextWrite;
+        private int sequence, lastMask, lastEnabled, lampTestAck;
+        private float lastInput, nextWrite, lampTestAt = -1;
         private string portName;
         public bool Connected => port != null;
         public bool Ready { get; private set; }
@@ -31,6 +35,8 @@ namespace Echoes
         public bool FanEnabled { get; set; }
         public bool HoldingAuthorization { get; set; }
         public string Status { get; private set; } = "串口未连接";
+        public string LampTestStatus { get; private set; } = "";
+        public bool LampTesting => lampTestAt >= 0;
         public event Action<int, bool> TouchChanged;
 
         public static string[] AvailablePorts()
@@ -73,7 +79,7 @@ namespace Echoes
                 var state = new SerialState { Length = (uint)Marshal.SizeOf<SerialState>() };
                 if (!GetCommState(port, ref state)) throw Error();
                 state.BaudRate = 115200;
-                state.Flags = 1;
+                state.Flags = 1 | (1u << 4); // Binary data and DTR_CONTROL_ENABLE for the Uno USB serial link.
                 state.ByteSize = 8;
                 state.Parity = state.StopBits = 0;
                 if (!SetCommState(port, ref state)) throw Error();
@@ -83,6 +89,7 @@ namespace Echoes
                 nextWrite = now;
                 sequence = 0;
                 portName = name;
+                LampsEnabled = true;
                 Status = name + " 已打开，等待 EOL3";
             }
             catch (Win32Exception error)
@@ -96,39 +103,53 @@ namespace Echoes
             }
         }
 
-        public void SetForestPalette(bool enabled)
-        {
-            if (forestPalette == enabled) return;
-            forestPalette = enabled;
-            lampEnd[0] = lampEnd[1] = -1;
-        }
-
-        public void Tick(float now, bool running, float energy)
+        public void Tick(float now, bool running, bool focused, float energy, Journey journey)
         {
             if (!Connected) return;
             try
             {
+                if (inForest != journey.InForest)
+                {
+                    inForest = journey.InForest;
+                    lampEnd[0] = lampEnd[1] = -1;
+                }
                 if (!ReadFile(port, received, received.Length, out int bytes, IntPtr.Zero)) throw Error();
                 for (int i = 0; i < bytes; i++) ByteReceived((char)received[i], now);
                 if (Ready && now - lastInput > 1.5f)
                 {
-                    StopOutput();
+                    SuspendOutput();
                     Ready = FanSupported = false;
                     Status = "EOL3 心跳中断，输出已停止";
                 }
                 if (!Ready && now - lastInput > 4.5f)
                     Status = portName + " 已打开，未收到 EOL3。请确认已烧录项目固件。";
-                if (!running && (LampsEnabled || FanEnabled)) StopOutput();
+                if (!focused || !running && !LampTesting)
+                {
+                    SuspendOutput();
+                    forestLamps.Reset(journey.CueId, journey.ForestSwallowing);
+                    return;
+                }
+                LampRgb forest = default;
+                if (Ready && running && LampsEnabled && inForest && !LampTesting)
+                    forest = forestLamps.Sample(journey, now);
+                else forestLamps.Reset(journey.CueId, journey.ForestSwallowing);
                 if (!Ready || now < nextWrite) return;
-                nextWrite = now + .1f;
+                nextWrite = now + .05f;
+                if (LampTesting)
+                {
+                    TickLampTest(now);
+                    return;
+                }
                 int fan = FanEnabled ? (int)Math.Round(Math.Max(0, Math.Min(1, energy)) * 132) : 0;
-                Write(ExhibitProtocol.Output(sequence++, Lamp(0, now), Lamp(1, now), fan, FanSupported, forestPalette));
+                LampRgb left = inForest ? forest : ExhibitProtocol.LeftTouch.Dim(Lamp(0, now));
+                LampRgb right = inForest ? forest : ExhibitProtocol.RightTouch.Dim(Lamp(1, now));
+                WriteOutput(left, right, fan);
             }
-            catch (Win32Exception)
+            catch (Win32Exception error)
             {
                 string name = portName;
                 Dispose();
-                Status = name + " 连接中断。重新插好数据线后刷新端口。";
+                Status = name + " 串口读写中断（Windows 错误 " + error.NativeErrorCode + "）。请重新连接。";
             }
         }
 
@@ -146,6 +167,15 @@ namespace Echoes
 
         private void HandleFrame(string frame, float now)
         {
+            if (LampTesting && ExhibitProtocol.ReadAck(frame, out int acknowledged))
+            {
+                if (lampTestPackets.TryGetValue(acknowledged, out int step))
+                {
+                    lampTestAck |= 1 << step;
+                    lampTestPackets.Remove(acknowledged);
+                }
+                return;
+            }
             if (frame == "EOL3 CAP FAN") { FanSupported = true; return; }
             if (!ExhibitProtocol.ReadInputs(frame, out int mask, out int enabled)) return;
             int changed = Ready ? (mask ^ lastMask) & enabled & lastEnabled : 0;
@@ -160,7 +190,7 @@ namespace Echoes
                 if ((changed & bit) == 0) continue;
                 bool pressed = (mask & bit) != 0;
                 TouchChanged?.Invoke(option, pressed);
-                if (!pressed && !forestPalette)
+                if (!pressed && !inForest)
                     lampEnd[option] = Math.Min(lampEnd[option], Math.Max(lampBegin[option] + .5f, now));
             }
         }
@@ -170,16 +200,43 @@ namespace Echoes
             if (!Ready || !LampsEnabled) return;
             lampBegin[option] = now;
             lampEnd[option] = now + (physical ? 1.8f : .5f);
-            lampStrength[option] = 1;
         }
 
-        public void FlashForest(bool red, float now)
+        public void StartLampTest(float now)
         {
-            if (!Ready || !LampsEnabled || !forestPalette) return;
-            int index = red ? 1 : 0;
-            lampBegin[index] = now;
-            lampEnd[index] = now + .21f;
-            lampStrength[index] = red ? .52f : .63f;
+            if (!Ready || LampTesting) return;
+            lampTestAt = nextWrite = now;
+            lampTestAck = 0;
+            LampTestStatus = LampTestSteps[0];
+        }
+
+        private void TickLampTest(float now)
+        {
+            float age = now - lampTestAt;
+            if (age >= 2.35f)
+            {
+                if (outputWasLive) WriteOutput(default, default, 0);
+                int acknowledged = 0;
+                for (int i = 0; i < LampTestSteps.Length; i++)
+                    if ((lampTestAck & 1 << i) != 0) acknowledged++;
+                string result = acknowledged == LampTestSteps.Length
+                    ? "Arduino 已确认 4/4。请核对两侧实际亮灯。"
+                    : "Arduino 已确认 " + acknowledged + "/4。请检查固件和串口。";
+                FinishLampTest(result);
+                return;
+            }
+            int step = age < .64f ? 0 : age < 1.28f ? 1 : age < 1.92f ? 2 : 3;
+            LampTestStatus = LampTestSteps[step];
+            LampRgb left = step == 0 ? TestAmber : step == 2 ? TestCyan : default;
+            LampRgb right = step == 1 ? TestAmber : step == 2 ? TestCyan : default;
+            WriteOutput(left, right, 0, step);
+        }
+
+        private void FinishLampTest(string status)
+        {
+            LampTestStatus = status;
+            lampTestAt = -1;
+            lampTestPackets.Clear();
         }
 
         public void ClearLamp(int option) => lampEnd[option] = -1;
@@ -189,20 +246,35 @@ namespace Echoes
             if (!LampsEnabled) return 0;
             if (option == 1 && HoldingAuthorization) return 1;
             if (lampEnd[option] < 0) return 0;
-            float fadeOut = Math.Max(0, Math.Min(1, 1 - (now - lampEnd[option]) / .42f));
-            float fadeIn = forestPalette ? Math.Max(0, Math.Min(1, (now - lampBegin[option]) / .08f)) : 1;
-            return lampStrength[option] * fadeIn * fadeOut;
+            return Math.Max(0, Math.Min(1, 1 - (now - lampEnd[option]) / .42f));
         }
 
         public void StopOutput()
         {
-            LampsEnabled = FanEnabled = false;
+            LampsEnabled = false;
+            SuspendOutput();
+        }
+
+        public void SuspendOutput()
+        {
+            FanEnabled = false;
             lampEnd[0] = lampEnd[1] = -1;
-            if (Ready && port != null && !port.IsInvalid)
+            forestLamps.Reset();
+            if (LampTesting) FinishLampTest("双灯测试已停止。");
+            if (outputWasLive && Ready && port != null && !port.IsInvalid)
             {
-                try { Write(ExhibitProtocol.Output(sequence++, 0, 0, 0, FanSupported)); }
+                try { WriteOutput(default, default, 0); }
                 catch (Win32Exception) { /* Firmware timeout stops output when the cable is gone. */ }
             }
+            outputWasLive = false;
+        }
+
+        private void WriteOutput(LampRgb left, LampRgb right, int fan, int testStep = -1)
+        {
+            int packet = sequence++ & 65535;
+            Write(ExhibitProtocol.Output(packet, left, right, fan, FanSupported));
+            outputWasLive = left.Lit || right.Lit || fan > 0;
+            if (testStep >= 0 && (lampTestAck & 1 << testStep) == 0) lampTestPackets[packet] = testStep;
         }
 
         private void Write(string message)
@@ -221,6 +293,7 @@ namespace Echoes
             Ready = FanSupported = overflow = false;
             line.Clear();
             Status = "串口未连接";
+            LampTestStatus = "";
         }
 
         private static Win32Exception Error() => new Win32Exception(Marshal.GetLastWin32Error());
