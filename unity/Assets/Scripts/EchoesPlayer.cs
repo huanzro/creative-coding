@@ -14,7 +14,7 @@ namespace Echoes
         private bool preview, projection, mirror, audioReady, cameraReady, paused, inputReady;
         private bool settings, characterOnly, splitProjection, noHand;
         private int cast;
-        private static readonly string[] CastNames = { "三维精灵", "绿金长裙精灵", "兜帽旅人", "星纹术士" };
+        private static readonly string[] CastNames = { "三维精灵", "绿金长裙精灵", "兜帽旅人", "星纹术士", "红色小鸟", "黑天鹅" };
         private Hand liveHand;
         private StarTip liveIndexTip;
         private float liveVoice, lastHandAt, lastAudioAt;
@@ -356,7 +356,7 @@ namespace Echoes
 #endif
             if (GUI.Button(new Rect(218, 186, 138, 30), "预览片头", button)) PlayOpening();
             GUI.Label(new Rect(20, 245, 100, 28), "出场角色", label);
-            int picked = GUI.SelectionGrid(new Rect(116, 231, 388, 62), cast, CastNames, 2, button);
+            int picked = GUI.SelectionGrid(new Rect(116, 231, 388, 62), cast, CastNames, 3, button);
             if (picked != cast)
             {
                 cast = picked;

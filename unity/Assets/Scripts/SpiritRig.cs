@@ -9,6 +9,7 @@ namespace Echoes
     {
         public const float WidthScale = .9f, HeightScale = 1.2f;
         private const float PortraitFov = 30.5f;
+        private const int RedBirdCast = 4, BlackSwanCast = 5;
         private static readonly Color[] Accent = {
             new Color(.95f,.66f,.29f), new Color(.39f,.79f,.93f), new Color(.75f,.59f,1f)
         };
@@ -26,6 +27,8 @@ namespace Echoes
         private readonly GuestSpirit[] guests = new GuestSpirit[2];
         private readonly bool[] guestsLoaded = new bool[2];
         private GuestSpirit guest;
+        private RedBirdSpirit redBird;
+        private BlackSwanSpirit blackSwan;
         private readonly Camera portraitCamera;
         private readonly float[] dance = new float[SpiritDance.TrackCount];
         private readonly Vector3[] anchors = new Vector3[4];
@@ -137,6 +140,8 @@ namespace Echoes
             pose = SpiritMotion.Sample(frame, tracked, closed, voice, dance, pointing);
             guest = Guest(frame.cast);
             guest?.Pose(pose);
+            if (frame.cast == RedBirdCast && redBird == null) redBird = new RedBirdSpirit(material);
+            if (frame.cast == BlackSwanCast && blackSwan == null) blackSwan = new BlackSwanSpirit(material);
             commands.Clear();
             Color tint = Accent[Mathf.Clamp(frame.chapter, 0, Accent.Length - 1)];
             float contact = frame.fireflyPulse * .80f;
@@ -196,6 +201,8 @@ namespace Echoes
             material.SetVector(SceneLight, new Vector4(poseTint.r,poseTint.g,poseTint.b,ambient));
             material.SetFloat(StageCoverage,maskBackground ? 0 : 1);
             if (guest != null) guest.Draw(pose, joints, basis, buffer, material);
+            else if (previous.cast == RedBirdCast) redBird.Draw(pose, poseTint, joints, basis, buffer);
+            else if (previous.cast == BlackSwanCast) blackSwan.Draw(pose, poseTint, joints, basis, buffer);
             else model.Draw(pose,poseTint,joints,previous.cast == 1,basis,buffer);
             Vector3 point = joints[1] + basis.MultiplyVector(new Vector3(.08f,.045f,-.135f));
             material.SetVector(ContactLight,new Vector4(point.x,point.y,point.z,poseContact));
@@ -259,6 +266,8 @@ namespace Echoes
             predator?.Dispose();
             machineDoor?.Dispose();
             foreach (var guestModel in guests) guestModel?.Dispose();
+            redBird?.Dispose();
+            blackSwan?.Dispose();
             commands?.Dispose();
             if (target != null) { target.Release(); UnityEngine.Object.Destroy(target); }
             if (material != null) UnityEngine.Object.Destroy(material);

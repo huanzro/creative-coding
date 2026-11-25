@@ -102,15 +102,43 @@ namespace Echoes
             return Matrix4x4.TRS(translation, attitude, Vector3.one);
         }
 
+        internal static void ArmGeometry(int side, SpiritArm arm, out Vector3 shoulder, out Vector3 elbow,
+            out Vector3 wrist, out Vector3 spread, out Vector3 forward)
+        {
+            shoulder = new Vector3(side * .212f, 1.51f, -.019f);
+            elbow = shoulder + new Vector3(side * arm.upper.x, arm.upper.y, arm.upper.z).normalized * .266f;
+            wrist = elbow + new Vector3(side * arm.lower.x, arm.lower.y, arm.lower.z).normalized * .247f;
+            Vector3 forearm = (wrist - elbow).normalized;
+            spread = Vector3.Cross(forearm, Vector3.forward).normalized;
+            if (spread.sqrMagnitude < .01f) spread = Vector3.right;
+            forward = Quaternion.AngleAxis(arm.wristFlex, spread) * forearm;
+        }
+
+        internal static Vector3 HandContact(Vector3 wrist, Vector3 spread, Vector3 forward, SpiritArm arm)
+        {
+            Vector3 hand = wrist + forward * .047f;
+            FingerGeometry(hand, spread, forward, arm, 0, out _, out _, out Vector3 tip);
+            return Vector3.Lerp(hand + forward * .073f, tip, arm.point);
+        }
+
+        private static void FingerGeometry(Vector3 hand, Vector3 spread, Vector3 forward, SpiritArm arm, int finger,
+            out Vector3 start, out Vector3 bend, out Vector3 tip)
+        {
+            float offset = finger - 1.5f;
+            float curl = arm.curl * (finger == 0 ? 1 - arm.point : 1);
+            float length = .063f - Mathf.Abs(offset - .13f) * .006f;
+            Vector3 knuckle = Vector3.Cross(spread, forward).normalized;
+            start = hand + forward * .030f + spread * (.018f * offset);
+            bend = start + forward * (length * .58f) + knuckle * (.022f * curl);
+            tip = bend + forward * (length * Mathf.Lerp(.46f, .09f, curl)) +
+                knuckle * (.021f * curl) + spread * (.003f * offset);
+        }
+
         private void DrawArm(int side, SpiritArm arm, Color accent, Vector3[] anchors, int index)
         {
-            Vector3 shoulder = new Vector3(side * .212f, 1.51f, -.019f);
-            Vector3 elbow = shoulder + new Vector3(side * arm.upper.x, arm.upper.y, arm.upper.z).normalized * .266f;
-            Vector3 wrist = elbow + new Vector3(side * arm.lower.x, arm.lower.y, arm.lower.z).normalized * .247f;
+            ArmGeometry(side, arm, out Vector3 shoulder, out Vector3 elbow, out Vector3 wrist,
+                out Vector3 spread, out Vector3 forward);
             Vector3 forearm = (wrist - elbow).normalized;
-            Vector3 spread = Vector3.Cross(forearm, Vector3.forward).normalized;
-            if (spread.sqrMagnitude < .01f) spread = Vector3.right;
-            Vector3 forward = Quaternion.AngleAxis(arm.wristFlex, spread) * forearm;
             Vector3 hand = wrist + forward * .047f;
             Quaternion sleeve = Quaternion.FromToRotation(Vector3.up, elbow - shoulder);
             Ball(Vector3.Lerp(shoulder, elbow, .25f), new Vector3(.091f, .125f, .085f), Silk, 0, sleeve);
@@ -125,13 +153,7 @@ namespace Echoes
             Vector3 contact = hand + forward * .073f;
             for (int finger = 0; finger < 4; finger++)
             {
-                float fingerSpread = finger - 1.5f;
-                float curl = arm.curl * (finger == 0 ? 1 - arm.point : 1);
-                float length = .063f - Mathf.Abs(fingerSpread - .13f) * .006f;
-                Vector3 baseOfFinger = hand + forward * .030f + spread * (.018f * fingerSpread);
-                Vector3 bend = baseOfFinger + forward * (length * .58f) + knuckle * (.022f * curl);
-                Vector3 tip = bend + forward * (length * Mathf.Lerp(.46f, .09f, curl)) +
-                    knuckle * (.021f * curl) + spread * (.003f * fingerSpread);
+                FingerGeometry(hand, spread, forward, arm, finger, out Vector3 baseOfFinger, out Vector3 bend, out Vector3 tip);
                 Limb(baseOfFinger, bend, .011f, Skin);
                 Limb(bend, tip, .0094f, Skin);
                 if (finger == 0) contact = Vector3.Lerp(contact, tip, arm.point);
@@ -146,23 +168,31 @@ namespace Echoes
             anchors[index] = root.MultiplyPoint3x4(contact);
         }
 
-        private void DrawFoot(SpiritPose pose, int side, Vector3[] anchors, int index)
+        internal static void FootGeometry(SpiritPose pose, int side, out Vector3 hip, out Vector3 knee,
+            out Vector3 ankle, out Quaternion shoe)
         {
             float step = side < 0 ? pose.step : -pose.step;
-            Vector3 hip = new Vector3(side * .10f, 1.01f, .012f);
+            hip = new Vector3(side * .10f, 1.01f, .012f);
             float toe = Mathf.Max(0, step), tuck = Mathf.Clamp01(pose.tuck);
             float trailing = pose.extension * (side < 0 ? .76f : 1);
-            Vector3 knee = new Vector3(side * (.129f + toe * .061f), .58f + toe * .108f + tuck * .24f,
+            knee = new Vector3(side * (.129f + toe * .061f), .58f + toe * .108f + tuck * .24f,
                 -.047f + step * .18f + trailing * .09f - tuck * .26f - pose.settle * .10f);
-            Vector3 ankle = new Vector3(side * (.149f + toe * .10f), .212f + toe * .19f + tuck * .37f + trailing * .046f,
+            ankle = new Vector3(side * (.149f + toe * .10f), .212f + toe * .19f + tuck * .37f + trailing * .046f,
                 .008f + step * .32f + trailing * .22f + tuck * .06f);
-            Sweep(legs[index - 2], hip, knee, ankle, new Vector3(.085f, .064f, .048f), .92f, Vector3.forward, Skin);
-            Quaternion shoe = Quaternion.Euler(-8 - toe * 21 - trailing * 28 + pose.settle * 20, side * 10,
+            shoe = Quaternion.Euler(-8 - toe * 21 - trailing * 28 + pose.settle * 20, side * 10,
                 -side * (4 + toe * 14));
+        }
+
+        internal static Vector3 FootContact(Vector3 ankle, Quaternion shoe) => ankle + shoe * new Vector3(0, -.025f, -.145f);
+
+        private void DrawFoot(SpiritPose pose, int side, Vector3[] anchors, int index)
+        {
+            FootGeometry(pose, side, out Vector3 hip, out Vector3 knee, out Vector3 ankle, out Quaternion shoe);
+            Sweep(legs[index - 2], hip, knee, ankle, new Vector3(.085f, .064f, .048f), .92f, Vector3.forward, Skin);
             Ball(ankle, new Vector3(.068f, .078f, .133f), DeepSilk, 0, shoe);
             Ball(ankle + shoe * new Vector3(0, -.012f, -.071f), new Vector3(.062f, .044f, .071f), Moss, 0, shoe);
             Ball(ankle + shoe * new Vector3(0, .019f, -.089f), new Vector3(.029f, .017f, .028f), Gold, 0, shoe);
-            anchors[index] = root.MultiplyPoint3x4(ankle + shoe * new Vector3(0, -.025f, -.145f));
+            anchors[index] = root.MultiplyPoint3x4(FootContact(ankle, shoe));
         }
 
         private void DrawDress(SpiritPose pose, Color accent)

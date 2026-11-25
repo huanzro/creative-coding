@@ -21,7 +21,9 @@ namespace Echoes
         private readonly Joint head;
         private readonly Joint[] shoulders, elbows, wrists, hips, knees, feet;
         private readonly Transform[] toes, hands;
-        private readonly Matrix4x4 normalization;
+        private readonly Matrix4x4 normalization, denormalization;
+        private readonly float handReach;
+        private readonly Vector3[] handContacts=new Vector3[2];
         private readonly MaterialPropertyBlock paint = new MaterialPropertyBlock();
 
         private readonly struct Joint
@@ -30,11 +32,13 @@ namespace Echoes
             private readonly Quaternion bindRotation;
             private readonly Vector3 axis;
             public Vector3 Position => bone.position;
+            public float Length { get; }
 
             public Joint(Transform bone, Transform child = null)
             {
                 this.bone = bone;
                 bindRotation = bone.localRotation;
+                Length = child == null ? 0 : Vector3.Distance(bone.position, child.position);
                 axis = child == null ? Vector3.up :
                     bone.InverseTransformDirection((child.position - bone.position).normalized);
             }
@@ -104,8 +108,12 @@ namespace Echoes
             }
 
             var ground = new Vector3(bounds.center.x, bounds.min.y, bounds.center.z);
-            normalization = Matrix4x4.Scale(Vector3.one * (2.10f / Mathf.Max(.1f, bounds.size.y))) *
+            // The imported bind soles sit below the lowest toes reached by the retargeted pose.
+            float scale = 2.24f / Mathf.Max(.1f, bounds.size.y);
+            normalization = Matrix4x4.TRS(new Vector3(0,-.10f,0), Quaternion.identity, Vector3.one * scale) *
                 Matrix4x4.Translate(-ground);
+            denormalization = normalization.inverse;
+            handReach = .10f / scale;
             paint.SetTexture(Atlas, texture);
             paint.SetFloat(UseAtlas, 1);
             paint.SetVector(Tint, new Vector4(dye.r, dye.g, dye.b, 0));
@@ -156,23 +164,41 @@ namespace Echoes
             {
                 int side = i == 0 ? -1 : 1;
                 SpiritArm arm = i == 0 ? pose.left : pose.right;
-                shoulders[i].Aim(new Vector3(side * arm.upper.x, arm.upper.y, arm.upper.z));
-                var lower = new Vector3(side * arm.lower.x, arm.lower.y, arm.lower.z);
-                elbows[i].Aim(lower);
+                SpiritModel.ArmGeometry(side, arm, out _, out Vector3 elbow, out Vector3 wrist,
+                    out Vector3 spread, out Vector3 forward);
+                Vector3 contact = denormalization.MultiplyPoint3x4(SpiritModel.HandContact(wrist, spread, forward, arm));
+                Reach(shoulders[i], elbows[i], contact - forward * handReach, denormalization.MultiplyPoint3x4(elbow));
                 wrists[i].Rotate(Quaternion.Euler(arm.wristFlex + 18 * arm.curl, 0, side * 8 * arm.point));
+                handContacts[i] = hands[i].position + forward * handReach;
 
-                float step = (i == 0 ? pose.step : -pose.step);
-                float trailing = pose.extension * (i == 0 ? .76f : 1);
-                float tuck = Mathf.Clamp01(pose.tuck);
-                hips[i].Aim(new Vector3(side * (.08f + .16f * Mathf.Abs(step)), -.9f + .31f * tuck,
-                    -.15f + .48f * step + .30f * trailing - .58f * tuck - .16f * pose.settle));
-                knees[i].Aim(new Vector3(side * .056f, -.87f + .51f * tuck,
-                    .18f + .41f * step + .42f * trailing + .20f * tuck));
-                feet[i].Aim(new Vector3(side * .13f, -.16f - .71f * trailing - .49f * tuck +
-                    .35f * pose.settle, -.97f));
+                SpiritModel.FootGeometry(pose, side, out _, out Vector3 knee, out Vector3 ankle, out Quaternion shoe);
+                Vector3 toe = denormalization.MultiplyPoint3x4(SpiritModel.FootContact(ankle, shoe));
+                Vector3 shoeDirection = shoe * new Vector3(0,-.025f,-.145f).normalized;
+                Reach(hips[i], knees[i], toe - shoeDirection * feet[i].Length, denormalization.MultiplyPoint3x4(knee));
+                feet[i].Aim(shoeDirection);
             }
 
             for (int i = 0; i < renderers.Length; i++) renderers[i].BakeMesh(meshes[i]);
+        }
+
+        // Follow the shared tip and toe targets while preserving the imported bone proportions.
+        private static void Reach(Joint upper, Joint lower, Vector3 target, Vector3 bendToward)
+        {
+            Vector3 origin = upper.Position;
+            Vector3 delta = target - origin;
+            float distance = delta.magnitude;
+            if (distance < .0001f || upper.Length < .0001f || lower.Length < .0001f) return;
+            Vector3 axis = delta / distance;
+            float bendDistance = Mathf.Clamp(distance, Mathf.Abs(upper.Length - lower.Length) + .0001f,
+                upper.Length + lower.Length - .0001f);
+            Vector3 bend = Vector3.ProjectOnPlane(bendToward - origin, axis);
+            if (bend.sqrMagnitude < .000001f)
+                bend = Vector3.Cross(axis, Mathf.Abs(axis.y) < .91f ? Vector3.up : Vector3.forward);
+            float along = (upper.Length * upper.Length - lower.Length * lower.Length + bendDistance * bendDistance) /
+                (2 * bendDistance);
+            float away = Mathf.Sqrt(Mathf.Max(0, upper.Length * upper.Length - along * along));
+            upper.Aim(axis * along + bend.normalized * away);
+            lower.Aim(origin + axis * bendDistance - lower.Position);
         }
 
         public void Draw(SpiritPose pose, Vector3[] anchors, Matrix4x4 basis, CommandBuffer target, Material material)
@@ -187,8 +213,7 @@ namespace Echoes
             }
             for (int i = 0; i < 2; i++)
             {
-                Vector3 handDirection = (hands[i].position - elbows[i].Position).normalized;
-                anchors[i] = model.MultiplyPoint3x4(hands[i].position + handDirection * .10f);
+                anchors[i] = model.MultiplyPoint3x4(handContacts[i]);
                 anchors[i + 2] = model.MultiplyPoint3x4(toes[i].position);
             }
         }
