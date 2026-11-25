@@ -168,10 +168,10 @@ namespace Echoes
             GUI.matrix = before;
         }
 
-        private void DrawActiveFirefly(Journey journey, bool split)
+        private void DrawActiveFirefly(Journey journey, bool split, float overlayGain)
         {
             var fly = journey.Fireflies;
-            float gain = split ? .78f : 1;
+            float gain = (split ? .78f : 1) * overlayGain;
             if (fly.Kind != FireflyKind.None)
             {
                 float t = journey.PoseTime;

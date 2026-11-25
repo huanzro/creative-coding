@@ -313,7 +313,7 @@ namespace Echoes
                 }
                 return true;
             }
-            if (!Started || IsForestSequence || IsRuinSequence) return false;
+            if (!Started || IsRuinSequence || IsForestSequence && !CanQueueMazeReturnTouch) return false;
             LastTouch = PoseTime;
             TouchOption = option;
             if (Lesson >= 0) PracticeTouch(option);

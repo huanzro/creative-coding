@@ -141,6 +141,9 @@ namespace Echoes
 
         private static float CharacterY(float altitude) => Height * SpiritFlight.ScreenY(altitude);
 
+        private float ProjectionOverlayGain(bool split) => split && ProjectionGradient ?
+            ProjectionLighting.CenterGain(ProjectionFalloff) / ProjectionLighting.DefaultCenterGain : 1;
+
         public void DrawStage(Journey journey, SpiritFrame frame, bool splitProjection)
         {
             if (Event.current.type != EventType.Repaint) return;
@@ -159,7 +162,8 @@ namespace Echoes
             if (!frame.forest && !frame.ruins) DrawChapterFeedback(journey, color);
             if (splitProjection && !spatial)
                 Paint(new Rect(100, -100, 1080, 940), new Color(0, 0, 0, .35f), glow);
-            float strength = splitProjection ? .38f : .87f;
+            float overlayGain = spatial ? ProjectionOverlayGain(splitProjection) : 1;
+            float strength = (splitProjection ? .38f : .87f) * overlayGain;
             var center = new Vector2(CenterX, CharacterY(frame.altitude));
             var origin = new Vector2(CenterX, CharacterY(frame.releaseAltitude));
             float actorSize = 162;
@@ -172,14 +176,14 @@ namespace Echoes
             }
             else
             {
-                DrawTrace(journey, color, splitProjection ? .20f : .72f);
+                DrawTrace(journey, color, (splitProjection ? .20f : .72f) * overlayGain);
                 DrawFlightTrail(frame, color, strength, 1, new Rect(0, 0, Width, Height));
-                DrawActiveFirefly(journey, splitProjection);
+                if (overlayGain > 0) DrawActiveFirefly(journey, splitProjection, overlayGain);
             }
             DrawCharacter(frame, center, origin, actorSize, false, 0, 1, !splitProjection && !spatial, strength);
             if (frame.forest)
-                DrawForestSwarm(frame, center, actorSize, false, 0, splitProjection ? .33f : .94f, !spatial);
-            else if (!frame.ruins) DrawLiveHandoff(frame, center, actorSize, false, 0, 1, splitProjection ? .24f : 1);
+                DrawForestSwarm(frame, center, actorSize, false, 0, (splitProjection ? .33f : .94f) * overlayGain, !spatial);
+            else if (!frame.ruins) DrawLiveHandoff(frame, center, actorSize, false, 0, 1, (splitProjection ? .24f : 1) * overlayGain);
             if (frame.forest) DrawForestHud(journey);
             if (frame.ruins) DrawRuinHud(journey);
             EndFrame(matrix);

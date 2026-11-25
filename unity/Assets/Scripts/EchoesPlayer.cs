@@ -133,28 +133,24 @@ namespace Echoes
             bool keyboard = preview && Application.isFocused && (!settings || !typingPort);
             inputReady = preview || audioReady && cameraReady && now - lastAudioAt < .5f && now - lastHandAt < .5f;
             if (preview && Input.GetKeyDown(KeyCode.F1)) ToggleSettings();
-            if (keyboard && Input.GetKeyDown(KeyCode.A)) TrackTouch(0, true, false);
-            if (keyboard && Input.GetKeyDown(KeyCode.B)) TrackTouch(1, true, false);
-            if (keyboard && Input.GetKeyUp(KeyCode.A)) TrackTouch(0, false, false);
-            if (keyboard && Input.GetKeyUp(KeyCode.B)) TrackTouch(1, false, false);
             if (keyboard && Input.GetKeyDown(KeyCode.R)) Retry("");
             if (keyboard && Input.GetKeyDown(KeyCode.Escape)) journey.FinishOpening();
-            ResolveHeldTouches(now, keyboard);
             float voice = preview ? (keyboard && Input.GetKey(KeyCode.X) ? .7f :
                 keyboard && Input.GetKey(KeyCode.Z) ? .3f : 0) : liveVoice;
 #if !UNITY_WEBGL || UNITY_EDITOR
             microphone.Update(now, dt);
             if (microphone.Ready) voice = microphone.Level;
 #endif
-            if (!paused)
-            {
-                var gesture = !inputReady ? Hand.Missing : preview
-                    ? noHand || !keyboard ? Hand.Missing : Input.GetKey(KeyCode.Space) ? Hand.Fist : Hand.Open
-                    : liveHand;
-                journey.SetHand(gesture);
-                journey.Step(journey.IsOpening ? Time.unscaledDeltaTime : dt, inputReady ? voice : 0, inputReady);
-            }
-            else journey.SetHand(Hand.Missing);
+            var gesture = paused || !inputReady ? Hand.Missing : preview
+                ? noHand || !keyboard ? Hand.Missing : Input.GetKey(KeyCode.Space) ? Hand.Fist : Hand.Open
+                : liveHand;
+            journey.SetHand(gesture);
+            if (keyboard && Input.GetKeyDown(KeyCode.A)) TrackTouch(0, true, false);
+            if (keyboard && Input.GetKeyDown(KeyCode.B)) TrackTouch(1, true, false);
+            if (keyboard && Input.GetKeyUp(KeyCode.A)) TrackTouch(0, false, false);
+            if (keyboard && Input.GetKeyUp(KeyCode.B)) TrackTouch(1, false, false);
+            ResolveHeldTouches(now, keyboard);
+            if (!paused) journey.Step(journey.IsOpening ? Time.unscaledDeltaTime : dt, inputReady ? voice : 0, inputReady);
             view.Advance(journey);
             openingSound.Follow(journey.IsOpening ? journey.OpeningTime : -1, paused);
             travelSound.Follow(journey, paused);
@@ -354,8 +350,8 @@ namespace Echoes
             view.ProjectionFalloff = TuningSlider(283, "渐亮速率", FalloffKey, view.ProjectionFalloff,
                 ProjectionLighting.MinimumFalloff, ProjectionLighting.MaximumFalloff, label);
             DrawLightingCurve(338, "背景亮度倍率", "到人物的距离", true, label);
-            GUI.Label(new Rect(20, 476, 482, 42), StageSplit ?
-                "渐亮速率越大，亮度越早恢复。人物窗保持黑底。" :
+            GUI.Label(new Rect(20, 476, 482, 42), !view.ProjectionGradient ? "渐亮已关闭，可在上方重新启用。" : StageSplit ?
+                $"人物背后保留 {ProjectionLighting.CenterGain(view.ProjectionFalloff):0%} 背景亮度。最低档为纯黑。" :
                 "全屏亮度调节三维主画面。打开独立人物窗口即可预览渐亮。", label);
             if (!GUI.Button(new Rect(20, 521, 141, 30), "恢复默认", button)) return;
             view.ScreenBrightness = view.ProjectionFalloff = ProjectionLighting.DefaultValue;
@@ -480,38 +476,56 @@ namespace Echoes
 
         private void TrackTouch(int option, bool down, bool physical)
         {
-            int index = option + (physical ? 2 : 0);
-            if (down)
+            if (paused || !inputReady || !Application.isFocused)
             {
-                if (paused || !inputReady || !Application.isFocused) return;
-                if (!journey.ForestCanTurnAround) { Touch(option, physical); return; }
-                pendingTouch[index] = true;
-                touchBegan[index] = Time.unscaledTime;
+                if (!down) pendingTouch[option + (physical ? 2 : 0)] = false;
                 return;
             }
-            if (!pendingTouch[index]) return;
-            pendingTouch[index] = false;
-            if (!journey.ForestCanTurnAround || paused || !inputReady || !Application.isFocused) return;
-            if (Time.unscaledTime - touchBegan[index] >= TurnHoldSeconds) journey.TurnAroundForest();
-            else Touch(option, physical);
+            TrackReadyTouch(option,down,physical,Time.unscaledTime);
+        }
+
+        private void TrackReadyTouch(int option, bool down, bool physical, float now)
+        {
+            int index = option + (physical ? 2 : 0);
+            if (!down)
+            {
+                bool turnBack = pendingTouch[index] && now - touchBegan[index] >= TurnHoldSeconds;
+                pendingTouch[index] = false;
+                if (turnBack) journey.TurnAroundForest();
+                return;
+            }
+            if (pendingTouch[index]) return;
+            // The down edge always chooses immediately. Holding adds a separate turn-back action.
+            Array.Clear(pendingTouch,0,pendingTouch.Length);
+            if (journey.ForestCanTurnAround)
+            {
+                pendingTouch[index] = true;
+                touchBegan[index] = now;
+            }
+            Touch(option, physical);
         }
 
         private void ResolveHeldTouches(float now, bool keyboard)
         {
-            bool allowTurn = journey.ForestCanTurnAround && Application.isFocused && !paused && inputReady;
+            bool active = Application.isFocused && !paused && inputReady;
             bool physicalReady = false;
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
             physicalReady = exhibit.Ready;
 #endif
+            ResolveTouchHolds(now, active && keyboard, active && physicalReady);
+        }
+
+        private void ResolveTouchHolds(float now, bool keyboardReady, bool physicalReady)
+        {
+            bool allowTurn = journey.ForestCanTurnAround;
             for (int i = 0; i < pendingTouch.Length; i++)
             {
-                if (!allowTurn || !(i < 2 ? keyboard : physicalReady)) pendingTouch[i] = false;
+                if (!allowTurn || !(i < 2 ? keyboardReady : physicalReady)) pendingTouch[i] = false;
                 if (!pendingTouch[i] || now - touchBegan[i] < TurnHoldSeconds) continue;
                 Array.Clear(pendingTouch, 0, pendingTouch.Length);
                 journey.TurnAroundForest();
                 break;
             }
-            journey.ForestChoiceInputHeld = Array.IndexOf(pendingTouch, true) >= 0;
         }
 
         private void Touch(int option, bool physical)

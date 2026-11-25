@@ -5,9 +5,7 @@ namespace Echoes
 {
     internal sealed partial class WorldSet
     {
-        private const float MazeCenter = -11;
-        private const float MazeLane = 2.1f;
-        private const float MazeStart = 25;
+        private const float MazeStart = 25, MazeLane = Journey.ForkLaneWidth;
         private static readonly Color PollutedBark = new Color(.23f, .29f, .24f);
         private static readonly Color WetConcrete = new Color(.33f, .40f, .41f);
         private static readonly Color Rust = new Color(.46f, .23f, .13f);
@@ -20,7 +18,8 @@ namespace Echoes
         private readonly MeshRenderer[] mazeRootSignals = new MeshRenderer[2];
         private readonly List<MeshRenderer> mazeBeacons = new List<MeshRenderer>();
         private Transform forkGround, mazeArchitecture, mazeEntryGate;
-        private ForestMaze mazeLayout;
+        private MeshFilter forkSoil;
+        private ForestMaze mazeLayout, forkSoilLayout;
         private Material mazeWater;
 
         private const float RoomRadius = ForestMaze.RoomRadius;
@@ -45,18 +44,24 @@ namespace Echoes
         public void DrawMaze(Journey journey, bool forest, float time)
         {
             bool seeFork = forest && journey.Distance >= 69f;
-            if (seeFork && forkGround == null) BuildForkLandscape();
+            if (seeFork)
+            {
+                if (forkGround == null) BuildForkLandscape();
+                if (forkSoilLayout != journey.ForestForkMaze) BuildForkTerrain(journey.ForestForkMaze);
+            }
             if (forkGround != null) forkGround.gameObject.SetActive(seeFork);
 
-            ForestMaze layout = forest && journey.Branch == ForestBranch.Left ? journey.ForestMaze : null;
+            ForestMaze layout = forest && journey.Distance >= 88 && (journey.Branch!=ForestBranch.Right || journey.Distance<142)
+                ? journey.ForestForkMaze : null;
             if (layout != null && layout != mazeLayout)
             {
                 ClearMazeLayout();
                 BuildPollutedMaze(layout);
                 mazeLayout = layout;
             }
-            if (mazeArchitecture != null) mazeArchitecture.gameObject.SetActive(layout != null);
-            if (layout == null) return;
+            bool mazeVisible = layout != null && journey.Distance >= 99;
+            if (mazeArchitecture != null) mazeArchitecture.gameObject.SetActive(mazeVisible);
+            if (!mazeVisible) return;
 
             if (mazeEntryGate != null)
                 mazeEntryGate.localPosition = Vector3.up * ((1 - journey.ForestMazeGateClosure) * (ForestMaze.WallHeight + .4f));
@@ -93,64 +98,148 @@ namespace Echoes
             mazeLayout = null;
         }
 
+        private void BuildForkTerrain(ForestMaze maze)
+        {
+            var terrain = Geometry();
+            const int columns = 86, rows = 206;
+            var points = new Vector3[columns+1,rows+1];
+            for (int row=0;row<=rows;row++)
+            for (int column=0;column<=columns;column++)
+            {
+                float x = (column-43)*.86f, z = 138+row*.48f;
+                float toLeft = Mathf.Abs(x-Journey.ForkTrackX(ForestBranch.Left,z-MazeStart));
+                float shoulder = 1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(2.72f,4.65f,toLeft));
+                float natural = Ground(x,z);
+                float apron = Mathf.Lerp(MazeApronFloor(x,z)-.018f*Mathf.InverseLerp(138,142,z),Mathf.Min(natural,.20f),
+                    Mathf.SmoothStep(0,1,Mathf.InverseLerp(149,151.4f,z)));
+                float ground = RecessedMazeGround(maze,x,z,Mathf.Lerp(natural,apron,shoulder));
+                points[column,row] = new Vector3(x,ground,z);
+            }
+            terrain.Surface(columns,rows,(column,row)=>points[column,row], p =>
+            {
+                float depth = p.z-MazeStart;
+                float left = Mathf.Abs(p.x-Journey.ForkTrackX(ForestBranch.Left,depth));
+                float right = Mathf.Abs(p.x-Journey.ForkTrackX(ForestBranch.Right,depth));
+                float track = Mathf.SmoothStep(0,1,Mathf.InverseLerp(1.75f,4.26f,Mathf.Min(left,right)));
+                float original = Mathf.SmoothStep(0,1,Mathf.InverseLerp(.9f,3.7f,Mathf.Abs(p.x-1.55f*Mathf.Sin(p.z*.12f))));
+                float shoulder = Mathf.SmoothStep(0,1,Mathf.InverseLerp(138,141.1f,p.z));
+                Color clay = new Color(.27f, .232f, .164f);
+                Color routeTint = left<right ? new Color(.26f,.32f,.271f) : new Color(.33f,.298f,.224f);
+                Color moss = new Color(.177f, .246f, .168f);
+                Color bed = Color.Lerp(Color.Lerp(clay,moss,original),Color.Lerp(routeTint,moss,track),shoulder);
+                return WorldMesh.Shade(bed,.66f+.55f*Mathf.PerlinNoise(p.x*.64f+9,p.z*.54f+9));
+            }, p => p.z >= 204 && p.x > 5 && p.x < 17);
+            const string name = "Continuous ground under both roads";
+            if (forkSoil == null) forkSoil = MazePiece(name,terrain,soil,forkGround).GetComponent<MeshFilter>();
+            else
+            {
+                Mesh previous = forkSoil.sharedMesh;
+                forkSoil.sharedMesh = terrain.Finish(name);
+                meshes.Remove(previous);
+                Object.Destroy(previous);
+            }
+            forkSoilLayout = maze;
+        }
+
+        private static float RecessedMazeGround(ForestMaze maze, float x, float z, float ground)
+        {
+            // The apron remains intact even on layouts with a lower-floor room farther west
+            // than the entrance. Clear the walkways and the terrain grid triangles at their edges.
+            if (x>-7) return ground;
+            float fromApron = Mathf.Abs(x-Journey.ForkTrackX(ForestBranch.Left,z-MazeStart));
+            float clearance = z>=149 ? 1 : Mathf.SmoothStep(0,1,Mathf.InverseLerp(3.42f,4.65f,fromApron));
+            if (clearance<=0) return ground;
+            float original = ground;
+            foreach (ForestMazeNode room in maze.Nodes)
+            {
+                float floor = room.Y-.22f;
+                if (floor>=ground) continue;
+                float d = Vector2.Distance(new Vector2(x,z),new Vector2(room.X,room.Z));
+                ground = Mathf.Lerp(floor,ground,Mathf.SmoothStep(0,1,Mathf.InverseLerp(RoomRadius+1,RoomRadius+2.55f,d)));
+            }
+            foreach (ForestMazeEdge edge in maze.Edges)
+            {
+                ForestMazeNode a = maze.Nodes[edge.A], b = maze.Nodes[edge.B];
+                if (Mathf.Min(a.Y,b.Y)-.22f>=ground) continue;
+                Vector2 span = new Vector2(b.X-a.X,b.Z-a.Z);
+                Vector2 offset = new Vector2(x-a.X,z-a.Z);
+                float t = Mathf.Clamp01(Vector2.Dot(offset,span)/span.sqrMagnitude);
+                float floor = Mathf.Lerp(a.Y,b.Y,t)-.22f;
+                if (floor>=ground) continue;
+                float d = (offset-span*t).magnitude;
+                ground = Mathf.Lerp(floor,ground,Mathf.SmoothStep(0,1,Mathf.InverseLerp(PassageHalf+1,PassageHalf+2.35f,d)));
+            }
+            return Mathf.Lerp(original,ground,clearance);
+        }
+
         private void BuildForkLandscape()
         {
-            forkGround = Group("Forest fork and continued terrain", root.transform);
-            var terrain = Geometry();
-            terrain.Surface(80, 110, (x, z) =>
-            {
-                float px = (x - 40) * .9f;
-                float pz = 138 + z * .9f;
-                float height=Ground(px,pz);
-                float flatten=Mathf.SmoothStep(0,1,Mathf.InverseLerp(8.4f,12.4f,-px))*Mathf.SmoothStep(0,1,Mathf.InverseLerp(141,148,pz));
-                return new Vector3(px,Mathf.Lerp(height,Mathf.Min(height,.16f),flatten),pz);
-            }, p =>
-            {
-                float opening = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(137, 149, p.z));
-                float distance = Mathf.Abs(Mathf.Abs(p.x) - 11 * opening);
-                float track = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(1.6f, 4.55f, distance));
-                Color clay = new Color(.27f, .232f, .164f);
-                Color moss = new Color(.177f, .246f, .168f);
-                return WorldMesh.Shade(Color.Lerp(clay, moss, track),
-                    .66f + .55f * Mathf.PerlinNoise(p.x * .64f + 9, p.z * .54f + 9));
-            }, p => p.z >= 204 && p.x > 5 && p.x < 17);
-            MazePiece("Soil extending through both paths", terrain, soil, forkGround);
+            forkGround = Group("Single forest Y junction and both approaches", root.transform);
 
-            var trail = Geometry();
             var roots = Geometry();
             var foliage = Geometry();
+            var rocks = Geometry();
+            var rightMetal = Geometry();
             for (int side = -1; side <= 1; side += 2)
             {
-                trail.Surface(12, 37, (x, z) =>
+                ForestBranch branch = side<0 ? ForestBranch.Left : ForestBranch.Right;
+                int shoulders = side<0 ? 5 : 17;
+                for (int i=0; i<shoulders; i++)
                 {
-                    float depth = 105 + z * .57f;
-                    float fork = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(112, 124, depth));
-                    float width = Mathf.Lerp(.50f, 2.12f, fork);
-                    float center = side > 0 ? 1.65f + 9.35f * fork : MazeApronX(depth);
-                    float px = center + (x / 6f - 1) * width;
-                    return side > 0 ? Landscape(px, MazeStart + depth, .013f) :
-                        new Vector3(px, MazeApronFloor(px, MazeStart + depth) + .023f, MazeStart + depth);
-                }, p => WorldMesh.Shade(side < 0 ? new Color(.24f, .30f, .27f) : new Color(.34f, .30f, .23f),
-                    .78f + .22f * Mathf.PerlinNoise(p.x * 4.4f, p.z * 2.1f)), null);
-                for (int i = 0; i < 12; i++)
-                {
-                    float z = 139 + i * 2.16f;
-                    float x = side * (17.8f + Mathf.Sin(i * 4.8f + side) * 1.9f);
-                    if (i % 3 == 0) Tree(roots, foliage, Landscape(x, z, -.08f), 10 + i % 4, .65f + i * .024f);
-                    Fern(foliage, Landscape(x + side * .9f, z + .42f, 0), .8f + i % 4 * .18f, i * .68f);
+                    float depth = 113.5f+i*2.57f;
+                    float offset = side*(6.45f+.95f*Mathf.Sin(i*2.43f+side));
+                    if (i%3==0) Tree(roots,foliage,ForkShoulder(branch,depth,offset,-.08f),10+i%4,.73f+i*.019f);
+                    Fern(foliage,ForkShoulder(branch,depth+.42f,offset-side*1.01f,0),.66f+i%4*.16f,i*.68f);
+                    if (i%2==0) rocks.Rock(ForkShoulder(branch,depth-.57f,offset-side*1.1f,.03f),
+                        new Vector3(.53f,.32f,.59f),PollutedBark,i*.67f,4,8,.18f);
                 }
             }
-            Vector3 bark = Landscape(-.55f, 145.8f, -.08f);
-            Tree(roots, foliage, bark, 9.4f, 1.45f);
-            Roots(roots, bark, Landscape(-4.3f, 139, -.06f), 1.26f, 1.3f, 0);
-            Roots(roots, bark, Landscape(4.2f, 140.2f, -.06f), .87f, 1.34f, 2.4f);
-            MazePiece("Diverging wet and dry tracks", trail, stone, forkGround);
-            MazePiece("Weathered roots between both tracks", roots, wood, forkGround);
-            MazePiece("Trees framing the fork", foliage, leaves, forkGround);
+
+            Vector3 dividingTree = Landscape(-.32f,146.7f,-.08f);
+            Tree(roots,foliage,dividingTree,11.1f,1.27f);
+            Roots(roots,dividingTree,Landscape(-.52f,142.6f,-.07f),.51f,.47f,0);
+            Roots(roots,dividingTree,Landscape(2.62f,149.8f,-.06f),.78f,.71f,2.4f);
+            Roots(roots,dividingTree,Landscape(-3.05f,150.6f,-.12f),.68f,.83f,3.5f);
+            for (int i=0; i<16; i++)
+            {
+                float z = 141.8f+i*.61f;
+                float width = Mathf.SmoothStep(.36f,3.3f,Mathf.InverseLerp(141.8f,150,z));
+                float x = width*Mathf.Sin(i*3.63f);
+                Fern(foliage,Landscape(x,z,-.025f),.47f+.29f*i/16f,i*1.68f);
+                if (i%3==0) rocks.Rock(Landscape(x+.13f,z,.14f),new Vector3(.46f,.35f,.61f),PollutedBark,i*.79f,4,8,.20f);
+            }
+
+            for (int i=0; i<15; i++)
+            {
+                float depth = 117.8f+i*1.15f;
+                for (int side=-1; side<=1; side+=2)
+                {
+                    float offset = side*Mathf.Lerp(2.65f,3.45f,i/14f);
+                    Vector3 a = ForkShoulder(ForestBranch.Right,depth,offset,.038f);
+                    if (i%3==0)
+                        rightMetal.Box(a+Vector3.up*.09f,new Vector3(.45f,.17f,.62f),Quaternion.Euler(0,side*(7+i),0),
+                            Color.Lerp(PollutedBark,Rust,.33f+i*.039f));
+                    else if (i>3)
+                        rightMetal.Box(a,new Vector3(.16f,.045f,.80f),Quaternion.identity,WorldMesh.Shade(WetConcrete,.63f+i*.012f));
+                }
+            }
+            MazePiece("Root island and continuous outer banks",roots,wood,forkGround);
+            MazePiece("Ferns defining both road saddles",foliage,leaves,forkGround);
+            MazePiece("Fieldstones shaped around the junction",rocks,stone,forkGround);
+            MazePiece("First traces of the machine under the right road",rightMetal,stone,forkGround);
             BuildMazeApron();
         }
 
-        private static float MazeApronX(float depth) => Journey.MazeApronCenter(depth) - 1.65f * Journey.MazeApronLaneWeight(depth);
+        private static Vector3 ForkShoulder(ForestBranch branch, float depth, float offset, float rise)
+        {
+            float x = Journey.ForkTrackX(branch,depth), z = MazeStart+depth;
+            float grade = (Journey.ForkTrackX(branch,depth+.26f)-Journey.ForkTrackX(branch,depth-.26f))/.52f;
+            float reach = offset/Mathf.Sqrt(1+grade*grade);
+            x += reach;
+            z -= grade*reach;
+            float lower = branch==ForestBranch.Left ? MazeApronFloor(x,z) : Ground(x,z);
+            return new Vector3(x,lower+rise,z);
+        }
 
         internal static float MazeApronFloor(float x, float z)
         {
@@ -166,22 +255,7 @@ namespace Echoes
             var water = Geometry();
             var hardware = Geometry();
             Vector3 At(float z, float offset, float rise)
-            {
-                float x = MazeApronX(z - MazeStart) + offset;
-                return new Vector3(x, MazeApronFloor(x, z) + rise, z);
-            }
-
-            bank.Surface(22, 35, (column, row) =>
-            {
-                float z = 137 + row * .344f;
-                float across = (column - 11) / 11f;
-                float x = Mathf.Lerp(3.01f, 3.3f, row / 35f) * across;
-                Vector3 point = At(z, x, .011f);
-                float shoulder = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(.65f, 1, Mathf.Abs(across)));
-                point.y = Mathf.Lerp(point.y, Ground(point.x, z) - .08f, shoulder);
-                return point;
-            }, point => Color.Lerp(new Color(.27f,.30f,.227f), new Color(.262f,.343f,.32f),
-                Mathf.InverseLerp(137,149,point.z)), null);
+                => ForkShoulder(ForestBranch.Left,z-MazeStart,offset,rise);
 
             for (int side = -1; side <= 1; side += 2)
             {
@@ -215,7 +289,7 @@ namespace Echoes
             }
             Vector3 pipe = At(145.7f,-3.10f,1.37f);
             SpillPipe(hardware,hardware, pipe+new Vector3(-1.4f,1.2f,2.22f),pipe,.34f);
-            MazePiece("Forest floor merging into the drainage apron",bank,soil,forkGround);
+            MazePiece("Flagstones on the drainage shoulders",bank,stone,forkGround);
             MazePiece("Tangled canopy over the approach",roots,wood,forkGround);
             MazePiece("Thinning fern bank",greenery,leaves,forkGround);
             MazePiece("Runoff gathering at the path edges",water,glow,forkGround,.14f);
@@ -238,15 +312,16 @@ namespace Echoes
                 ForestMazeNode from = maze.Nodes[edge.A], to = maze.Nodes[edge.B];
                 Vector3 a = MazeNodePosition(from), b = MazeNodePosition(to);
                 Vector3 heading = MazeHeading(a,b);
-                float grade = (b.y - a.y) / Vector3.Dot(b - a, heading);
-                ports[edge.A].Add(new MazePort(heading, grade));
-                ports[edge.B].Add(new MazePort(-heading, -grade));
-                BuildMazePassage(fabric,maze,a,b,from.Level,to.Level,edge.A*16.3f+edge.B*5.3f);
+                float reach = Vector3.Dot(b-a,heading);
+                float grade = (b.y-a.y)/reach;
+                ports[edge.A].Add(new MazePort(heading,grade,reach,edge));
+                ports[edge.B].Add(new MazePort(-heading,-grade,reach,edge));
+                BuildMazePassage(fabric,maze,edge,a,b,from.Level,to.Level,edge.A*16.3f+edge.B*5.3f);
             }
             // The expedition forks on natural ground before entering the built maze.
-            ports[maze.Entry].Add(new MazePort(Vector3.back, 0));
+            ports[maze.Entry].Add(new MazePort(Vector3.back,0,0,null));
             foreach (ForestMazeNode node in maze.Nodes)
-                BuildMazeRoom(fabric,node,ports[node.Id]);
+                BuildMazeRoom(fabric,maze,node,ports[node.Id]);
             BuildMazeEntryGate(MazeNodePosition(maze.Nodes[maze.Entry]));
 
             ForestMazeNode end = maze.Nodes[maze.RootChamber];
@@ -266,11 +341,15 @@ namespace Echoes
         {
             public readonly Vector3 Heading;
             public readonly float Grade;
+            public readonly float Length;
+            public readonly ForestMazeEdge Edge;
 
-            public MazePort(Vector3 heading, float grade)
+            public MazePort(Vector3 heading,float grade,float length,ForestMazeEdge edge)
             {
                 Heading = heading;
                 Grade = grade;
+                Length = length;
+                Edge = edge;
             }
         }
 
@@ -283,7 +362,7 @@ namespace Echoes
             return heading.sqrMagnitude < .001f ? Vector3.forward : heading.normalized;
         }
 
-        private void BuildMazePassage(MazeFabric fabric,ForestMaze maze,Vector3 start,Vector3 finish,
+        private void BuildMazePassage(MazeFabric fabric,ForestMaze maze,ForestMazeEdge passage,Vector3 start,Vector3 finish,
             int firstLevel,int lastLevel,float seed)
         {
             Vector3 heading = MazeHeading(start,finish);
@@ -329,6 +408,10 @@ namespace Echoes
                     Vector3 outward = cross*sign;
                     Vector3 offset = cross*PassageHalf*sign;
                     float wall = MazeWallHeight(level,rising,i,sections,sign);
+                    float wallRoom = Mathf.Max(wall,level == 0 ? .82f : 1.18f);
+                    if (!MazeObstructionClear(maze,passage,p+offset,.43f,wallRoom) ||
+                        !MazeObstructionClear(maze,passage,center+offset,.43f,wallRoom) ||
+                        !MazeObstructionClear(maze,passage,q+offset,.43f,wallRoom)) continue;
                     MazeRetainer(fabric.Concrete,p+offset,q+offset,outward,
                         wall, WorldMesh.Shade(WetConcrete,(level == 0 ? .68f : .80f)+.16f*Mathf.Sin(i*2.17f+seed+sign)));
                     if (level == 0 && !rising)
@@ -342,7 +425,7 @@ namespace Echoes
                         Vector3 foot = center+offset;
                         fabric.Iron.Box(foot+Vector3.up*.58f,new Vector3(.16f,1.35f,.17f),
                             orientation*Quaternion.Euler(0,0,sign*3.0f),Rust);
-                        if (level == 0 && wall > 1.5f)
+                        if (level == 0 && wall > 1.5f && MazeObstructionClear(maze,passage,foot,.78f,wall+.98f))
                             Roots(fabric.Bark,foot+cross*.09f*sign,foot+heading*1.21f+Vector3.up*(wall+.76f),
                                 .32f,.33f,seed+i+sign);
                         if (i%8 == 1 && !rising)
@@ -361,8 +444,8 @@ namespace Echoes
                     for (int sign=-1; sign<=1; sign+=2)
                     {
                         Vector3 support = center+cross*sign*2.33f;
-                        if (!ClearMazePier(maze,support)) continue;
                         float height = center.y+.62f;
+                        if (!MazeObstructionClear(maze,passage,support-Vector3.up*height,.42f,height)) continue;
                         fabric.Concrete.Box(support-Vector3.up*(height*.5f),new Vector3(.42f,height,.58f),
                             orientation,WorldMesh.Shade(WetConcrete,.69f));
                     }
@@ -375,36 +458,50 @@ namespace Echoes
                 if (level == 0)
                 {
                     Vector3 rim = landmark+cross*PassageHalf*side+Vector3.up*.76f;
-                    SpillPipe(fabric.Iron,fabric.Mineral,rim+cross*side*2.40f+Vector3.up*1.72f,rim,.32f);
-                    mazeBeacons.Add(MazeLamp(mazeArchitecture,rim-Vector3.up*.56f,.095f));
+                    Vector3 neck = rim+cross*side*2.40f+Vector3.up*1.72f;
+                    if (MazeObstructionClear(maze,passage,rim,.40f,.38f) &&
+                        MazeObstructionClear(maze,passage,(rim+neck)*.5f,.46f,.52f) &&
+                        MazeObstructionClear(maze,passage,neck,.46f,.40f))
+                    {
+                        SpillPipe(fabric.Iron,fabric.Mineral,neck,rim,.32f);
+                        mazeBeacons.Add(MazeLamp(mazeArchitecture,rim-Vector3.up*.56f,.095f));
+                    }
                 }
                 else if (level == 2)
                 {
                     Vector3 foot = landmark+cross*(PassageHalf+1.1f)*side-Vector3.up*.38f;
-                    Roots(fabric.Bark,foot,foot+Vector3.up*4.4f+heading*3.8f,.52f,.48f,seed);
+                    if (MazeObstructionClear(maze,passage,foot,1.05f,4.5f) &&
+                        MazeObstructionClear(maze,passage,foot+heading*2,.91f,4.5f))
+                        Roots(fabric.Bark,foot,foot+Vector3.up*4.4f+heading*3.8f,.52f,.48f,seed);
                 }
             }
             if (run>=11 && level==0 && !rising)
             {
                 Vector3 center=Vector3.Lerp(a,b,.71f);
                 Vector3 from=center-cross*2.7f, to=center+cross*2.7f;
-                Roots(fabric.Bark,from-Vector3.up*.20f,from+Vector3.up*4.95f,.34f,.35f,seed);
-                Roots(fabric.Bark,to+Vector3.up*.40f,to+Vector3.up*4.95f,.40f,.34f,seed+2);
-                SpillPipe(fabric.Iron,fabric.Mineral,from+Vector3.up*4.8f,to+Vector3.up*4.7f,.22f);
+                if (MazeObstructionClear(maze,passage,from,.78f,5.1f) && MazeObstructionClear(maze,passage,to,.80f,5.1f))
+                {
+                    Roots(fabric.Bark,from-Vector3.up*.20f,from+Vector3.up*4.95f,.34f,.35f,seed);
+                    Roots(fabric.Bark,to+Vector3.up*.40f,to+Vector3.up*4.95f,.40f,.34f,seed+2);
+                    SpillPipe(fabric.Iron,fabric.Mineral,from+Vector3.up*4.8f,to+Vector3.up*4.7f,.22f);
+                }
             }
         }
 
-        private static bool ClearMazePier(ForestMaze maze,Vector3 pier)
+        private static bool MazeObstructionClear(ForestMaze maze, ForestMazeEdge owner, Vector3 anchor, float padding, float height)
         {
-            foreach (ForestMazeEdge edge in maze.Edges)
+            float half = PassageHalf+padding;
+            foreach (ForestMazeEdge other in maze.Edges)
             {
-                Vector3 a=MazeNodePosition(maze.Nodes[edge.A]), b=MazeNodePosition(maze.Nodes[edge.B]);
-                if (Mathf.Min(a.y,b.y)>pier.y-1.7f) continue;
-                Vector2 origin=new Vector2(a.x,a.z), run=new Vector2(b.x-a.x,b.z-a.z);
-                float along=Mathf.Clamp01(Vector2.Dot(new Vector2(pier.x,pier.z)-origin,run)/run.sqrMagnitude);
-                Vector2 room=origin+run*along;
-                if (pier.y-Mathf.Lerp(a.y,b.y,along)>1.7f &&
-                    Vector2.Distance(room,new Vector2(pier.x,pier.z))<3.1f) return false;
+                if (other == owner) continue;
+                ForestMazeNode a = maze.Nodes[other.A], b = maze.Nodes[other.B];
+                if (Mathf.Max(a.Y,b.Y)+4.55f<anchor.y || Mathf.Min(a.Y,b.Y)>anchor.y+height+.16f) continue;
+                Vector2 axis = new Vector2(b.X-a.X,b.Z-a.Z);
+                Vector2 offset = new Vector2(anchor.x-a.X,anchor.z-a.Z);
+                float t = Mathf.Clamp01(Vector2.Dot(offset,axis)/axis.sqrMagnitude);
+                if ((offset-axis*t).sqrMagnitude>=half*half) continue;
+                float floor = Mathf.Lerp(a.Y,b.Y,t);
+                if (anchor.y<=floor+4.55f && anchor.y+height>=floor-.16f) return false;
             }
             return true;
         }
@@ -453,7 +550,7 @@ namespace Echoes
             else mesh.Quad(finish+up,finish+up+outside,start+up+outside,start+up,WorldMesh.Shade(color,1.14f));
         }
 
-        private void BuildMazeRoom(MazeFabric fabric, ForestMazeNode node, List<MazePort> ports)
+        private void BuildMazeRoom(MazeFabric fabric, ForestMaze maze, ForestMazeNode node, List<MazePort> ports)
         {
             Vector3 center = MazeNodePosition(node);
             bool terminal = node.Kind == ForestMazeNodeKind.DeadEnd;
@@ -471,7 +568,7 @@ namespace Echoes
                 fabric.Concrete.Quad(p,p-Vector3.up*.24f,q-Vector3.up*.24f,q,WorldMesh.Shade(panel,.73f));
 
                 Vector3 direction = (d0+d1).normalized;
-                if (PortOpen(direction,radius,ports)) continue;
+                if (PortOpen(direction,radius,ports) || !MazeObstructionClear(maze,null,(p+q)*.5f,.22f,height)) continue;
                 MazeRetainer(fabric.Concrete,p,q,direction,
                     height+.18f*Mathf.Sin(i*1.19f+node.Id), WorldMesh.Shade(panel,.84f));
                 if (i%7==0)
@@ -485,18 +582,40 @@ namespace Echoes
 
             for (int i=0;i<ports.Count;i++)
             {
-                Vector3 heading = ports[i].Heading, tangent = Vector3.Cross(Vector3.up,heading);
+                MazePort port = ports[i];
+                Vector3 heading = port.Heading, tangent = Vector3.Cross(Vector3.up,heading);
                 Quaternion rotation = Quaternion.LookRotation(heading);
-                Vector3 lip = MazeRoomPoint(center,heading*(radius-.57f),ports);
+                float inset = radius-.57f;
+                Vector3 lip = center+heading*inset+Vector3.up*(port.Grade*inset);
+                Vector3 jamb = tangent*(PassageHalf+.04f);
+                if (node.Kind==ForestMazeNodeKind.Junction)
+                {
+                    for (float next=inset; next<Mathf.Min(port.Length-3.40f,inset+8);next+=.62f)
+                    {
+                        Vector3 candidate = center+heading*next+Vector3.up*(port.Grade*next);
+                        if (!MazeObstructionClear(maze,port.Edge,candidate-jamb,.22f,2.56f) ||
+                            !MazeObstructionClear(maze,port.Edge,candidate+jamb,.22f,2.56f)) continue;
+                        lip = candidate;
+                        break;
+                    }
+                }
                 for (int side=-1;side<=1;side+=2)
                 {
-                    Vector3 post = lip+tangent*side*(PassageHalf+.04f);
+                    Vector3 post = lip+jamb*side;
+                    if (!MazeObstructionClear(maze,port.Edge,post,.22f,2.56f)) continue;
                     fabric.Iron.Box(post+Vector3.up*1.28f,new Vector3(.24f,2.56f,.32f),rotation,
                         WorldMesh.Shade(Rust,.89f + node.Level*.12f));
                     if (i==0 || node.Kind==ForestMazeNodeKind.Junction)
                         mazeBeacons.Add(MazeLamp(mazeArchitecture,post+Vector3.up*1.87f-heading*.09f,.114f));
                 }
-                if (node.Kind==ForestMazeNodeKind.Entry || basin)
+                if (node.Kind==ForestMazeNodeKind.Entry)
+                {
+                    Vector3 left=lip-tangent*(PassageHalf+.16f), right=lip+tangent*(PassageHalf+.16f);
+                    fabric.Bark.Tube(new[] {left,left+Vector3.up*3.84f,left+tangent*.47f+Vector3.up*5.27f,
+                            right-tangent*.56f+Vector3.up*5.41f,right+Vector3.up*4.12f,right},
+                        new[] {.35f,.28f,.23f,.24f,.26f,.32f},9,PollutedBark);
+                }
+                else if (basin)
                 {
                     Vector3 left=lip-tangent*(PassageHalf+.03f), right=lip+tangent*(PassageHalf+.03f);
                     fabric.Bark.Tube(new[] {left,right-tangent*.80f+Vector3.up*4.55f,right+Vector3.up*.94f},
@@ -529,6 +648,7 @@ namespace Echoes
                 Vector3 side = MazeRadial(index,sides);
                 if (PortOpen(side,radius,ports)) continue;
                 Vector3 fixture = center+side*(node.Level<=1 ? radius-.19f : radius+.09f);
+                if (!MazeObstructionClear(maze,null,fixture,node.Level<=1 ? .48f : .75f,3.8f)) continue;
                 if (node.Level <= 1)
                     MazeDrum(fabric.Iron,fabric.Mineral,fixture,Mathf.Sin(node.Id*.24f)*.21f,node.Id*.79f);
                 else
@@ -586,7 +706,7 @@ namespace Echoes
         private static bool PortOpen(Vector3 direction,float radius,List<MazePort> ports)
         {
             foreach (MazePort port in ports)
-                if (Vector3.Dot(direction,port.Heading)>0 && Mathf.Abs(Vector3.Cross(direction,port.Heading).y)*radius<PassageHalf+.08f)
+                if (Vector3.Dot(direction,port.Heading)>0 && Mathf.Abs(Vector3.Cross(direction,port.Heading).y)*radius<PassageHalf+.28f)
                     return true;
             return false;
         }

@@ -55,6 +55,9 @@ namespace Echoes
         public const float ForestRescueDuration = 9.4f;
         public const float ForestRescueSpendAt = 6.8f;
         private const float BranchDepth = 112;
+        internal const float ForkEntranceDepth = 103, ForkSplitDepth = BranchDepth, ForkBendEnd = MazeEntranceDepth;
+        internal const float ForkLaneWidth = 2.1f, ForkSplitOffset = 1.54f, ForestMachineCenter = 11f;
+        private const float MazeEntranceCenter = -13.1f;
         private const float ClearingDepth = 188;
         private const float VestibuleDepth = 168;
         internal const float MachineDoorDepth = 179, MachineShaftDepth = 205, MachineHeartDepth = 275;
@@ -69,6 +72,7 @@ namespace Echoes
         private readonly Random forestRandom;
         private readonly List<ForestFeature> forestFeatures = new List<ForestFeature>();
         private readonly ForestFeature[] forestSites = new ForestFeature[2];
+        private ForestMaze forestForkMaze;
         private ForestFeature forestRenewal;
         private int forestSeed, nextForestFeatureId, savedForestLights, savedForestLane;
         private int forestPlantMask, savedForestPlants, savedForestDepth;
@@ -119,12 +123,16 @@ namespace Echoes
         public ForestBranch Branch { get; private set; }
         public int ForestDoor { get; private set; } = -1;
         public float ForestCenter => ForestCenterAt(Distance);
+        internal ForestMaze ForestForkMaze => forestForkMaze?.Seed == forestSeed ? forestForkMaze :
+            forestForkMaze = new ForestMaze(forestSeed);
         public float ForestFlightSpeed => !InForest || IsForestSequence || Phase == Stage.ForestPlanting ? 0 :
             ForestMazeActive ? ForestMazeSpeed : Section == ForestSection.Shaft ? 5.1f + 2.65f * Voice + ForestShaftProgress * .85f :
-            LeftMazeApproach ? Lerp(ForestAirborne ? 4.35f + 4.15f * Voice :
-                Voice >= .08f ? .9f + 2.5f * Voice : 0, LeftMazeApproachPace, ForestMazeApproachBlend) :
-            ForestAirborne ? 4.35f + 4.15f * Voice :
-            Section == ForestSection.Brain && Voice >= .08f ? .9f + 2.5f * Voice : 0;
+            LeftMazeApproach ? Lerp(ForestApproachPace, LeftMazeApproachPace, ForestMazeApproachBlend) :
+            ForestApproachPace;
+        private float ForestApproachPace => ForestAirborne ? 4.35f + 4.15f * Voice :
+            (Distance >= ForestForkPromptDepth && Distance < VestibuleDepth || Section == ForestSection.Brain) &&
+            Voice >= .08f && Gesture != Hand.Fist ? .9f + 2.5f * Voice : 0;
+        private const float ForestForkPromptDepth = 100;
         public bool LeftMazeApproach => InForest && Branch == ForestBranch.Left && !ForestMazeActive;
         public float ForestMazeApproachBlend => Branch == ForestBranch.Left ? Smooth((Distance - 115) / (MazeEntranceDepth - 115)) : 0;
         private float LeftMazeApproachPace => MazeWalkScale * (Gesture == Hand.Fist ? 0 : ForestAirborne ? .92f + Voice * 2.48f :
@@ -175,12 +183,36 @@ namespace Echoes
 
         public float ForestCenterAt(float depth)
         {
-            if (Branch == ForestBranch.Left) return MazeApronCenter(depth);
-            return Branch == ForestBranch.Right ? 11 * Smooth((depth - BranchDepth) / 12) : 0;
+            return Branch == ForestBranch.Shared ? 0 : ForkTrackX(Branch, depth);
         }
 
-        internal static float MazeApronCenter(float depth) => -13.1f * Smooth((depth - BranchDepth) / (MazeEntranceDepth - BranchDepth));
-        internal static float MazeApronLaneWeight(float depth) => 1 - Smooth((depth - 114) / (MazeEntranceDepth - 114));
+        internal static float ForkTrackX(ForestBranch branch, float depth)
+        {
+            float side = branch == ForestBranch.Left ? -1 : 1;
+            if (depth <= BranchDepth)
+                return side*ForkSplitOffset*Smooth((depth-ForkEntranceDepth)/(BranchDepth-ForkEntranceDepth));
+            float end = branch == ForestBranch.Left ? MazeEntranceCenter : ForestMachineCenter;
+            return Lerp(side*ForkSplitOffset,end,ForkBend(depth));
+        }
+
+        private static float ForkBend(float depth)
+        {
+            float t = Clamp((depth-BranchDepth)/(ForkBendEnd-BranchDepth));
+            return t*t*t*(10+t*(-15+6*t));
+        }
+
+        internal float ForestPositionX(float lane, float depth)
+        {
+            float laneX = lane*ForkLaneWidth;
+            if (Branch == ForestBranch.Shared || depth <= BranchDepth) return laneX;
+            float blend = ForkBend(depth);
+            float track = ForestCenterAt(depth);
+            return Branch == ForestBranch.Left ? track+(laneX+ForkSplitOffset)*(1-blend) :
+                track+laneX-ForkSplitOffset*(1-blend);
+        }
+
+        internal float ForestPathGrade(float lane, float depth) =>
+            (ForestPositionX(lane,depth+.1f)-ForestPositionX(lane,depth-.1f))/.2f;
 
         public float ForestLoopOffset => 0;
 
@@ -310,6 +342,11 @@ namespace Echoes
             Distance = savedForestDepth;
             ForestLights = savedForestLights;
             ForestLane = ForestTargetLane = savedForestLane;
+            if (Branch != ForestBranch.Shared && Distance == BranchDepth)
+            {
+                ForestLane = ForkTrackX(Branch,BranchDepth)/ForkLaneWidth;
+                ForestTargetLane = 0;
+            }
             ForestSteering = forestLaneSpeed = forestPlantTime = forestProtectedUntil = 0;
             ForestTrap = ForestTrapKind.None;
             ForestHasRescue = forestRescueDeparted = false;
@@ -342,7 +379,7 @@ namespace Echoes
         {
             savedForestBranch = Branch;
             savedForestDepth = depth;
-            savedForestLane = ForestTargetLane;
+            savedForestLane = depth == BranchDepth ? (Branch == ForestBranch.Left ? -1 : 1) : ForestTargetLane;
             savedForestLights = ForestLights;
             savedForestPlants = forestPlantMask;
             Revision++;
@@ -424,19 +461,20 @@ namespace Echoes
         private void AdvanceForestFlight(float dt)
         {
             if (Phase == Stage.ForestPlanting) return;
-            float next = Distance + ForestFlightSpeed * dt;
+            float grade = ForestPathGrade(ForestLane, Distance);
+            float speed = ForestFlightSpeed / (float)Math.Sqrt(1+grade*grade);
+            if (Branch == ForestBranch.Shared && ForestTargetLane == 0 && Math.Abs(ForestLane) < .42f)
+                speed *= 1-.70f*Smooth((Distance-108)/(BranchDepth-108));
+            float next = Distance + speed * dt;
             if (Branch == ForestBranch.Shared)
             {
-                if (Distance < 100 && next >= 100) Message = "林路前方分成两道。";
+                if (Distance < ForestForkPromptDepth && next >= ForestForkPromptDepth) Message = "林路前方分成两道。";
                 if (next < BranchDepth) { Distance = next; return; }
                 if (Math.Abs(ForestLane) < .42f) { Distance = BranchDepth - .01f; return; }
                 Branch = ForestLane < 0 ? ForestBranch.Left : ForestBranch.Right;
-                if(Branch==ForestBranch.Left)
-                {
-                    ForestTargetLane=-1;
-                    forestQueuedLane=null;
-                }
-                Distance = BranchDepth;
+                ForestTargetLane=0;
+                forestQueuedLane=null;
+                Distance = next;
                 BuildForest();
                 SaveForestSpot((int)BranchDepth);
                 Message = "";

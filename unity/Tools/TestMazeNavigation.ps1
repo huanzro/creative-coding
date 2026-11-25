@@ -18,7 +18,7 @@ public static class MazeNavigationChecks
 
     public static string Run()
     {
-        int approaches = 0, walls = 0, passages = 0, gates = 0;
+        int approaches = 0, walls = 0, passages = 0, gates = 0, returnChoices = 0;
         foreach (int seed in Enumerable.Range(0, 192).Concat(new[] { -100, 541, 1337, int.MinValue, int.MaxValue }))
         {
             Journey game = NewJourney(seed);
@@ -39,7 +39,7 @@ public static class MazeNavigationChecks
                     }
                     else if (room.Kind == ForestMazeNodeKind.DeadEnd || room.Kind == ForestMazeNodeKind.Entry)
                     {
-                        CheckWall(game, room, incoming, seed);
+                        if (CheckWall(game, room, incoming, seed)) returnChoices++;
                         walls++;
                     }
                     else
@@ -53,8 +53,9 @@ public static class MazeNavigationChecks
                 }
             }
         }
-        return $"Passed {approaches} directed fork approaches with both buttons, interrupted turns and automatic continuation, " +
-            $"{passages} corridor approaches, {walls} modeled wall and gate contacts, and {gates} entry gate closures across 197 mazes.";
+        return $"Passed {approaches} directed fork approaches with both buttons, preselection, explicit waits and quiet door clearance, " +
+            $"{passages} corridor approaches, {walls} modeled wall and gate contacts, {returnChoices} preselected turns on retrace, " +
+            $"and {gates} entry gate closures across 197 mazes.";
     }
 
     static Journey NewJourney(int seed)
@@ -121,10 +122,31 @@ public static class MazeNavigationChecks
                 }
                 previous = button;
             }
-            FaceAndWalk(game, room, doors[previous], seed);
-            int target = game.ForestMazeTarget;
+            FaceAndWalk(game, room, doors[previous], seed, true);
+            // An opposite tap within the room corrects the departure but never jumps back to the pivot.
+            for (int i = 0; i < 12; i++) game.Step(Tick, 0);
+            float x = game.ForestMazeX, z = game.ForestMazeZ;
             game.Touch(1 - previous);
-            Require(game.ForestMazeTarget == target, seed, room.Id, "a late tap cannot redirect an occupied passage or skip the next room");
+            Require(game.MazeMotion == ForestMazeMotion.ReturningToChoice && game.ForestMazeX == x && game.ForestMazeZ == z,
+                seed, room.Id, "an opposite tap after an initial step returns to the shared pivot without snapping");
+            int wait = 0;
+            while (game.MazeMotion == ForestMazeMotion.ReturningToChoice && wait++ < 80)
+            {
+                game.Step(Tick, 0);
+                Require(Length(game.ForestMazeX - x, game.ForestMazeZ - z) < .16, seed, room.Id, "retargeting moves continuously");
+                x = game.ForestMazeX;
+                z = game.ForestMazeZ;
+            }
+            Require(game.ForestMazeTarget == doors[1 - previous] && Length(game.ForestMazeX-room.X, game.ForestMazeZ-room.Z) < .002,
+                seed, room.Id, "retargeting chooses the opposing physical doorway from the original room");
+            FaceAndWalk(game, room, doors[1 - previous], seed, true);
+            for (int i = 0; i < 140; i++) game.Step(Tick, 0);
+            float throughDoor = (float)Length(game.ForestMazeX-room.X, game.ForestMazeZ-room.Z);
+            Require(throughDoor > ForestMaze.RoomRadius && game.ForestMazeTarget == doors[1-previous], seed, room.Id,
+                "the selected path carries the quiet actor through the modeled doorway");
+            game.Touch(previous);
+            Require(game.ForestMazeTarget == doors[1-previous] && game.ForestMazeLeft == -1, seed, room.Id,
+                "a tap after leaving the room cannot redirect an occupied passage or skip the next room");
         }
 
         Arrive(game, room, incoming, seed);
@@ -141,50 +163,59 @@ public static class MazeNavigationChecks
         }
 
         Arrive(game, room, incoming, seed);
-        for (int tick = 0; tick < 49; tick++) game.Step(Tick, 1);
-        Require(game.MazeMotion == ForestMazeMotion.Choosing, seed, room.Id, "continuous sound leaves a full beat for a manual choice");
         float atChoice = game.ForestMazeTravel;
-        game.ForestChoiceInputHeld = true;
-        for (int tick = 0; tick < 18; tick++) game.Step(Tick, 1);
+        for (int tick = 0; tick < 180; tick++) game.Step(Tick, 1);
         Require(game.MazeMotion == ForestMazeMotion.Choosing && game.ForestMazeTravel == atChoice,
-            seed, room.Id, "a press awaiting tap or hold detection pauses the nearly finished choice window");
-        game.ForestChoiceInputHeld = false;
-        for (int tick = 0; tick < 20 && game.MazeMotion == ForestMazeMotion.Choosing; tick++) game.Step(Tick, 1);
-        Require(game.ForestMazeTarget == nearest, seed, room.Id, "forward sound finds the nearest actual door instead of stopping at air");
-        FaceAndWalk(game, room, nearest, seed);
+            seed, room.Id, "held forward sound never hides an unresolved junction");
 
-        Arrive(game, room, incoming, seed);
-        float heldTravel = game.ForestMazeTravel;
+        for (int button = 0; button < 2; button++)
+        {
+            Approach(game, room, incoming, 3.8f);
+            game.Touch(1-button);
+            game.Touch(button);
+            Require(game.ForestMazeNode == incoming && game.ForestMazeTarget == room.Id, seed, room.Id,
+                "preselection cannot jump to the queued passage before arriving");
+            for (int tick = 0; tick < 125 && game.ForestMazeNode != room.Id; tick++) game.Step(Tick, 1);
+            Require(game.ForestMazeNode == room.Id && game.ForestMazeTarget == doors[button] &&
+                Length(game.ForestMazeX-room.X, game.ForestMazeZ-room.Z) < .002, seed, room.Id,
+                "the latest early A/B input is consumed only at the approached fork");
+            FaceAndWalk(game, room, doors[button], seed, true);
+        }
+
+        Approach(game, room, incoming, 7.4f);
         game.Touch(0);
-        game.ForestChoiceInputHeld = true;
-        for (int tick = 0; tick < 70; tick++) game.Step(Tick, 1);
-        Require(game.MazeMotion == ForestMazeMotion.Walking && game.ForestMazeTravel == heldTravel && game.ForestMazeSpeed == 0,
-            seed, room.Id, "a pending opposite button holds position even after the first turn has finished");
-        game.ForestChoiceInputHeld = false;
-        game.Touch(1);
-        FaceAndWalk(game, room, doors[1], seed);
+        for (int tick = 0; tick < 160 && game.ForestMazeNode != room.Id; tick++) game.Step(Tick, 1);
+        Require(game.MazeMotion == ForestMazeMotion.Choosing, seed, room.Id, "a remote tap does not skip any future choice");
     }
 
-    static void FaceAndWalk(Journey game, ForestMazeNode room, int next, int seed)
+    static void FaceAndWalk(Journey game, ForestMazeNode room, int next, int seed, bool quiet = false)
     {
         ForestMazeNode door = game.ForestMaze.Nodes[next];
         float travel = game.ForestMazeTravel;
         for (int tick = 0; tick < 70 && game.MazeMotion == ForestMazeMotion.FacingPassage; tick++)
         {
-            game.Step(Tick, 1);
+            game.Step(Tick, quiet ? 0 : 1);
             Require(game.ForestMazeTravel == travel, seed, room.Id, "forward sound cannot move the actor during a turn");
         }
         Require(game.MazeMotion == ForestMazeMotion.Walking &&
             Math.Abs(Angle(game.ForestMazeHeading, Heading(room, door))) < .01, seed, room.Id, "the final heading points directly into the real door");
-        game.Step(Tick, 1);
+        game.Step(Tick, quiet ? 0 : 1);
         float dx = game.ForestMazeX - room.X, dz = game.ForestMazeZ - room.Z;
         Require(game.ForestMazeTravel > travel && dx * (door.X - room.X) + dz * (door.Z - room.Z) > 0, seed, room.Id,
             "walking resumes toward the selected door");
     }
 
-    static void CheckWall(Journey game, ForestMazeNode room, int incoming, int seed)
+    static bool CheckWall(Journey game, ForestMazeNode room, int incoming, int seed)
     {
         Arrive(game, room, incoming, seed);
+        ForestMaze maze = game.ForestMaze;
+        int returnFork = incoming;
+        if (maze.Nodes[incoming].Kind != ForestMazeNodeKind.Junction)
+        {
+            returnFork = maze.Connections(incoming).Select(edge => edge.Other(incoming))
+                .Where(node => node != room.Id && maze.Nodes[node].Kind == ForestMazeNodeKind.Junction).DefaultIfEmpty(-1).First();
+            if (returnFork >= 0) ((List<int>)Fields["mazePath"].GetValue(game)).Insert(0, returnFork);
+        }
         Require(game.MazeMotion == ForestMazeMotion.ApproachingWall && game.ForestMazeWallOffset == 0,
             seed, room.Id, "the room center stays open all the way up to the real wall");
         float startTravel = game.ForestMazeTravel;
@@ -216,25 +247,53 @@ public static class MazeNavigationChecks
                 seed, room.Id, "the actor walks away from the wall without teleporting");
         }
         Require(game.ForestMazeX == room.X && game.ForestMazeZ == room.Z, seed, room.Id, "backtracking rejoins the same centerline");
+        int queuedExit = -1;
         int guard = 0;
-        while (game.Phase == Stage.ForestLoop && guard++ < 2000) game.Step(Tick, 0);
+        while (game.Phase == Stage.ForestLoop && guard++ < 2000)
+        {
+            if (returnFork >= 0 && queuedExit < 0 && game.ForestMazeTarget == returnFork &&
+                game.MazeMotion == ForestMazeMotion.Retracing && Length(game.ForestMazeX-maze.Nodes[returnFork].X,
+                game.ForestMazeZ-maze.Nodes[returnFork].Z) < 3.7)
+            {
+                maze.OrderedExits(returnFork,game.ForestMazeNode,out _,out queuedExit);
+                Require(queuedExit >= 0 && game.Touch(1),seed,room.Id,"the last leg of the return accepts a preselected exit");
+            }
+            game.Step(Tick, 0);
+        }
         Require(game.Phase == Stage.ForestExplore, seed, room.Id, "the recovered route becomes controllable");
+        if (returnFork < 0) return false;
+        Require(queuedExit >= 0 && game.ForestMazeNode == returnFork && game.ForestMazeTarget == queuedExit,
+            seed,room.Id,"the preselection turns into the right doorway from the actual direction of return");
+        FaceAndWalk(game,maze.Nodes[returnFork],queuedExit,seed,true);
+        return true;
     }
 
     static void Arrive(Journey game, ForestMazeNode room, int incoming, int seed)
     {
         // Start one metre before each physical threshold and let the game process the arrival.
+        Approach(game,room,incoming,1);
+        for (int tick = 0; tick < 60 && game.ForestMazeNode != room.Id; tick++) game.Step(Tick, 1);
+        Require(game.ForestMazeNode == room.Id && Math.Abs(game.ForestMazeX - room.X) < .001 &&
+            Math.Abs(game.ForestMazeZ - room.Z) < .001, seed, room.Id, "the actual arrival reaches this room");
+    }
+
+    static void Approach(Journey game,ForestMazeNode room,int incoming,float distance)
+    {
+        typeof(Journey).GetMethod("ClearMazeChoice",Private).Invoke(game,null);
         ForestMaze maze = game.ForestMaze;
         ForestMazeNode from = maze.Nodes[incoming];
         float length = maze.Connections(room.Id).Single(road => road.Other(room.Id) == incoming).Length;
-        float fraction = (length - 1) / length;
+        float fraction = (length - distance) / length;
         var path = (List<int>)Fields["mazePath"].GetValue(game);
         path.Clear();
         path.Add(incoming);
         Set(game, "mazeFrom", incoming);
         Set(game, "mazeIncoming", -1);
         Set(game, "mazeTarget", room.Id);
-        Set(game, "mazeAlong", length - 1);
+        Set(game, "mazeAlong", length - distance);
+        Set(game, "mazeQueuedRoom", -1);
+        Set(game, "mazeQueuedFrom", -1);
+        Set(game, "mazeClearDoor", false);
         Set(game, "mazeWallOffset", 0f);
         Set(game, "mazeYaw", Heading(from, room));
         Set(game, "mazeSpeed", 0f);
@@ -242,9 +301,6 @@ public static class MazeNavigationChecks
         Set(game, "mazeY", from.Y + (room.Y - from.Y) * fraction);
         Set(game, "mazeZ", from.Z + (room.Z - from.Z) * fraction);
         Set(game, "mazeMotion", ForestMazeMotion.Walking);
-        for (int tick = 0; tick < 60 && game.ForestMazeNode != room.Id; tick++) game.Step(Tick, 1);
-        Require(game.ForestMazeNode == room.Id && Math.Abs(game.ForestMazeX - room.X) < .001 &&
-            Math.Abs(game.ForestMazeZ - room.Z) < .001, seed, room.Id, "the actual arrival reaches this room");
     }
 
     static void Set(Journey journey, string field, object value) => Fields[field].SetValue(journey, value);

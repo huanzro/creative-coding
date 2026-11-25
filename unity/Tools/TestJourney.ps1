@@ -79,7 +79,7 @@ function FlyFlat($game, $depth, $height, $lane) {
 
 function EnterLeft($game) {
     FlyFlat $game 112 .76 -1
-    Assert ($game.Branch -eq 'Left' -and $game.ForestCenter -eq 0) 'The shared route can commit to the maze without a camera jump.'
+    Assert ($game.Branch -eq 'Left' -and $game.ForestCenter -lt -1 -and $game.ForestCenter -gt -2) 'The shared route commits beside the actual left opening.'
     FlyFlat $game 124 .50 -1
     Assert ($game.ForestMazeActive -and $game.ForestMazeNode -eq $game.ForestMaze.Entry) 'The left entry reaches the actual maze floor.'
     $start = $game.Time

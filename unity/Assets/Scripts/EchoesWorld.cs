@@ -211,8 +211,8 @@ namespace Echoes
             else set.Flies(Vector3.zero,0,Vector3.zero,0,time);
 
             performer.Clear();
-            float? facing=forest && frame.forestMaze ? (float?)frame.forestMazeHeading :
-                forest && journey.LeftMazeApproach ? (float?)MazeApproachYaw(journey) :
+            float? facing=forest && (frame.forestMaze || journey.LeftMazeApproach ||
+                journey.Branch==ForestBranch.Right && journey.Distance<140) ? (float?)WorldSet.ForestHeading(journey) :
                 ruins ? (float?)(Mathf.Atan2(ruinRoute.Forward.x,ruinRoute.Forward.z)*Mathf.Rad2Deg) : null;
             if (!split) spirit.DrawInWorld(camera,screen,body,depth,key,performer,spatial,facing);
 
@@ -230,7 +230,7 @@ namespace Echoes
                 Vector2 center = new Vector2(Mathf.Clamp01(screen.x), 1-Mathf.Clamp01(screen.y));
                 float core = ProjectionLighting.CoreRadius(body);
                 lens.SetVector(ProjectionProfile, new Vector4(center.x,center.y,core,ProjectionLighting.Spread(falloff)));
-                lens.SetVector(ProjectionGrade, new Vector4(brightness,projectionGradient ? 1 : 0,ProjectionLighting.CoreGain,camera.aspect));
+                lens.SetVector(ProjectionGrade, new Vector4(brightness,projectionGradient ? 1 : 0,ProjectionLighting.CenterGain(falloff),camera.aspect));
                 RenderTexture before=RenderTexture.active;
                 Graphics.Blit(scene,graded,lens);
                 RenderTexture.active=before;
@@ -397,20 +397,21 @@ namespace Echoes
                     focus=center+heading*new Vector3(0,1.30f,.87f);
                 }
             }
-            else if (j.LeftMazeApproach)
+            else if (j.Branch != ForestBranch.Shared && j.Distance < 136)
             {
+                float turn = OpeningStoryboard.Window(j.Distance,112,117,125,136);
                 float close = j.ForestMazeApproachBlend;
-                Quaternion bend = Quaternion.Euler(0, MazeApproachYaw(j), 0);
-                Vector3 follow = actor + bend * new Vector3(.09f,.93f,-2.84f);
-                Vector3 intoPassage = actor + bend * new Vector3(0,.29f,3.15f);
-                at = Vector3.Lerp(at,follow,close);
-                focus = Vector3.Lerp(focus,intoPassage,close);
+                Vector3 tail = actor + heading * Vector3.Lerp(new Vector3(-.10f,1.26f,-4.22f),new Vector3(.09f,.93f,-2.84f),close);
+                Vector3 lead = actor + heading * Vector3.Lerp(new Vector3(0,.41f,4.6f),new Vector3(0,.29f,3.15f),close);
+                at = Vector3.Lerp(at,tail,Mathf.Max(turn*.80f,close));
+                focus = Vector3.Lerp(focus,lead,Mathf.Max(turn*.80f,close));
             }
             else if(j.Phase!=Stage.ForestDoor && j.Phase!=Stage.ForestFalling && j.ForestTrap!=ForestTrapKind.Cable &&
                 WorldSet.MachineTravelCamera(j,actor,out Vector3 machineAt,out Vector3 machineFocus))
             {
-                at=machineAt;
-                focus=machineFocus;
+                float blend = OpeningStoryboard.Ease(168,174.4f,j.Distance);
+                at=Vector3.Lerp(at,machineAt,blend);
+                focus=Vector3.Lerp(focus,machineFocus,blend);
             }
             if (j.Phase==Stage.ForestTrapped)
             {
@@ -458,14 +459,6 @@ namespace Echoes
                 at=Vector3.Lerp(at,new Vector3(shaft.x+.12f,actor.y+1.58f,shaft.z-.34f),descent);
                 focus=Vector3.Lerp(focus,actor+new Vector3(0,-.38f,.43f),descent);
             }
-        }
-
-        private static float MazeApproachYaw(Journey journey)
-        {
-            float depth = journey.Distance;
-            Vector3 a = WorldSet.ForestPoint(journey, journey.ForestLane, depth - .13f, 0);
-            Vector3 b = WorldSet.ForestPoint(journey, journey.ForestLane, Mathf.Min(depth + .13f, Journey.MazeEntranceDepth), 0);
-            return Mathf.Atan2(b.x-a.x,b.z-a.z) * Mathf.Rad2Deg;
         }
 
         private float ActorDepth(Vector2 screen,float body,Journey journey,bool opening)

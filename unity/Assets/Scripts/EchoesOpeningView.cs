@@ -42,14 +42,15 @@ namespace Echoes
             float size=162*shot.Actor.z;
             Vector2 fingertips=actor+HandPosition*size;
             Vector2 fly=actor+OpeningFlyOffset(t,shot,false)*size;
-            float strength=split?.34f:1;
+            float overlayGain=ProjectionOverlayGain(split);
+            float strength=(split?.34f:1)*overlayGain;
             float catchLight=OpeningStoryboard.Window(t,11.52f,12.4f,15.3f,17.0f);
             DrawLiftRibbon(fly+new Vector2(0,-18),fingertips,t,catchLight*strength*.67f);
             float scarlet=OpeningStoryboard.Window(t,26.83f,27.62f,29.96f,30.54f);
             DrawScarletSpiral(actor,t,scarlet*strength*.34f);
-            DrawLandingDebris(t);
+            DrawLandingDebris(t,overlayGain);
             float start=1-OpeningStoryboard.Ease(.03f,1.18f,t);
-            Paint(new Rect(0,0,Width,Height),new Color(.006f,.012f,.017f,start));
+            Paint(new Rect(0,0,Width,Height),new Color(.006f*overlayGain,.012f*overlayGain,.017f*overlayGain,start));
             float bar=28*OpeningStoryboard.Ease(0,.8f,t)*(1-OpeningStoryboard.Ease(35.2f,37.5f,t));
             Paint(new Rect(0,0,Width,bar),Color.black);
             Paint(new Rect(0,Height-bar,Width,bar),Color.black);
@@ -365,17 +366,17 @@ namespace Echoes
             }
         }
 
-        private void DrawLandingDebris(float time)
+        private void DrawLandingDebris(float time, float gain = 1)
         {
             float age = time - OpeningTiming.Impact;
-            if (age < 0 || age > 2.25f) return;
+            if (age < 0 || age > 2.25f || gain <= 0) return;
             var actor = OpeningStoryboard.Sample(OpeningTiming.Impact).Actor;
             for (int i = 0; i < 30; i++)
             {
                 float direction = Mathf.Sin(i * 3.888f);
                 float x = Width * actor.x + Mathf.Sqrt(age) * (32 + 161 * Mathf.Abs(direction)) * Mathf.Sign(direction);
                 float y = Height * .89f - Mathf.Sin(Mathf.Min(age, 1.73f) * 1.68f) * (12 + i % 7 * 10);
-                float opacity = .47f * (1 - age / 2.25f) * (i % 3 == 0 ? .9f : .46f);
+                float opacity = gain * .47f * (1 - age / 2.25f) * (i % 3 == 0 ? .9f : .46f);
                 Color ochre = new Color(.58f,.52f,.33f);
                 if (i % 3 == 0)
                     Stroke(new Vector2(x, y), new Vector2(x + 11 * direction, y + 2 - 8 * Mathf.Cos(age * 4 + i)), 3.6f,

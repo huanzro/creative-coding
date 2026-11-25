@@ -94,6 +94,42 @@ Assert ($turned[0] -gt 0 -and $turned[1] -gt 0) 'The suite exercises stationary 
 $privateProperty = [System.Reflection.BindingFlags]'Instance,Public,NonPublic'
 $distance = [Echoes.Journey].GetProperty('Distance', $privateProperty)
 $lane = [Echoes.Journey].GetProperty('ForestLane', $privateProperty)
+$forestX = [Echoes.Journey].GetMethod('ForestPositionX', $privateProperty)
+function Get-ForkX($game) {
+    if ($game.ForestMazeActive) { return $game.ForestMazeX }
+    return $forestX.Invoke($game, [object[]]@([single]$game.ForestLane, [single]$game.Distance))
+}
+
+foreach ($side in 0..1) {
+    $branch = if ($side -eq 0) { 'Left' } else { 'Right' }
+    $sign = 2 * $side - 1
+    $fork = [Echoes.Journey]::new(541)
+    $fork.SelectChapter(0)
+    $fork.SetHand([Echoes.Hand]::Open)
+    $distance.SetValue($fork, [single]102.5)
+    $buttonSent = $false
+    $largestStep = 0
+    for ($tick=0; $tick -lt 950 -and $fork.Distance -lt 124; $tick++) {
+        if (!$buttonSent -and $fork.Distance -ge 111.45) {
+            Assert ($fork.Touch($side)) 'A late tap at the visible split is accepted.'
+            $buttonSent = $true
+        }
+        $beforeX = Get-ForkX $fork
+        $beforeDepth = $fork.Distance
+        $fork.Step(.02, .55)
+        $dx = (Get-ForkX $fork) - $beforeX
+        $dz = $fork.Distance - $beforeDepth
+        $largestStep = [Math]::Max($largestStep, [Math]::Sqrt($dx*$dx + $dz*$dz))
+    }
+    Assert ($buttonSent -and $fork.Branch -eq $branch -and $fork.Distance -ge 124) "The $branch route completes the continuous bend after a late input."
+    Assert ($largestStep -lt .16) "The $branch route never teleports at the choice or entry."
+    Assert (($sign * (Get-ForkX $fork)) -gt 10.5) "The $branch route lands on its own road after the bend."
+    $save = $fork.Checkpoint
+    Assert ($save.forestDepth -eq 112) "The $branch choice keeps the existing fork checkpoint."
+    $save.forestLane = 0
+    Assert ($fork.Restore($save) -and ($sign * (Get-ForkX $fork)) -gt 1) "The $branch checkpoint resumes outside the center divider."
+}
+
 foreach ($kind in @('Web','Maw')) {
     foreach ($wide in @($false,$true)) {
         $trial=[Echoes.Journey]::new(541)
@@ -127,4 +163,4 @@ foreach ($kind in @('Web','Maw')) {
         }
     }
 }
-Write-Output 'Passed configurable maze pace, oriented turns, committed hidden traps and independent capture ranges.'
+Write-Output 'Passed both continuous forest approaches, fork checkpoint entry, configurable maze pace, oriented turns, committed hidden traps and independent capture ranges.'

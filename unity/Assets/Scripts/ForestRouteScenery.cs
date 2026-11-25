@@ -40,25 +40,21 @@ namespace Echoes
 
         public static Vector3 ForestPoint(Journey journey, float lane, float depth, float altitude)
         {
-            if (journey.Branch == ForestBranch.Left && depth <= Journey.MazeEntranceDepth)
-            {
-                float x = Journey.MazeApronCenter(depth) + LaneWidth * lane * Journey.MazeApronLaneWeight(depth);
-                float z = ForestStart + depth;
-                return new Vector3(x, MazeApronFloor(x, z) + .54f + 5.2f * altitude, z);
-            }
-            Vector3 point = ForestPoint(lane, depth, altitude);
-            float oldGround = Ground(point.x, point.z);
-            point.x += journey.ForestCenterAt(depth);
-            point.y += Ground(point.x, point.z) - oldGround;
-            if (journey.Branch == ForestBranch.Right) point.y += MachineFloor(depth);
-            return point;
+            float x = journey.ForestPositionX(lane,depth), z = ForestStart+depth;
+            float floor = journey.Branch == ForestBranch.Left && depth <= Journey.MazeEntranceDepth ?
+                MazeApronFloor(x,z) : Ground(x,z);
+            if (journey.Branch == ForestBranch.Right) floor += MachineFloor(depth);
+            return new Vector3(x,floor + .54f + 5.2f*altitude,z);
         }
 
         public static Vector3 MazeActor(Journey journey, float altitude) =>
             new Vector3(journey.ForestMazeX,journey.ForestMazeY + .54f + 5.2f*altitude,journey.ForestMazeZ);
 
         public static Quaternion ForestOrientation(Journey journey) =>
-            Quaternion.Euler(0,journey.ForestMazeActive ? journey.ForestMazeHeading : 0,0);
+            Quaternion.Euler(0,ForestHeading(journey),0);
+
+        public static float ForestHeading(Journey journey) => journey.ForestMazeActive ? journey.ForestMazeHeading :
+            Mathf.Atan(journey.ForestPathGrade(journey.ForestLane,journey.Distance))*Mathf.Rad2Deg;
 
         private static Vector3 ForestFeaturePoint(Journey journey, ForestFeature feature, bool animate)
         {

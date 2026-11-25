@@ -4,7 +4,7 @@ namespace Echoes
 {
     internal sealed partial class WorldSet
     {
-        private const float MachineCenter = 11, HeartFloorDrop = 18;
+        private const float MachineCenter = Journey.ForestMachineCenter, HeartFloorDrop = 18;
         private const float DoorDepth = Journey.MachineDoorDepth, ShaftDepth = Journey.MachineShaftDepth,
             HeartDepth = Journey.MachineHeartDepth;
         private const float UpperDeck = Journey.ForestMachineUpperFloor * 5.2f;
@@ -161,14 +161,15 @@ namespace Echoes
 
         public void DrawMachine(Journey journey,bool forest,float time,Vector3 actor)
         {
-            bool visible = forest && journey.Distance >= 101 && journey.Branch != ForestBranch.Left;
+            if (machineRoute==null && forest && journey.Distance>=78) BuildMachine();
+            bool visible = forest && journey.Distance >= 99 &&
+                (journey.Branch!=ForestBranch.Left || !journey.ForestMazeActive || journey.ForestMazeZ<161);
             if (!visible)
             {
                 if (machineRoute != null) machineRoute.gameObject.SetActive(false);
                 return;
             }
 
-            if (machineRoute == null) BuildMachine();
             machineRoute.gameObject.SetActive(true);
             float depth = journey.Distance;
             bool inDoor = journey.Phase == Stage.ForestDoor;
@@ -199,7 +200,7 @@ namespace Echoes
 
         private static Vector3 MachinePoint(float depth,float x = 0,float y = 0)
         {
-            float worldX = MachineCenter + x, z = depth + 25;
+            float worldX = Journey.ForkTrackX(ForestBranch.Right,depth) + x, z = depth + 25;
             return new Vector3(worldX,Ground(worldX,z)+MachineFloor(depth)+y,z);
         }
 
