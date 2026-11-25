@@ -34,9 +34,9 @@ namespace Echoes
         public bool starHelpUsed;
         public int forestSeed, forestReserve, forestLane, forestBranch, forestSites, forestDepth;
         public int ruinSeed, ruinRoom, ruinVisited;
-        public long ruinFinds, ruinOpenLow, ruinOpenHigh;
+        public long ruinFinds, ruinFindsExtra, ruinOpenLow, ruinOpenHigh, ruinExhibitOrder;
         public bool ruinHeartSeen;
-        public long ruinChestLootTaken, ruinReleasedMemories;
+        public long ruinChestLootTaken, ruinReleasedMemories, ruinReleasedMemoriesExtra;
         public int ruinRetryRooms, ruinRetryRecord, ruinRetryLastLane, ruinRetryOutcome, ruinRetryAttempts;
         public bool ruinRetryWall;
         public float ruinRetryDepth;
@@ -173,7 +173,7 @@ namespace Echoes
         public bool EnteredFromOpening => arrivedByOpening;
 
         public JourneyCheckpoint Checkpoint => new JourneyCheckpoint {
-            version = 8, chapter = Chapter, lesson = Lesson, plants = Plants, forestRoute = ForestRoute,
+            version = 10, chapter = Chapter, lesson = Lesson, plants = Plants, forestRoute = ForestRoute,
             forestSeed = forestSeed, forestReserve = savedForestLights, forestLane = savedForestLane,
             forestBranch = (int)savedForestBranch, forestSites = savedForestPlants, forestDepth = savedForestDepth,
             ruin = (int)RuinResult, starPaths = StarBits, withdrawals = Withdrawals,
@@ -181,8 +181,10 @@ namespace Echoes
             starLeft = StarLeft, starRight = StarRight, starMotif = StarMotif, starProgress = StarProgress,
             starMachineStart = StarMachineStart, starMachineEnd = StarMachineEnd, starHelpUsed = starHelpUsed,
             ruinSeed = ruinSeed, ruinRoom = ruinRoomId, ruinVisited = ruinVisited, ruinFinds = (long)ruinFinds,
-            ruinOpenLow = (long)ruinOpenLow, ruinOpenHigh = (long)ruinOpenHigh, ruinHeartSeen = ruinHeartSeen,
+            ruinFindsExtra = (long)ruinFindsExtra, ruinOpenLow = (long)ruinOpenLow, ruinOpenHigh = (long)ruinOpenHigh, ruinHeartSeen = ruinHeartSeen,
             ruinChestLootTaken = (long)ruinChestLootTaken, ruinReleasedMemories = (long)ruinReleasedMemories,
+            ruinReleasedMemoriesExtra = (long)ruinReleasedMemoriesExtra,
+            ruinExhibitOrder = (long)ruinExhibitOrder,
             ruinRetryRooms = ruinRetryRooms,
             ruinRetryRecord = (int)ruinRetryRecord, ruinRetryLastLane = ruinRetryLastLane,
             ruinRetryOutcome = (int)RuinRetryOutcome, ruinRetryAttempts = RuinRetryAttempts,
@@ -193,7 +195,7 @@ namespace Echoes
 
         public bool Restore(JourneyCheckpoint checkpoint)
         {
-            if (checkpoint.version < 2 || checkpoint.version > 8 || checkpoint.chapter < 0 || checkpoint.chapter > 2 ||
+            if (checkpoint.version < 2 || checkpoint.version > 10 || checkpoint.chapter < 0 || checkpoint.chapter > 2 ||
                 checkpoint.lesson < -1 || checkpoint.lesson > 2 || (checkpoint.lesson >= 0 && checkpoint.chapter != 0) ||
                 checkpoint.plants < 0 || checkpoint.plants > (checkpoint.version == 2 ? 2 : 3) ||
                 checkpoint.forestRoute < 0 || checkpoint.forestRoute > (checkpoint.version >= 4 ? 3 : 2) ||
@@ -249,6 +251,12 @@ namespace Echoes
             {
                 ruinLoops = Math.Max(0, Math.Min(999, checkpoint.ruinLoops));
             }
+            if (checkpoint.version >= 8)
+            {
+                ruinFindsExtra = (ulong)checkpoint.ruinFindsExtra;
+                ruinReleasedMemoriesExtra = (ulong)checkpoint.ruinReleasedMemoriesExtra;
+            }
+            ruinExhibitOrder = checkpoint.version >= 9 ? (ulong)checkpoint.ruinExhibitOrder : 0;
             if (InStars) RestoreStars(checkpoint);
             else StartSection();
             if (checkpoint.complete && InRuins) Complete();
@@ -347,7 +355,7 @@ namespace Echoes
 
         private void Release()
         {
-            if (InRuins && (Phase == Stage.RuinRetry || RuinLootOpen || ReleaseRuinGate())) return;
+            if (InRuins && (Phase == Stage.RuinRetry || RuinLootOpen)) return;
             LastRelease = PoseTime;
             ReleaseAltitude = Flight.Height;
             Light = 1;
@@ -378,9 +386,10 @@ namespace Echoes
             PoseTime += dt;
             PoseVoice = float.IsNaN(voice) || float.IsInfinity(voice) ? 0 : Clamp(voice);
             DancePhase = (DancePhase + dt * (.164f + .122f * PoseVoice)) % 1;
+            bool ruinDescending = InRuins && Flight.Speed < -.035f;
             if (InRuins)
             {
-                if (!IsRuinSequence && Phase != Stage.RuinRetry && !RuinLootOpen && !HoldAtRuinGate() && advanceJourney && Gesture != Hand.Missing)
+                if (!IsRuinSequence && Phase != Stage.RuinRetry && !RuinLootOpen && advanceJourney && Gesture != Hand.Missing)
                     Flight.StepForest(dt, Gesture, RuinHeightLimit);
             }
             else if (Lesson >= 0) Flight.Step(dt, Gesture);
@@ -423,7 +432,7 @@ namespace Echoes
             }
             if (!Started || Gesture == Hand.Missing)
             {
-                if (InRuins) RuinForwardSpeed = 0;
+                if (InRuins) { RuinForwardSpeed = 0; StopRuinSteering(); }
                 return;
             }
 
@@ -437,7 +446,7 @@ namespace Echoes
             }
             if (Lesson >= 0) UpdatePractice(dt);
             else if (Chapter == 0) UpdateForest(dt);
-            else UpdateRuins(dt);
+            else UpdateRuins(dt, ruinDescending);
         }
 
         private void Walk(float dt, float speed) => Distance += dt * speed * (1 + Voice * .73f);
@@ -456,8 +465,9 @@ namespace Echoes
         private static float Clamp(float value) => Math.Max(0, Math.Min(1, value));
 
         public string LeftLabel => InStars ? "A · 抽取光迹" : Phase == Stage.Complete ? "A · 下一章" :
-            RuinLootOpen ? "A · 切换" : Phase == Stage.RuinRetry ? RuinRetryLeftLabel : RuinCanChoosePassage ? "A · 留在本层" :
-            ForestMazeWalkArea ? "A · 左转" : InForest || InRuins ? "A · 向左" : Phase == Stage.Tutorial && Lesson == 2 ? "A · 看落点" : "A · 看一眼";
+            RuinLootOpen ? "A · 切换" : Phase == Stage.RuinRetry ? RuinRetryLeftLabel :
+            ForestMazeWalkArea ? "A · 左转" : InForest || InRuins ? "A · 向左" :
+            Phase == Stage.Tutorial && Lesson == 2 ? "A · 看落点" : "A · 看一眼";
 
         public string RightLabel
         {
@@ -468,7 +478,6 @@ namespace Echoes
                 if (RuinLootOpen) return "B · 确认";
                 if (Phase == Stage.RuinRetry) return RuinRetryRightLabel;
                 if (RuinCanTake) return RuinTakeLabel;
-                if (RuinCanChoosePassage) return RuinGuide != null && !RuinGuide.Opened ? "完成门前动作" : "B · 进入岔口";
                 if (ForestMazeWalkArea) return "B · 右转";
                 if (InForest || InRuins) return "B · 向右";
                 return "B · 借一步";

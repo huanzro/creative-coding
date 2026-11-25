@@ -59,7 +59,8 @@ function updateOutputs(now) {
 
 function choose(option, momentary) {
   if (!canPlay()) return;
-  send('Choose', option);
+  if (momentary || state.preview) send('Choose', option);
+  else send('BrowserTouch', option * 2 + 1);
   if (exhibit.armed && canOutput() && ui('arm').checked) {
     const touch = option === 0 ? 'touchA' : 'touchB';
     const now = performance.now();
@@ -69,6 +70,23 @@ function choose(option, momentary) {
     exhibit.flush();
   }
   if (state.preview) canvas.focus();
+}
+
+function releaseChoice(option) {
+  send('BrowserTouch', option * 2);
+}
+
+function bindChoice(id, option) {
+  const button = ui(id);
+  button.onclick = event => {
+    if (!state?.spirit?.ruins || state.preview || event.detail === 0) choose(option, true);
+  };
+  button.onpointerdown = event => {
+    if (event.button !== 0 || !canPlay() || !state.spirit?.ruins || state.preview) return;
+    button.setPointerCapture(event.pointerId);
+    choose(option, false);
+  };
+  button.onlostpointercapture = () => releaseChoice(option);
 }
 
 function stopCamera() {
@@ -296,8 +314,8 @@ function configurePrimary() {
     ui('choice-b').setAttribute('aria-pressed', String(state.choice === 1 && state.right.startsWith('B ·')));
     if (projectionWindow && !projectionWindow.closed) channel?.postMessage(json);
   };
-  ui('choice-a').onclick = () => choose(0, true);
-  ui('choice-b').onclick = () => choose(1, true);
+  bindChoice('choice-a', 0);
+  bindChoice('choice-b', 1);
   ui('camera').onclick = toggleCamera;
   ui('mic').onclick = toggleAudio;
   ui('calibrate-mic').onclick = beginAudioCalibration;
@@ -341,7 +359,10 @@ function configurePrimary() {
       channel.postMessage(JSON.stringify(state));
     }
   });
-  exhibit.addEventListener('status', ({ detail }) => setHardwareStatus(detail));
+  exhibit.addEventListener('status', ({ detail }) => {
+    if (!exhibit.ready) { releaseChoice(0); releaseChoice(1); }
+    setHardwareStatus(detail);
+  });
   exhibit.addEventListener('armed', ({ detail }) => {
     if (!detail) { ui('arm').checked = ui('fan').checked = false; cue.clear(); }
     setHardwareStatus(exhibit.ready ? 'EOL3 已连接' : '等待 EOL3 固件');
@@ -350,8 +371,12 @@ function configurePrimary() {
     ? '组合固件已启用风扇' : '等待组合固件'));
   exhibit.addEventListener('touch', ({ detail }) => {
     if (!['touchA', 'touchB'].includes(detail.source)) return;
-    if (detail.pressed) choose(detail.source === 'touchA' ? 0 : 1, false);
-    else cue.release(detail.source, performance.now());
+    const option = detail.source === 'touchA' ? 0 : 1;
+    if (detail.pressed) choose(option, false);
+    else {
+      releaseChoice(option);
+      cue.release(detail.source, performance.now());
+    }
   });
   ui('serial').onclick = async () => {
     ui('serial').disabled = true;

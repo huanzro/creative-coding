@@ -3,26 +3,43 @@ using System.Collections.Generic;
 
 namespace Echoes
 {
+    public readonly struct RuinTransferMetrics
+    {
+        public readonly float Distance, SourceScale, DestinationScale;
+        public readonly Func<float, float> SpeedLimit;
+        public RuinTransferMetrics(float distance, float sourceScale, float destinationScale, Func<float, float> speedLimit = null)
+        {
+            Distance = distance;
+            SourceScale = sourceScale;
+            DestinationScale = destinationScale;
+            SpeedLimit = speedLimit;
+        }
+    }
+
     public sealed partial class Journey
     {
         public const int RuinCapacity = 15;
+        public const string RuinPhoneName = "ipone18p";
+        public const int RuinDisciplineCount = 9;
         public const float RuinHeightLimit = 1.65f;
-        public const float RuinTransitionDuration = 3.35f;
         public const float RuinEntryAltitude = .072f;
         public const int RuinRoomCount = RuinAtlas.RoomCount;
-        private const float PalmTime = .38f;
-        private const float VoiceTime = .48f;
+        public const float RuinMinimumReach = .65f;
+        public const float RuinMaximumReach = RuinPortal.MaximumReach;
+        private const float RuinSideLimit = 1.32f;
+        private const float RuinSideSpeed = 1.55f;
         private const float HeartStartleTime = 1.45f;
         private const float EntryAltitude = .17f;
         private const float RuinVoiceDeadZone = .12f;
         private const float RuinFastSpeed = 4.2f;
         private const float RuinSearchSpeed = .19f;
-        private static readonly string[] RuinObjectLabels = { "心脏", "大脑", "手机", "电脑", "宝箱" };
+        private static readonly string[] RuinObjectLabels = { "心脏", "大脑", RuinPhoneName, "电脑", "宝箱" };
 
         private RuinRoom[] ruinRooms;
-        private int ruinSeed, ruinVisited, ruinRoomId, ruinLoops, ruinBypassedPortal = -1;
-        private ulong ruinFinds, ruinOpenLow, ruinOpenHigh;
-        private float ruinHeartAt, ruinSteeringSpeed, ruinVoiceCharge;
+        private int ruinSeed, ruinVisited, ruinRoomId, ruinLoops, ruinSteerHeld;
+        private ulong ruinFinds, ruinFindsExtra, ruinOpenLow, ruinOpenHigh, ruinExhibitOrder;
+        private float ruinHeartAt, ruinSteeringSpeed, ruinPassageSpeed;
+        private RuinTransferMetrics ruinTransferMetrics;
         private bool ruinHeartSeen;
         private string ruinHint;
 
@@ -31,6 +48,38 @@ namespace Echoes
         private RuinRoom CurrentRuinRoom => ruinRooms == null ? null : ruinRooms[ruinRoomId];
         public int RuinRoomId => ruinRoomId;
         public int RuinVisualSeed => ruinSeed;
+        public int RuinDiscipline => RuinDisciplineFor(ruinRoomId);
+        public int RuinDisciplinesSeen
+        {
+            get
+            {
+                int count = 0;
+                for (int room = 0; room < RuinRoomCount; room++)
+                {
+                    int stored = StoredRuinDiscipline(room);
+                    if (stored < RuinDisciplineCount) count = Math.Max(count, stored + 1);
+                }
+                return count;
+            }
+        }
+
+        public int RuinDisciplineFor(int room)
+        {
+            int assigned = StoredRuinDiscipline(room);
+            if (assigned >= 0 && assigned < RuinDisciplineCount) return assigned;
+            int seen = RuinDisciplinesSeen;
+            return seen < RuinDisciplineCount ? seen : room % RuinDisciplineCount;
+        }
+
+        private int StoredRuinDiscipline(int room) => (int)((ruinExhibitOrder >> (room * 4)) & 15UL) - 1;
+
+        private void AssignRuinDiscipline(int room)
+        {
+            int stored = StoredRuinDiscipline(room);
+            if (stored >= 0 && stored < RuinDisciplineCount) return;
+            int shift = room * 4;
+            ruinExhibitOrder = (ruinExhibitOrder & ~(15UL << shift)) | ((ulong)(RuinDisciplineFor(room) + 1) << shift);
+        }
         public string RuinRoomName => CurrentRuinRoom?.Name ?? "";
         public int RuinLayer => CurrentRuinRoom?.Layer ?? 0;
         public int RuinRoomStyle => CurrentRuinRoom?.Style ?? 0;
@@ -42,21 +91,30 @@ namespace Echoes
         public float RuinPassageStartDepth { get; private set; }
         public float RuinPassageStartLane { get; private set; }
         public float RuinPassageStartAltitude { get; private set; }
+        public float RuinPassageStartForwardSpeed { get; private set; }
+        public float RuinPassageStartLateralSpeed { get; private set; }
+        public float RuinPassageStartVerticalSpeed { get; private set; }
+        public Func<Journey, RuinTransferMetrics> MeasureRuinPassage { get; set; }
+        public float RuinLeftReach { get; set; } = 1;
+        public float RuinRightReach { get; set; } = 1;
+        public float RuinUpperReach { get; set; } = 1;
+        public float RuinLowerReach { get; set; } = 1;
         public float RuinLane { get; private set; }
-        public int RuinTargetLane { get; private set; }
         public float RuinSteering { get; private set; }
         public float RuinForwardSpeed { get; private set; }
         public RuinObject RuinSearchTarget { get; private set; }
-        public bool RuinCanTake => Phase == Stage.RuinExplore && !RuinLootOpen && RuinGuide == null &&
-            RuinSearchTarget != null && RuinForwardSpeed <= RuinSearchSpeed;
+        public RuinObject RuinNearbyClue { get; private set; }
+        public bool RuinCanTake => Phase == Stage.RuinExplore && !RuinLootOpen && RuinSearchTarget != null &&
+            RuinForwardSpeed <= RuinSearchSpeed && FindRuinPortal(RuinDirection.Right) == null;
         public string RuinTakeLabel => RuinSearchTarget?.Kind == RuinObjectKind.Chest ? "B · 打开宝箱" : "B · 拾取藏品";
         public RuinPortal RuinApproach { get; private set; }
-        public RuinPortal RuinGuide { get; private set; }
+        public RuinPortal RuinUpperApproach => Phase == Stage.RuinExplore ? FindRuinUpperPreview() : null;
         public RuinPortal RuinEntrance { get; private set; }
-        public bool RuinCanChoosePassage => Phase == Stage.RuinExplore && !RuinLootOpen && !RuinCanTake &&
-            RuinApproach != null && (RuinGuide != null || CanChooseRuinPortal(RuinApproach));
-        public float RuinGateCharge => RuinGuide == null || RuinGuide.Opened ? 0 :
-            RuinGuide.Gate == RuinGate.Palm ? Clamp(Held / PalmTime) : Clamp(ruinVoiceCharge / VoiceTime);
+        public bool RuinCanChoosePassage => IsRuinEntranceInRange(RuinApproach);
+        public bool IsRuinEntranceInRange(RuinPortal portal) => portal != null && Phase == Stage.RuinExplore &&
+            !RuinLootOpen && InRuinPortalRange(portal);
+        public float RuinDoorOpening => RuinEntrance != null && RuinEntrance.OpenAge >= 0
+            ? Clamp(RuinEntrance.OpenAge / .30f) * (1 - Clamp((RuinEntrance.OpenAge - .36f) / .55f)) : 0;
         public int RuinHearts { get; private set; }
         public int RuinBrains { get; private set; }
         public int RuinPhones { get; private set; }
@@ -79,7 +137,7 @@ namespace Echoes
             ruinRooms = null;
             ruinRoomId = ruinVisited = 0;
             ruinLoops = 0;
-            ruinFinds = ruinOpenLow = ruinOpenHigh = 0;
+            ruinFinds = ruinFindsExtra = ruinOpenLow = ruinOpenHigh = ruinExhibitOrder = 0;
             ruinHeartSeen = false;
             ruinHeartAt = float.NegativeInfinity;
             RuinVisitedCount = RuinHearts = RuinBrains = RuinPhones = RuinComputers = RuinChests = 0;
@@ -102,86 +160,99 @@ namespace Echoes
         {
             ClearRuinLoot();
             ruinRoomId = room;
+            // Room zero anchors the sequence when upgrading an older checkpoint.
+            AssignRuinDiscipline(0);
+            AssignRuinDiscipline(room);
             if ((ruinVisited & (1 << room)) == 0)
             {
                 ruinVisited |= 1 << room;
                 RuinVisitedCount++;
             }
             Distance = 0;
-            RuinLane = RuinTargetLane = 0;
-            RuinSteering = ruinSteeringSpeed = ruinVoiceCharge = RuinForwardSpeed = 0;
-            RuinSearchTarget = null;
-            RuinApproach = RuinGuide = RuinEntrance = null;
-            ruinBypassedPortal = -1;
+            RuinLane = 0;
+            RuinForwardSpeed = 0;
+            StopRuinSteering();
+            RuinSearchTarget = RuinNearbyClue = null;
+            RuinApproach = RuinEntrance = null;
             foreach (var item in CurrentRuinRoom.Objects) item.Reveal = 0;
             float entryHeight = atThreshold && room == 0 ? EntryAltitude : RuinEntryAltitude;
             Flight.Reset(entryHeight, RuinHeightLimit);
-            ruinHint = room == 0 ? "发声前进，停声停下。A / B 横移，握拳后张手上升。" :
+            ruinHint = room == 0 ? "发声前进，停声停下。按住 A / B 自由横移，握拳后张手上升。" :
                 CurrentRuinRoom.Style == 5 ? "墙后还有空间。沿两侧的微光找一找。" :
                 "发声前进。可在岔口换层，也可停下来查看墙边。";
             Change(Stage.RuinExplore, ruinHint);
         }
 
+        public void SetRuinSteering(bool left, bool right)
+        {
+            ruinSteerHeld = left == right ? 0 : left ? -1 : 1;
+        }
+
+        private void StopRuinSteering()
+        {
+            RuinSteering = ruinSteeringSpeed = 0;
+            ruinSteerHeld = 0;
+        }
+
         private void RuinTouch(int option)
         {
-            if (option == 1 && RuinCanTake)
-            {
-                TakeRuinCache(RuinSearchTarget);
-                return;
-            }
-            if (!RuinCanChoosePassage)
-            {
-                RuinTargetLane = Math.Max(-1, Math.Min(1, RuinTargetLane + (option == 0 ? -1 : 1)));
-                return;
-            }
-            RuinPortal portal = RuinApproach;
-            if (option == 0)
-            {
-                ruinBypassedPortal = portal.Id;
-                RuinApproach = RuinGuide = null;
-                ruinVoiceCharge = 0;
-                Message = "沿当前隧道继续飞行。";
-                return;
-            }
-            if (portal.Opened)
-            {
-                TravelRuins(portal);
-                return;
-            }
-            RuinGuide = portal;
-            RuinTargetLane = portal.Lane;
-            RuinForwardSpeed = 0;
-            RuinSearchTarget = null;
-            Message = portal.Gate == RuinGate.Palm ? "掌印门。握拳半秒，再张开手。A 可返回主路。" :
-                "共鸣门。张手并轻声约半秒。A 可返回主路。";
+            if (option == 1 && RuinCanTake) TakeRuinCache(RuinSearchTarget);
         }
 
-        private static bool IsVerticalRuinPortal(RuinPortal portal) =>
-            portal.Direction == RuinDirection.Upper || portal.Direction == RuinDirection.Lower;
-
-        private bool CanChooseRuinPortal(RuinPortal portal)
+        private float RuinReach(RuinDirection direction)
         {
-            if (portal.Id == ruinBypassedPortal) return false;
+            float reach;
+            switch (direction)
+            {
+                case RuinDirection.Left: reach = RuinLeftReach; break;
+                case RuinDirection.Right: reach = RuinRightReach; break;
+                case RuinDirection.Upper: reach = RuinUpperReach; break;
+                default: reach = RuinLowerReach; break;
+            }
+            return float.IsNaN(reach) ? 1 : Math.Max(RuinMinimumReach, Math.Min(RuinMaximumReach, reach));
+        }
+
+        private bool InRuinPortalRange(RuinPortal portal, float preview = 1)
+        {
+            float reach = RuinReach(portal.Direction) * preview;
             float ahead = portal.Depth - Distance;
+            if (ahead < -RuinPortal.TailDepth * reach || ahead > RuinPortal.LeadDepth * reach) return false;
+
             float lateral = Math.Abs(RuinLane - portal.Lane);
-            float altitude = Flight.Height;
-            if (IsVerticalRuinPortal(portal))
-            {
-                bool aligned = portal.Direction == RuinDirection.Upper ? altitude >= .64f : altitude <= .53f;
-                return ahead >= -1.30f && ahead <= 4.15f && lateral <= .90f && aligned;
-            }
-            return ahead >= -.74f && ahead <= 2.20f && RuinTargetLane == portal.Lane &&
-                lateral <= .34f && Math.Abs(altitude - portal.Altitude) <= .26f;
+            if (portal.Direction == RuinDirection.Upper)
+                return lateral <= 1.12f * reach &&
+                    (preview > 1 || Flight.Height >= Math.Max(.36f, portal.Altitude - .82f * reach));
+            if (portal.Direction == RuinDirection.Lower)
+                return lateral <= 1.12f * reach && Flight.Height <= portal.Altitude + .63f * reach;
+            // Side entrances receive the current turn direction across the full playable flight height.
+            return lateral <= Math.Min(1.90f, 1.22f * reach);
         }
 
-        // Gate-assisted hovering makes the short prompt forgiving without committing the player to that route.
-        private bool HoldAtRuinGate() => RuinGuide != null && RuinTargetLane == RuinGuide.Lane;
-
-        private bool ReleaseRuinGate()
+        private RuinPortal FindRuinUpperPreview()
         {
-            if (!HoldAtRuinGate() || RuinGuide.Gate != RuinGate.Palm || RuinGuide.Opened) return false;
-            if (Held >= PalmTime) OpenRuinGate(RuinGuide);
-            return true;
+            RuinPortal nearest = null;
+            float best = float.PositiveInfinity;
+            foreach (var portal in RuinPortals)
+            {
+                if (portal.Direction != RuinDirection.Upper || portal.Hidden) continue;
+                float ahead = portal.Depth - Distance;
+                if (ahead < -1.4f || ahead > 10f) continue;
+                float score = Math.Abs(ahead);
+                if (score >= best) continue;
+                nearest = portal;
+                best = score;
+            }
+            return nearest;
+        }
+
+        private RuinPortal FindRuinPortal(RuinDirection direction)
+        {
+            RuinPortal nearest = null;
+            foreach (var portal in RuinPortals)
+                if (portal.Direction == direction && InRuinPortalRange(portal) &&
+                    (nearest == null || Math.Abs(portal.Depth - Distance) < Math.Abs(nearest.Depth - Distance)))
+                    nearest = portal;
+            return nearest;
         }
 
         private void OpenRuinGate(RuinPortal gate)
@@ -190,113 +261,100 @@ namespace Echoes
             gate.OpenAge = 0;
             if (gate.Id < 64) ruinOpenLow |= 1UL << gate.Id;
             else ruinOpenHigh |= 1UL << (gate.Id - 64);
-            Notify(JourneyCue.RuinDoor);
-            Revision++;
-            Message = "门已打开。即将穿过弯道，按 A 可返回主路。";
         }
 
-        private void UpdateRuins(float dt)
+        private void UpdateRuins(float dt, bool wasDescending = false)
         {
-            if (IsRuinSequence)
-            {
-                UpdateRuinForwardSpeed(dt);
-                Progress = Clamp(Progress + dt * (float)Math.Sqrt(RuinForwardSpeed / RuinFastSpeed) / RuinTransitionDuration);
-                if (Progress < 1) return;
-                RememberRuinPortal(RuinEntrance);
-                EnterRuinRoom(RuinEntrance.TargetRoom, false);
-                Revision++;
-                return;
-            }
-
             foreach (var portal in CurrentRuinRoom.Portals)
                 if (portal.OpenAge >= 0) portal.OpenAge = Math.Min(10, portal.OpenAge + dt);
+
+            if (IsRuinSequence)
+            {
+                if (Gesture != Hand.Missing) AdvanceRuinTransfer(dt);
+                return;
+            }
             if (RuinLootOpen)
             {
                 if (RuinLootSource != null && RuinLootSource.OpenAge >= 0)
                     RuinLootSource.OpenAge = Math.Min(10, RuinLootSource.OpenAge + dt);
                 return;
             }
-            UpdateRuinSteering(dt);
-            if (HoldAtRuinGate())
-            {
-                float aim = Flight.Height + (RuinGuide.Altitude - Flight.Height) * Follow(dt, 7.5f);
-                Flight.FollowForestCourse(aim, dt);
-                if (RuinGuide.Opened)
-                {
-                    if (RuinGuide.OpenAge >= .52f) TravelRuins(RuinGuide);
-                }
-                else if (RuinGuide.Gate == RuinGate.Voice)
-                {
-                    bool speaking = Voice >= .17f && Gesture == Hand.Open;
-                    ruinVoiceCharge = Math.Max(0, ruinVoiceCharge + dt * (speaking ? 1 : -1.35f));
-                    if (ruinVoiceCharge >= VoiceTime) OpenRuinGate(RuinGuide);
-                }
-                RuinSearchTarget = null;
-                return;
-            }
-            RuinGuide = null;
-            ruinVoiceCharge = 0;
 
-            UpdateRuinForwardSpeed(dt);
+            UpdateRuinSteering(dt);
+            RuinForwardSpeed = ApproachRuinSpeed(RuinForwardSpeed, RuinVoiceSpeed, 5.6f * dt, 18f * dt);
             Distance += RuinForwardSpeed * dt;
             if (Distance >= RuinRoomLength)
             {
                 Distance %= RuinRoomLength;
                 ruinLoops = Math.Min(ruinLoops + 1, 999);
-                ruinBypassedPortal = -1;
                 RuinApproach = null;
                 Revision++;
             }
+
+            RuinPortal route = ruinSteerHeld == 0 ? null :
+                FindRuinPortal(ruinSteerHeld < 0 ? RuinDirection.Left : RuinDirection.Right);
+            if (route == null && Gesture == Hand.Open) route = FindRuinPortal(RuinDirection.Upper);
+            if (route == null && (Flight.Speed < -.035f || wasDescending && Flight.Height <= .03f))
+                route = FindRuinPortal(RuinDirection.Lower);
+            if (route != null)
+            {
+                TravelRuins(route);
+                return;
+            }
+
             UpdateRuinSearch(dt);
             if (!RuinCanTake && RuinForwardSpeed > RuinSearchSpeed && TryStartRuinRetry())
             {
                 RuinForwardSpeed = 0;
-                RuinSearchTarget = null;
+                RuinSearchTarget = RuinNearbyClue = null;
                 return;
             }
+            UpdateRuinApproach();
+        }
+
+        private void UpdateRuinApproach()
+        {
             RuinPortal approached = null;
             float bestScore = float.PositiveInfinity;
             foreach (var portal in CurrentRuinRoom.Portals)
             {
-                float ahead = portal.Depth - Distance;
-                bool tall = IsVerticalRuinPortal(portal);
-                if (portal.Id == ruinBypassedPortal || ahead < (tall ? -1.3f : -.74f) || ahead > (tall ? 8.6f : 7f))
-                    continue;
+                bool available = InRuinPortalRange(portal);
+                if (!available && !InRuinPortalRange(portal, 1.82f)) continue;
+                float depth = Math.Abs(portal.Depth - Distance);
                 float lateral = Math.Abs(RuinLane - portal.Lane);
                 float vertical = Math.Abs(Flight.Height - portal.Altitude);
-                bool canChoose = CanChooseRuinPortal(portal);
-                if (!canChoose && (lateral > (tall ? .98f : .72f) || vertical > (tall ? .85f : .57f))) continue;
-                float score = (canChoose ? 0 : 20) + Math.Abs(ahead) + lateral * 2 + vertical * 2;
-                if (score < bestScore)
-                {
-                    approached = portal;
-                    bestScore = score;
-                }
+                float score = (available ? 0 : 20) + depth + lateral * 1.55f + vertical * 2;
+                if (score >= bestScore) continue;
+                approached = portal;
+                bestScore = score;
             }
-            if (Phase != Stage.RuinExplore || RuinGuide != null) return;
-            if (approached != RuinApproach)
-            {
-                RuinApproach = approached;
-                if (approached != null)
-                    Message = approached.Hidden ? "裂缝里有光，还有一层空间。" :
-                        "隧道在这里分开。贴近后按 B 进入，继续飞就会留在当前层。";
-                else if (CueAge > 1.2f) Message = ruinHint;
-            }
+            if (approached == RuinApproach) return;
+            RuinApproach = approached;
+            if (approached != null)
+                Message = approached.Hidden ? "裂缝里有光，还有一层空间。" : "前面有一条岔道。";
+            else if (CueAge > 1.2f) Message = ruinHint;
         }
 
-        private void UpdateRuinForwardSpeed(float dt)
-        {
-            float target = RuinFastSpeed * Clamp((Voice - RuinVoiceDeadZone) / .76f);
-            float step = dt * (target < RuinForwardSpeed ? 18f : 5.6f);
-            RuinForwardSpeed += Math.Max(-step, Math.Min(step, target - RuinForwardSpeed));
-        }
+        private float RuinVoiceSpeed => RuinFastSpeed * Clamp((Voice - RuinVoiceDeadZone) / .76f);
+
+        private static float ApproachRuinSpeed(float speed, float target, float accel, float brake) =>
+            speed + Math.Max(-brake, Math.Min(accel, target - speed));
 
         private void UpdateRuinSteering(float dt)
         {
-            float desired = (RuinTargetLane - RuinLane) * 5.6f;
-            ruinSteeringSpeed += (Math.Max(-3.0f, Math.Min(3.0f, desired)) - ruinSteeringSpeed) * Follow(dt, 11);
-            RuinLane = Math.Max(-1, Math.Min(1, RuinLane + ruinSteeringSpeed * dt));
-            RuinSteering = ruinSteeringSpeed / 3.0f;
+            const float easingAtWalls = .24f;
+            const float coastGrip = 5.3f;
+            const float turnGrip = 6.8f;
+            float space = RuinSideLimit - RuinLane * ruinSteerHeld;
+            float wanted = RuinSideSpeed * ruinSteerHeld * Clamp(space / easingAtWalls);
+            float previous = ruinSteeringSpeed;
+            // Releasing keeps lateral momentum. Reversing first slows it through zero.
+            ruinSteeringSpeed += (wanted - ruinSteeringSpeed) * Follow(dt, ruinSteerHeld == 0 ? coastGrip : turnGrip);
+            if (Math.Abs(ruinSteeringSpeed) < .004f) ruinSteeringSpeed = 0;
+            float lane = RuinLane + (previous + ruinSteeringSpeed) * .5f * dt;
+            RuinLane = Math.Max(-RuinSideLimit, Math.Min(RuinSideLimit, lane));
+            if (lane != RuinLane) ruinSteeringSpeed = 0;
+            RuinSteering = ruinSteeringSpeed / RuinSideSpeed;
         }
 
         private void TravelRuins(RuinPortal portal)
@@ -304,19 +362,63 @@ namespace Echoes
             RuinPassageStartDepth = Distance;
             RuinPassageStartLane = RuinLane;
             RuinPassageStartAltitude = Flight.Height;
+            RuinPassageStartForwardSpeed = RuinForwardSpeed;
+            RuinPassageStartLateralSpeed = ruinSteeringSpeed;
+            RuinPassageStartVerticalSpeed = Flight.Speed;
             RuinEntrance = portal;
-            RuinApproach = RuinGuide = null;
-            RuinSteering = ruinSteeringSpeed = RuinForwardSpeed = 0;
-            RuinSearchTarget = null;
-            Notify(JourneyCue.RuinTravel);
-            Change(Stage.RuinTransfer, "发声穿过岔道，停声可以停下。");
+            RuinApproach = null;
+            RuinSearchTarget = RuinNearbyClue = null;
+            ruinTransferMetrics = MeasureRuinPassage?.Invoke(this) ?? new RuinTransferMetrics(26, 2.75f, 2.75f);
+            float forward = RuinForwardSpeed * ruinTransferMetrics.SourceScale;
+            float lateral = ruinSteeringSpeed * 2.45f;
+            float vertical = Flight.Speed * 3.30f;
+            ruinPassageSpeed = (float)Math.Sqrt(forward * forward + lateral * lateral + vertical * vertical);
+            if (!portal.Opened)
+            {
+                OpenRuinGate(portal);
+                Notify(JourneyCue.RuinDoor);
+                Revision++;
+            }
+            else Notify(JourneyCue.RuinTravel);
+            Change(Stage.RuinTransfer, "沿岔道进入下一层。");
+        }
+
+        private void AdvanceRuinTransfer(float dt)
+        {
+            float distance = ruinTransferMetrics.Distance;
+            float bank = Clamp(Age / .85f);
+            RuinSteering = RuinPassageStartLateralSpeed / RuinSideSpeed * (1 - bank * bank * (3 - 2 * bank));
+            float sourceVoice = RuinVoiceSpeed * ruinTransferMetrics.SourceScale;
+            float arrivalVoice = RuinVoiceSpeed * ruinTransferMetrics.DestinationScale;
+            float cruise = Math.Max(sourceVoice, Math.Min(10.2f, Math.Max(3.6f, distance * .085f)));
+            float brakingDistance = Math.Max(8f, Math.Min(17f, distance * .20f));
+            float outside = Clamp(distance * (1 - Progress) / brakingDistance);
+            float glide = outside * outside * (3 - 2 * outside);
+            float arrival = Math.Max(1.2f, arrivalVoice);
+            float target = arrival + (cruise - arrival) * glide;
+            if (ruinTransferMetrics.SpeedLimit != null)
+                target = Math.Min(target, Math.Max(.85f, ruinTransferMetrics.SpeedLimit(Progress)));
+            float oldSpeed = ruinPassageSpeed;
+            ruinPassageSpeed = ApproachRuinSpeed(oldSpeed, target, 2.9f * dt, 4.2f * dt);
+            float traveled = (oldSpeed + ruinPassageSpeed) * .5f * dt;
+            float left = distance * (1 - Progress);
+            Progress = Clamp(Progress + traveled / distance);
+            RuinForwardSpeed = ruinPassageSpeed / ruinTransferMetrics.SourceScale;
+            if (Progress < 1) return;
+
+            float speed = ruinPassageSpeed / ruinTransferMetrics.DestinationScale;
+            RememberRuinPortal(RuinEntrance);
+            EnterRuinRoom(RuinEntrance.TargetRoom, false);
+            RuinForwardSpeed = speed;
+            Distance = Math.Max(0, traveled - left) / ruinTransferMetrics.DestinationScale;
+            Revision++;
         }
 
         private void UpdateRuinSearch(float dt)
         {
             RefreshRuinLootContact();
-            RuinSearchTarget = null;
-            float nearest = float.PositiveInfinity;
+            RuinSearchTarget = RuinNearbyClue = null;
+            float nearest = float.PositiveInfinity, nearestClue = 7.3f;
             foreach (var item in CurrentRuinRoom.Objects)
             {
                 float depth = item.Depth - Distance;
@@ -331,6 +433,12 @@ namespace Echoes
                 {
                     item.OpenAge = Math.Min(10, item.OpenAge + dt);
                     if (!chest || RuinChestRemaining(item) == 0) continue;
+                }
+                float clue = Math.Abs(depth) + lateral * .42f;
+                if (!item.Collected && clue < nearestClue)
+                {
+                    RuinNearbyClue = item;
+                    nearestClue = clue;
                 }
                 if (item.Kind == RuinObjectKind.Heart && !ruinHeartSeen && Math.Abs(depth) < 2.05f &&
                     lateral < .48f && vertical < .43f)
@@ -392,7 +500,7 @@ namespace Echoes
             {
                 foreach (var item in room.Objects)
                 {
-                    item.Collected = (ruinFinds & (1UL << item.Id)) != 0;
+                    item.Collected = HasRuinFind(item.Id);
                     if (item.Collected)
                     {
                         if (RuinMemoryReleased(item)) continue;
@@ -400,7 +508,7 @@ namespace Echoes
                         if (item.Kind != RuinObjectKind.Chest && RuinInventory >= RuinCapacity)
                         {
                             item.Collected = false;
-                            ruinFinds &= ~(1UL << item.Id);
+                            SetRuinFind(item.Id, false);
                             continue;
                         }
                         item.OpenAge = 10;
@@ -417,6 +525,15 @@ namespace Echoes
             }
             for (int id = 0; id < RuinAtlas.RoomCount; id++)
                 if ((ruinVisited & (1 << id)) != 0) RuinVisitedCount++;
+        }
+
+        private bool HasRuinFind(int id) => ((id < 64 ? ruinFinds : ruinFindsExtra) & (1UL << (id & 63))) != 0;
+
+        private void SetRuinFind(int id, bool found)
+        {
+            ref ulong mask = ref (id < 64 ? ref ruinFinds : ref ruinFindsExtra);
+            ulong bit = 1UL << (id & 63);
+            mask = found ? mask | bit : mask & ~bit;
         }
 
         private static float Follow(float dt, float speed) => 1 - (float)Math.Exp(-dt * speed);

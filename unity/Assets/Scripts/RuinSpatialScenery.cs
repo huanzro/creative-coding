@@ -7,8 +7,25 @@ namespace Echoes
     {
         private sealed class RuinEnvelope
         {
-            public Transform Root, CrossingPanels;
+            public Transform Root, Gallery;
+            public readonly Dictionary<int,int> ClearanceSlots = new Dictionary<int,int>();
+            public readonly Dictionary<ulong,Transform> CrossingWalls = new Dictionary<ulong,Transform>();
+            public readonly Dictionary<ulong,Transform> CrossingFloors = new Dictionary<ulong,Transform>();
+            public readonly Dictionary<ulong,Transform> CrossingInlays = new Dictionary<ulong,Transform>();
             public readonly Dictionary<int,RuinConnectorView> Branches = new Dictionary<int,RuinConnectorView>();
+        }
+
+        private sealed class RuinCrossing
+        {
+            public readonly int Portal;
+            public readonly bool Incoming;
+            public readonly List<Vector3> Points = new List<Vector3>();
+
+            public RuinCrossing(int portal, bool incoming)
+            {
+                Portal=portal;
+                Incoming=incoming;
+            }
         }
 
         private readonly struct RuinConnectorView
@@ -24,11 +41,36 @@ namespace Echoes
         private readonly Dictionary<int,RuinEnvelope> ruinEnvelopes = new Dictionary<int,RuinEnvelope>();
         private readonly List<Mesh> ruinSpatialMeshes = new List<Mesh>();
         private RuinPortal ruinLayoutIdentity;
+        private float ruinVisualDistance, ruinVisualMouth, ruinVisualArrival;
+
+        internal void SetRuinTransitionDistances(float distance,float mouth,float arrival)
+        {
+            ruinVisualDistance=distance;
+            ruinVisualMouth=mouth;
+            ruinVisualArrival=arrival;
+        }
         internal static RuinTrackConnection RuinConnection(Journey journey,RuinPortal portal)
         {
-            Vector2 section=RuinGallerySection(journey.RuinRoomStyle,RuinTrack.PortalAngle(portal.Direction));
+            int style=journey.RuinRoomStyle;
+            Vector2 section=RuinGallerySection(style,RuinTrack.PortalAngle(portal.Direction));
             return new RuinTrackConnection(journey.RuinRoomId,journey.RuinRoomLength,portal,section,
-                portal.TargetRoom,journey.RuinRoomLengthFor(portal.TargetRoom));
+                portal.TargetRoom,journey.RuinRoomLengthFor(portal.TargetRoom),angle=>RuinGallerySection(style,angle));
+        }
+
+        internal static RuinRouteFrame RuinPassageStart(Journey journey)
+        {
+            int room=journey.RuinRoomId;
+            float length=journey.RuinRoomLength;
+            var track=RuinTrack.Frame(room,length,journey.RuinPassageStartDepth);
+            float along=RuinTrack.RouteMetresPerDepth(room,length)*journey.RuinPassageStartForwardSpeed;
+            Vector3 momentum=track.Forward*along + track.Right*(2.45f*journey.RuinPassageStartLateralSpeed) +
+                Vector3.up*(3.30f*journey.RuinPassageStartVerticalSpeed);
+            if(momentum.sqrMagnitude<.025f)
+                momentum=track.Forward;
+            else if(new Vector2(momentum.x,momentum.z).sqrMagnitude<.09f)
+                momentum+=track.Forward*.3f;
+            return new RuinRouteFrame(track.Point(2.45f*journey.RuinPassageStartLane,
+                .54f+3.30f*journey.RuinPassageStartAltitude),momentum);
         }
 
         private void DrawRuinEnvelopes(Journey j)
@@ -42,22 +84,43 @@ namespace Echoes
             }
             int current=j.RuinRoomId;
             int next=j.Phase==Stage.RuinTransfer && j.RuinEntrance!=null ? j.RuinEntrance.TargetRoom : -1;
+            bool transfer=next>=0;
+            bool inside=transfer && ruinVisualDistance>=Mathf.Max(0,ruinVisualMouth-3.55f);
+            bool lining=transfer && ruinVisualDistance>=Mathf.Max(0,ruinVisualMouth-8.2f);
+            bool entering=inside && ruinVisualDistance>=Mathf.Max(ruinVisualMouth+3f,ruinVisualArrival-16f);
             EnsureRuinEnvelope(j,current);
-            if(next>=0) EnsureRuinEnvelope(j,next);
+            if(transfer) EnsureRuinEnvelope(j,next);
+            else if(j.RuinApproach?.TargetRoom>=0) EnsureRuinEnvelope(j,j.RuinApproach.TargetRoom);
             foreach(var pair in ruinEnvelopes)
             {
-                bool active=pair.Key==current || pair.Key==next;
-                pair.Value.Root.gameObject.SetActive(active);
-                if(!active) continue;
-                bool crossing=next>=0 && j.Progress>=.12f;
-                pair.Value.CrossingPanels.gameObject.SetActive(!crossing);
+                bool source=pair.Key==current;
+                bool destination=entering && pair.Key==next;
+                pair.Value.Root.gameObject.SetActive(source || destination);
+                if(!source && !destination) continue;
+                var envelope=pair.Value;
+                bool passedMouth=source && inside && ruinVisualDistance>ruinVisualMouth+12f;
+                envelope.Gallery.gameObject.SetActive(!passedMouth || destination);
+                ulong cut=0;
+                if(inside && (!destination || ruinVisualDistance<ruinVisualArrival+4.8f) &&
+                    envelope.ClearanceSlots.TryGetValue(j.RuinEntrance.Id,out int slot))
+                    cut=1UL<<slot;
+                foreach(var panel in envelope.CrossingWalls)
+                    panel.Value.gameObject.SetActive((panel.Key & cut)==0);
+                // A side connector joins above the gallery floor. Keep its landing visible as the camera turns in.
+                bool floorReady=destination && ruinVisualDistance>=ruinVisualArrival+
+                    (IsVerticalRuinGate(j.RuinEntrance.Direction) ? .85f : -6.2f);
+                ulong floorCut=floorReady ? 0 : cut;
+                foreach(var panel in envelope.CrossingFloors)
+                    panel.Value.gameObject.SetActive((panel.Key & floorCut)==0);
+                foreach(var strip in envelope.CrossingInlays)
+                    strip.Value.gameObject.SetActive((strip.Key & floorCut)==0);
                 foreach(var branch in pair.Value.Branches)
                 {
-                    bool selected=next>=0 && branch.Key==j.RuinEntrance.Id;
-                    bool showMouth=pair.Key==current && j.RuinRetryState==RuinRetryPhase.Inactive &&
-                        (!crossing || selected);
+                    bool selected=transfer && source && branch.Key==j.RuinEntrance.Id;
+                    bool showMouth=j.RuinRetryState==RuinRetryPhase.Inactive &&
+                        (destination || source && (!inside || selected));
                     branch.Value.Entrance.gameObject.SetActive(showMouth);
-                    branch.Value.Interior.gameObject.SetActive(showMouth && selected && crossing);
+                    branch.Value.Interior.gameObject.SetActive(showMouth && selected && lining);
                 }
             }
         }
@@ -70,13 +133,24 @@ namespace Echoes
             var openings=j.RuinPortalsFor(room);
             var created=new RuinEnvelope { Root=Group("Continuous archive gallery "+room,tunnelRoot) };
             ruinEnvelopes.Add(room,created);
+            created.Gallery=Group("Gallery masonry and floor",created.Root);
             var shell=new WorldMesh(ruinSpatialMeshes);
-            // Crossing routes only cut through the masonry while a connector is in use.
-            var crossingPanels=new WorldMesh(ruinSpatialMeshes);
+            // Group panels by the exact connectors that pass through them.
+            var crossingWalls=new Dictionary<ulong,WorldMesh>();
+            var crossingFloors=new Dictionary<ulong,WorldMesh>();
+            var crossingInlays=new Dictionary<ulong,WorldMesh>();
             var accents=new WorldMesh(ruinSpatialMeshes);
             Color material=RuinGalleryStoneFor(style,room);
             Color hue=RuinGalleryAccentFor(style,room);
-            List<Vector3> clearances=CollectRuinClearances(j,room);
+            var clearances=CollectRuinClearances(j,room);
+            for(int index=0;index<clearances.Count;index++) created.ClearanceSlots.Add(clearances[index].Portal,index);
+            WorldMesh Surface(ulong cut,Dictionary<ulong,WorldMesh> panels)
+            {
+                if(cut==0) return shell;
+                if(!panels.TryGetValue(cut,out var panel))
+                    panels.Add(cut,panel=new WorldMesh(ruinSpatialMeshes));
+                return panel;
+            }
             int segments=Mathf.CeilToInt(length*1.46f);
             const int sides=28;
             for(int step=0;step<segments;step++)
@@ -84,8 +158,6 @@ namespace Echoes
                 float z=length*step/segments, z2=length*(step+1f)/segments;
                 float depth=(z+z2)*.5f;
                 RuinRouteFrame a=RuinTrack.Frame(room,length,z), b=RuinTrack.Frame(room,length,z2);
-                float seam=RuinTrack.Offset(depth,0,length);
-                bool arrivals=seam > -7.35f && seam < -3.12f;
                 for(int side=0;side<sides;side++)
                 {
                     float p=side * Mathf.PI*2/sides, q=(side+1f) * Mathf.PI*2/sides;
@@ -93,14 +165,15 @@ namespace Echoes
                     if(IsRuinOpening(openings,style,length,depth,middle)) continue;
                     Vector2 u=RuinGallerySection(style,p), v=RuinGallerySection(style,q);
                     Vector3 start=a.Point(u.x,u.y), end=a.Point(v.x,v.y), far=b.Point(u.x,u.y), farEnd=b.Point(v.x,v.y);
-                    bool cut=arrivals && Mathf.Sin(middle)>-.48f ||
-                        InsideRuinClearance(clearances,(start+end+far+farEnd)*.25f,3.29f);
+                    Vector3 centre=(start+end+far+farEnd)*.25f;
+                    ulong cut=RuinClearanceMask(clearances,centre,3.29f,3.88f);
                     float tone=.73f+.14f*Mathf.Sin(step*.56f+side*.58f)+.085f*(step%3);
-                    (cut ? crossingPanels : shell).Quad(start,far,farEnd,end,WorldMesh.Shade(material,tone));
-                    if(step%6==0 && !cut)
+                    WorldMesh surface=Surface(cut,crossingWalls);
+                    surface.Quad(start,far,farEnd,end,WorldMesh.Shade(material,tone));
+                    if(step%6==0)
                     {
                         Vector2 rim1=Vector2.Lerp(u,new Vector2(0,3.8f),.045f), rim2=Vector2.Lerp(v,new Vector2(0,3.8f),.045f);
-                        RuinBar(shell,a.Point(rim1.x,rim1.y),a.Point(rim2.x,rim2.y),.097f,.15f,
+                        RuinBar(surface,a.Point(rim1.x,rim1.y),a.Point(rim2.x,rim2.y),.097f,.15f,
                             WorldMesh.Shade(material,1.46f));
                     }
                 }
@@ -113,24 +186,40 @@ namespace Echoes
                     float laneStart=cutStart*side, laneEnd=cutEnd*side;
                     Vector3 insideA=a.Point(laneStart,-.05f), insideB=b.Point(laneEnd,-.05f);
                     Vector3 outsideA=a.Point(floorEdge*side,-.05f), outsideB=b.Point(floorEdge*side,-.05f);
-                    bool floorCut=InsideRuinClearance(clearances,(insideA+insideB+outsideA+outsideB)*.25f,2.38f);
-                    WorldMesh floor=floorCut ? crossingPanels : shell;
+                    Vector3 centre=(insideA+insideB+outsideA+outsideB)*.25f;
+                    ulong floorCut=RuinClearanceMask(clearances,centre,2.38f,2.06f);
+                    WorldMesh floor=Surface(floorCut,crossingFloors);
                     Color slab=WorldMesh.Shade(material,.92f+.03f*side+.075f*Mathf.Sin(step*.81f+side));
                     if(side<0) floor.Quad(outsideA,outsideB,insideB,insideA,slab);
                     else floor.Quad(insideA,insideB,outsideB,outsideA,slab);
                     if(step%4!=3 || cutStart>0 || cutEnd>0)
-                        RuinBar(accents,a.Point(side*Mathf.Max(1.54f,cutStart+.18f),.004f),
+                    {
+                        WorldMesh rail=accents;
+                        if(floorCut!=0 && !crossingInlays.TryGetValue(floorCut,out rail))
+                            crossingInlays.Add(floorCut,rail=new WorldMesh(ruinSpatialMeshes));
+                        RuinBar(rail,a.Point(side*Mathf.Max(1.54f,cutStart+.18f),.004f),
                             b.Point(side*Mathf.Max(1.54f,cutEnd+.18f),.004f),.029f,.025f,hue);
+                    }
                 }
             }
             foreach(RuinPortal portal in openings)
                 if(IsVerticalRuinGate(portal.Direction) && portal.TargetRoom>=0)
                     BuildRuinVerticalApron(shell,room,style,length,portal,material);
-            RuinPiece("Gallery hull with four-way openings",shell.Finish("Archive hull"),tunnelStone,created.Root);
-            created.CrossingPanels=RuinPiece("Closed gallery walls between crossings",
-                crossingPanels.Finish("Archive crossing panels"),tunnelStone,created.Root);
-            var strips=RuinPiece("Continuous curb lights",accents.Finish("Track inlay"),glow,created.Root).GetComponent<MeshRenderer>();
+            RuinPiece("Gallery hull with four-way openings",shell.Finish("Archive hull"),tunnelStone,created.Gallery);
+            foreach(var pair in crossingWalls)
+                created.CrossingWalls.Add(pair.Key,RuinPiece("Fitted crossing walls",
+                    pair.Value.Finish("Archive crossing walls"),tunnelStone,created.Gallery));
+            foreach(var pair in crossingFloors)
+                created.CrossingFloors.Add(pair.Key,RuinPiece("Fitted landing floors",
+                    pair.Value.Finish("Archive crossing floors"),tunnelStone,created.Gallery));
+            var strips=RuinPiece("Continuous curb lights",accents.Finish("Track inlay"),glow,created.Gallery).GetComponent<MeshRenderer>();
             Light(strips,Color.white,.69f);
+            foreach(var pair in crossingInlays)
+            {
+                Transform inlay=RuinPiece("Fitted landing lights",pair.Value.Finish("Archive crossing lights"),glow,created.Gallery);
+                created.CrossingInlays.Add(pair.Key,inlay);
+                Light(inlay.GetComponent<MeshRenderer>(),Color.white,.69f);
+            }
 
             foreach(RuinPortal portal in openings)
             {
@@ -146,9 +235,9 @@ namespace Echoes
             }
         }
 
-        private static List<Vector3> CollectRuinClearances(Journey j,int activeRoom)
+        private static List<RuinCrossing> CollectRuinClearances(Journey j,int activeRoom)
         {
-            var samples=new List<Vector3>();
+            var clearances=new List<RuinCrossing>();
             for (int source=0;source<Journey.RuinRoomCount;source++)
             {
                 float length=j.RuinRoomLengthFor(source);
@@ -161,23 +250,39 @@ namespace Echoes
                     var path=new RuinTrackConnection(source,length,portal,profile,portal.TargetRoom,j.RuinRoomLengthFor(portal.TargetRoom));
                     // The shell and the tubes share exact positions. A crossing between two of
                     // the arcs is cut out of the masonry rather than hidden by a camera dissolve.
+                    bool incoming=source!=activeRoom;
+                    var crossing=new RuinCrossing(portal.Id,incoming);
+                    clearances.Add(crossing);
                     Vector3 previous=path.Entrance;
                     for(int i=1;i<=44;i++)
                     {
-                        float progress=.827f*i/44;
-                        Vector3 next=path.Frame(progress).Position;
+                        // Allow more room as the final shaft widens into the gallery and the camera follows.
+                        float progress=(incoming ? .86f : .827f)*i/44;
+                        Vector3 next=path.CentreAt(progress);
                         if(source==activeRoom && IsVerticalRuinGate(portal.Direction) && progress<.13f)
                         {
                             previous=next;
                             continue;
                         }
                         int sweep=Mathf.Max(1,Mathf.CeilToInt(Vector3.Distance(previous,next)/1.42f));
-                        for(int s=1;s<=sweep;s++) samples.Add(Vector3.Lerp(previous,next,s/(float)sweep));
+                        for(int s=1;s<=sweep;s++) crossing.Points.Add(Vector3.Lerp(previous,next,s/(float)sweep));
                         previous=next;
                     }
                 }
             }
-            return samples;
+            return clearances;
+        }
+
+        private static ulong RuinClearanceMask(List<RuinCrossing> clearances,Vector3 point,float outgoing,float incoming)
+        {
+            ulong mask=0;
+            for(int i=0;i<clearances.Count;i++)
+            {
+                var crossing=clearances[i];
+                if(InsideRuinClearance(crossing.Points,point,crossing.Incoming ? incoming : outgoing))
+                    mask|=1UL<<i;
+            }
+            return mask;
         }
 
         private static bool InsideRuinClearance(List<Vector3> centreline,Vector3 point,float radius)
@@ -190,7 +295,7 @@ namespace Echoes
 
         private static Vector2 RuinWorldAperture(RuinDirection direction) => RuinGateRadius(direction)*RuinGateScale(direction);
 
-        private const float RuinUpperCutDepth=2.19f, RuinLowerCutDepth=1.77f;
+        private const float RuinUpperCutDepth=2.43f, RuinLowerCutDepth=1.77f;
 
         private static float RuinLowerFloorOpening(IReadOnlyList<RuinPortal> openings,float length,float depth)
         {
@@ -271,28 +376,58 @@ namespace Echoes
 
         private void BuildRuinApproachLights(Transform parent,int room,int style,float length,RuinPortal portal,Color accent)
         {
+            if(portal.Direction==RuinDirection.Upper)
+            {
+                BuildRuinVaultWayfinding(parent,room,style,length,portal,accent);
+                return;
+            }
             var inlay=new WorldMesh(ruinSpatialMeshes);
-            bool upper=portal.Direction==RuinDirection.Upper;
-            Color hue=Color.Lerp(upper ? new Color(.56f,.60f,1) : new Color(.35f,.84f,.86f),accent,.24f);
-            Vector2 center=RuinGallerySection(style,RuinTrack.PortalAngle(portal.Direction));
+            Color hue=Color.Lerp(new Color(.35f,.84f,.86f),accent,.24f);
             float width=RuinWorldAperture(portal.Direction).x;
             for(int side=-1;side<=1;side+=2)
+            for(int mark=0;mark<3;mark++)
             {
-                for(int mark=0;mark<3;mark++)
+                var frame=RuinTrack.Frame(room,length,portal.Depth-3.35f+mark*.67f);
+                Vector3 point=frame.Point(side*(width+.52f-mark*.38f),.052f);
+                Vector3 tip=point+frame.Forward*.21f;
+                Vector3 axis=frame.Right*.23f;
+                RuinBar(inlay,point-axis,tip,.065f,.042f,WorldMesh.Shade(hue,.49f+mark*.15f));
+                RuinBar(inlay,tip,point+axis,.065f,.042f,WorldMesh.Shade(hue,.49f+mark*.15f));
+            }
+            var renderer=RuinPiece("Descend through the floor",inlay.Finish("Shaft approach marks"),glow,parent)
+                .GetComponent<MeshRenderer>();
+            Light(renderer,Color.white,.80f);
+        }
+
+        private void BuildRuinVaultWayfinding(Transform parent,int room,int style,float length,RuinPortal portal,Color accent)
+        {
+            var guide=new WorldMesh(ruinSpatialMeshes);
+            Color hue=Color.Lerp(new Color(.59f,.67f,1f),accent,.13f);
+            Vector2 vault=RuinGallerySection(style,Mathf.PI*.5f);
+            for(int side=-1;side<=1;side+=2)
+            {
+                // Readable from the road: pick up the trail near eye level and follow it up to the mouth.
+                var foundation=RuinTrack.Frame(room,length,portal.Depth-4.3f);
+                var previous=foundation.Point(vault.x+side*2.97f,.36f);
+                for(int band=0;band<5;band++)
                 {
-                    var frame=RuinTrack.Frame(room,length,portal.Depth-3.35f+mark*.67f);
-                    float x=center.x+side*(width+.52f-mark*.38f);
-                    float y=upper ? center.y-2.75f+mark*.46f : .052f;
-                    Vector3 point=frame.Point(x,y);
-                    Vector3 tip=point+frame.Forward*.21f+(upper ? Vector3.up*.21f : Vector3.zero);
-                    Vector3 axis=frame.Right*.23f;
-                    RuinBar(inlay,point-axis,tip,.065f,.042f,WorldMesh.Shade(hue,.49f+mark*.15f));
-                    RuinBar(inlay,tip,point+axis,.065f,.042f,WorldMesh.Shade(hue,.49f+mark*.15f));
+                    var frame=RuinTrack.Frame(room,length,portal.Depth-3.72f+band*.70f);
+                    float x=vault.x+side*(2.97f-band*.19f);
+                    float y=Mathf.Lerp(1.04f,vault.y-1.36f,band/4f);
+                    Vector3 foot=frame.Point(x,y);
+                    Vector3 tip=foot+Vector3.up*.37f+frame.Forward*.36f;
+                    Vector3 wing=frame.Right*.34f;
+                    Color step=WorldMesh.Shade(hue,.72f+band*.07f);
+                    RuinBar(guide,Vector3.Lerp(previous,foot,.16f),Vector3.Lerp(previous,foot,.83f),
+                        .042f,.042f,WorldMesh.Shade(step,.61f));
+                    RuinBar(guide,foot-wing,tip,.085f,.068f,step);
+                    RuinBar(guide,tip,foot+wing,.085f,.068f,step);
+                    previous=foot;
                 }
             }
-            var renderer=RuinPiece(upper ? "Rise toward the vault" : "Descend through the floor",
-                inlay.Finish("Shaft approach marks"),glow,parent).GetComponent<MeshRenderer>();
-            Light(renderer,Color.white,.80f);
+            var renderer=RuinPiece("Blue-violet vault approach",guide.Finish("Climbing lights"),glow,parent)
+                .GetComponent<MeshRenderer>();
+            Light(renderer,Color.white,1.12f);
         }
 
         private RuinConnectorView BuildRuinConnector(Transform parent,RuinTrackConnection path,RuinDirection direction,

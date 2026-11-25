@@ -392,9 +392,9 @@ namespace Echoes
             }
         }
 
-        private readonly int[] forestTouchFrame = { -100, -100 };
+        private readonly int[] screenTouchFrame = { -100, -100 };
 
-        internal bool ForestScreenTouchHeld(int option) => Input.GetMouseButton(0) && Time.frameCount - forestTouchFrame[option] <= 1;
+        internal bool ScreenTouchHeld(int option) => Input.GetMouseButton(0) && Time.frameCount - screenTouchFrame[option] <= 1;
 
         private void DrawTouchControl(Rect rect, string text, int option, bool continuous, Action<int> choose)
         {
@@ -404,13 +404,13 @@ namespace Echoes
                 return;
             }
             if (!GUI.RepeatButton(rect,text,button)) return;
-            if (Time.frameCount - forestTouchFrame[option] > 1) choose(option);
-            forestTouchFrame[option] = Time.frameCount;
+            if (Time.frameCount - screenTouchFrame[option] > 1) choose(option);
+            screenTouchFrame[option] = Time.frameCount;
         }
 
         public void DrawControls(string heading, string message, string left, string right, float volume,
             Action<int> choose, Action<string> select, Action retry, Action restore, Action pause, bool paused,
-            bool characterOnly, bool mazeWalking, bool forest, bool stars, bool touchAvailable,
+            bool characterOnly, bool mazeWalking, bool continuousTouch, bool stars, bool touchAvailable,
             Action toggleSettings, Action<GUIStyle, GUIStyle> settings)
         {
             PrepareInterface();
@@ -424,8 +424,8 @@ namespace Echoes
             Paint(new Rect(26, 650, 1228, 50), new Color(.02f, .05f, .09f, .86f));
             bool enabled = GUI.enabled;
             GUI.enabled = enabled && settings == null && touchAvailable;
-            DrawTouchControl(new Rect(42, 658, 164, 34), left, 0, forest, choose);
-            DrawTouchControl(new Rect(213, 658, 164, 34), right, 1, forest, choose);
+            DrawTouchControl(new Rect(42, 658, 164, 34), left, 0, continuousTouch, choose);
+            DrawTouchControl(new Rect(213, 658, 164, 34), right, 1, continuousTouch, choose);
             GUI.enabled = enabled && settings == null;
             GUI.Label(new Rect(393, 651, 310, 25), mazeWalking ? "A/B 转向 · 松开空格走 · 按住停" :
                 stars ? "空格提笔 · Z轻声 · X加速" : "空格握拳 · 松开张手 · Z轻声 · X加速", body);

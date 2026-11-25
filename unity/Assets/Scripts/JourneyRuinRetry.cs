@@ -36,7 +36,7 @@ namespace Echoes
         public RuinRetryResolution RuinRetryOutcome { get; private set; }
         public RuinRetryResolution RuinRetryDisplayOutcome => retryPhase == RuinRetryPhase.Departure &&
             retryDeparture != RuinRetryResolution.None ? retryDeparture : RuinRetryOutcome;
-        public int RuinRetryRequired => 6 + (int)(((uint)ruinSeed >> 7) & 3);
+        public int RuinRetryRequired => RuinDisciplineCount - 1;
         public int RuinRetryVisited => CountRuinPassages(ruinRetryRooms);
         public int RuinRetryAttempts { get; private set; }
         public int RuinRetryTraceLane => ruinRetryLastLane < 0 ? -1 : 1;
@@ -116,7 +116,7 @@ namespace Echoes
         private bool ResumeRuinRetry()
         {
             if (!ruinRetryWall) return false;
-            RuinLane = RuinTargetLane = 0;
+            RuinLane = 0;
             Flight.Reset(.025f, RuinHeightLimit);
             Distance = RuinRetryWallDepth - WallStance;
             if (RuinRetryOutcome != RuinRetryResolution.None)
@@ -165,9 +165,10 @@ namespace Echoes
 
         private bool TryStartRuinRetry()
         {
-            bool traversedGallery = ruinLoops >= 1;
-            if (ruinRetryWall || (!traversedGallery && RuinRetryVisited < RuinRetryRequired) ||
-                Distance < 5f || Distance > RuinRoomLength - 6.1f) return false;
+            bool traversedGallery = RuinRoomId == 0 && ruinLoops >= 1 && RuinDisciplinesSeen == 1;
+            float firstWallDepth = traversedGallery ? 5f : RuinRoomLength * .58f;
+            if (ruinRetryWall || (!traversedGallery && RuinDisciplinesSeen < RuinDisciplineCount) ||
+                Distance < firstWallDepth || Distance > RuinRoomLength - 4.5f) return false;
             float at = Distance + WallApproach;
             foreach (var portal in RuinPortals)
                 if (Math.Abs(portal.Depth - at) < 3.2f) return false;
@@ -175,7 +176,7 @@ namespace Echoes
             RuinRetryWallDepth = at;
             ruinRetryWall = true;
             retryCollision = false;
-            RuinApproach = RuinGuide = null;
+            RuinApproach = null;
             Flight.FollowForestCourse(Flight.Height, .02f);
             SetRuinRetryPhase(RuinRetryPhase.Impact, "");
             Revision++;
@@ -197,7 +198,7 @@ namespace Echoes
         private void RetryRuinRetry()
         {
             retryDeparture = RuinRetryResolution.None;
-            RuinLane = RuinTargetLane = 0;
+            RuinLane = 0;
             RuinSteering = ruinSteeringSpeed = 0;
             Distance = RuinRetryWallDepth - WallStance;
             Flight.Reset(.025f, RuinHeightLimit);

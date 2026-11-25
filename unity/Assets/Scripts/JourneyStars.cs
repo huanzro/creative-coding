@@ -230,9 +230,20 @@ namespace Echoes
             Revision++;
         }
 
-        private static bool ValidStarCheckpoint(JourneyCheckpoint checkpoint)
+        private static bool UsesLegacyStarCheckpoint(JourneyCheckpoint checkpoint)
         {
             if (checkpoint.version < 8) return true;
+            // Both branches wrote v8, and the Ruins branch wrote v9 before the Star fields existed.
+            return checkpoint.version < 10 && checkpoint.starPaths != 0 &&
+                checkpoint.starMotifs == 0 && checkpoint.starHelpStarts == 0 && checkpoint.starHelpEnds == 0 &&
+                checkpoint.starLeft == 0 && checkpoint.starRight == 0 && checkpoint.starMotif == 0 &&
+                checkpoint.starProgress == 0 && checkpoint.starMachineStart == 0 && checkpoint.starMachineEnd == 0 &&
+                !checkpoint.starHelpUsed;
+        }
+
+        private static bool ValidStarCheckpoint(JourneyCheckpoint checkpoint)
+        {
+            if (UsesLegacyStarCheckpoint(checkpoint)) return true;
             if ((checkpoint.starMotifs & ~0xFFF) != 0 || (checkpoint.starHelpStarts & ~0xFFFFFF) != 0 ||
                 (checkpoint.starHelpEnds & ~0xFFFFFF) != 0 || !(checkpoint.starProgress >= 0 && checkpoint.starProgress < 1) ||
                 !(checkpoint.starMachineStart >= 0 && checkpoint.starMachineStart <= checkpoint.starMachineEnd &&
@@ -263,7 +274,7 @@ namespace Echoes
             StarBits = checkpoint.starPaths;
             Withdrawals = checkpoint.withdrawals & 7;
             while (StarCount < StarTrailCount && PathAt(StarCount) != StarPath.Unfinished) StarCount++;
-            if (checkpoint.version < 8)
+            if (UsesLegacyStarCheckpoint(checkpoint))
             {
                 // Give old completed routes stable shapes while keeping their recorded provenance.
                 StarBits &= (1 << (StarCount * 2)) - 1;

@@ -15,10 +15,12 @@ namespace Echoes
         private static readonly Color Gold = new Color(.83f,.57f,.29f), Brass = new Color(.70f,.46f,.24f),
             PaleGold = new Color(1,.83f,.48f), Jade = new Color(.25f,.82f,.69f),
             Indigo = new Color(.42f,.50f,1), Rose = new Color(1,.43f,.44f), Silver = new Color(.67f,.77f,.84f);
-        private static readonly string[] ArtifactNames = { "Pulsing heart", "Folded brain", "Pocket phone", "Portable computer" };
+        private static readonly string[] ArtifactNames = { "Pulsing heart", "Folded brain", Journey.RuinPhoneName, "Portable computer" };
         private static readonly string[] ChestNames = { "Cedar travel trunk", "Brass astrolabe", "Crystal reliquary",
             "Lacquer coffer", "Alabaster sarcophagus", "Nautilus case", "Mechanical strongbox", "Illuminated folio",
-            "Lotus vessel", "Hourglass cabinet" };
+            "Lotus vessel", "Hourglass cabinet", "Lantern chest", "Relay chest", "Prism coffer",
+            "Fern reliquary", "Copper map case", "Survey folio" };
+        private static readonly int[] AdditionalChestShapes = { 0, 6, 2, 8, 1, 7 };
 
         private sealed class Model
         {
@@ -41,7 +43,7 @@ namespace Echoes
         private readonly List<Element> artifacts = new List<Element>();
         private readonly List<Element> chests = new List<Element>();
         private readonly List<Element> loot = new List<Element>();
-        private readonly Model[] artifactModels = new Model[4], chestModels = new Model[10];
+        private readonly Model[] artifactModels = new Model[4], chestModels = new Model[Journey.RuinChestCount];
         private readonly Model[,] lootModels = new Model[2, 10];
         private readonly Material artifactMaterial, chestMaterial;
         private readonly MaterialPropertyBlock state = new MaterialPropertyBlock();
@@ -77,18 +79,18 @@ namespace Echoes
             SetSurface(item.BodyRenderer, .22f + .75f*approach, .12f + .48f*approach + beat*.73f*approach);
         }
 
-        public void UpdateChest(int slot, int design, Vector3 localPos, float time, float proximity, bool opened, float yaw)
+        public void UpdateChest(int slot, int design, Vector3 localPos, float time, float proximity, bool opened, bool stocked, float yaw)
         {
             if ((uint)design >= chestModels.Length) return;
             Model model = chestModels[design] ?? (chestModels[design] = BuildChest(design));
             Element item = Place(chests, slot, design, model, ChestNames[design], chestMaterial);
             item.Root.localPosition = localPos;
-            item.Root.localScale = Vector3.one;
+            item.Root.localScale = Vector3.one * 1.16f;
             item.Root.localRotation = Quaternion.Euler(0, yaw, 0);
             item.Open = Mathf.MoveTowards(item.Open, opened ? 1 : 0, Time.unscaledDeltaTime*1.75f);
             item.Lid.localRotation = Quaternion.Euler(68 * Ease(item.Open), 0, 0);
-            float sparkle = (.14f+.13f*Mathf.Sin(time*1.85f+design*1.57f))*Ease(proximity);
-            float light = opened ? .44f+sparkle : .18f+sparkle;
+            float sparkle = .12f + .10f*Mathf.Sin(time*1.85f+design*1.57f);
+            float light = stocked ? .52f + sparkle + .29f*Ease(proximity) + (opened ? .15f : 0) : .04f;
             SetSurface(item.BodyRenderer, 1, light);
             SetSurface(item.LidRenderer, 1, light);
         }
@@ -112,7 +114,8 @@ namespace Echoes
                 else Computer(mesh, variant);
                 model = lootModels[type, variant] = new Model { Shell = mesh.Finish("Archive device") };
             }
-            Element item = Place(loot, slot, 10 * type + variant, model, "Archive device tray", chestMaterial);
+            Element item = Place(loot, slot, 10 * type + variant, model,
+                kind == RuinObjectKind.Phone ? Journey.RuinPhoneName : "Archive device tray", chestMaterial);
             item.Root.localPosition = position;
             item.Root.localScale = Vector3.one * size;
             item.Root.localRotation = Quaternion.Euler(-5, yaw, 0);
@@ -434,7 +437,8 @@ namespace Echoes
             var lid=new WorldMesh(meshes);
             float depth;
             float height;
-            switch (design)
+            int shape = design < RuinAtlas.WelcomeChestStyle ? design : AdditionalChestShapes[design - RuinAtlas.WelcomeChestStyle];
+            switch (shape)
             {
                 case 0:
                     depth=.69f;
@@ -487,11 +491,27 @@ namespace Echoes
                     Hourglass(body,lid,depth,height);
                     break;
             }
+            AddChestLanternPlinth(body, depth, height, design >= RuinAtlas.WelcomeChestStyle);
             return new Model {
                 Shell=body.Finish(ChestNames[design]+" · base"),
                 Lid=lid.Finish(ChestNames[design]+" · lid"),
                 Hinge=P(0,height,depth*.5f)
             };
+        }
+
+        private static void AddChestLanternPlinth(WorldMesh body,float depth,float height,bool discovery)
+        {
+            Color stone = new Color(.34f,.24f,.155f);
+            Color amber = Gem(new Color(1f,.69f,.26f),.91f);
+            Rounded(body,P(0,-.194f,0),1.15f,.30f,depth + .24f,.025f,Upright,stone);
+            Rounded(body,P(0,-.040f,0),1.29f,.075f,depth + .32f,.031f,Upright,Brass);
+            float front = -(depth + .32f) * .5f - .010f;
+            body.Box(P(0,-.036f,front),P(.93f,.041f,.016f),Upright,amber);
+            for(int s=-1;s<=1;s+=2)
+            {
+                body.Box(P(s*.651f,-.034f,0),P(.022f,.039f,depth*.61f),Upright,amber);
+                if(discovery) Lens(body,P(s*.40f,height*.54f,front),.049f,.022f,amber,true);
+            }
         }
 
         private static void Trunk(WorldMesh body,WorldMesh lid,float depth,float height)

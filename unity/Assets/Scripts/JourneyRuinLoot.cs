@@ -26,10 +26,7 @@ namespace Echoes
     public sealed partial class Journey
     {
         private const int SlotsPerRuinChest = 4;
-        private static readonly string[] PhoneNames = {
-            "星轨折屏手机", "珐琅旋盖手机", "棱镜透明手机", "金檐滑盖手机", "青金护框手机",
-            "螺纹旋屏手机", "飞轮三镜手机", "双页墨屏手机", "花瓣折叠手机", "流砂触屏手机"
-        };
+        public const int RuinChestCount = RuinAtlas.RoomCount;
         private static readonly string[] ComputerNames = {
             "星图薄型电脑", "雕刻掌上电脑", "晶棱投影电脑", "赤铜三轴电脑", "雪石双屏电脑",
             "螺旋铰链电脑", "飞轮键盘电脑", "双页书脊电脑", "莲纹便携电脑", "沙漏支架电脑"
@@ -37,7 +34,7 @@ namespace Echoes
 
         private readonly List<RuinLootChoice> ruinLootDevices = new List<RuinLootChoice>(SlotsPerRuinChest);
         private readonly List<RuinLootChoice> ruinLootChoices = new List<RuinLootChoice>(SlotsPerRuinChest + 1);
-        private ulong ruinChestLootTaken, ruinReleasedMemories;
+        private ulong ruinChestLootTaken, ruinReleasedMemories, ruinReleasedMemoriesExtra;
         private RuinObject ruinLootClearedSource, ruinLootReleaseSource;
         private RuinLootChoice ruinPendingDevice;
         private float ruinLootReleaseAt = float.NegativeInfinity;
@@ -87,16 +84,20 @@ namespace Echoes
         private RuinLootChoice RuinChestDevice(RuinObject chest, int slot)
         {
             uint seed = RuinLootSeed(chest.ChestStyle * SlotsPerRuinChest + 25 + slot);
-            var kind = (seed & 1u) != 0 ? RuinObjectKind.Phone : RuinObjectKind.Computer;
-            int variant = (chest.ChestStyle + slot * 3) % PhoneNames.Length;
+            bool welcomePhone = chest.ChestStyle == RuinAtlas.WelcomeChestStyle && slot == 0;
+            var kind = welcomePhone || (seed & 1u) != 0 ? RuinObjectKind.Phone : RuinObjectKind.Computer;
+            int variant = (chest.ChestStyle + slot * 3) % ComputerNames.Length;
             return new RuinLootChoice(RuinLootAction.Take, kind, slot, variant,
-                kind == RuinObjectKind.Phone ? PhoneNames[variant] : ComputerNames[variant]);
+                kind == RuinObjectKind.Phone ? RuinPhoneName : ComputerNames[variant]);
         }
 
         private static ulong RuinDeviceBit(RuinObject chest, int slot) => 1UL << (chest.ChestStyle * SlotsPerRuinChest + slot);
         private static bool IsRuinDevice(RuinObjectKind kind) => kind == RuinObjectKind.Phone || kind == RuinObjectKind.Computer;
         private static bool IsRuinMemory(RuinObjectKind kind) => kind == RuinObjectKind.Heart || kind == RuinObjectKind.Brain;
-        private bool RuinMemoryReleased(RuinObject item) => IsRuinMemory(item.Kind) && (ruinReleasedMemories & (1UL << item.Id)) != 0;
+        private bool RuinMemoryReleased(RuinObject item) => IsRuinMemory(item.Kind) && IsRuinMemoryReleased(item.Id);
+
+        private bool IsRuinMemoryReleased(int id) =>
+            ((id < 64 ? ruinReleasedMemories : ruinReleasedMemoriesExtra) & (1UL << (id & 63))) != 0;
 
         private void RefreshRuinLootContact()
         {
@@ -130,7 +131,8 @@ namespace Echoes
             }
 
             RuinLootSource = item;
-            RuinSteering = ruinSteeringSpeed = RuinForwardSpeed = 0;
+            RuinForwardSpeed = 0;
+            StopRuinSteering();
             RuinSearchTarget = null;
             ShowRuinLootDevices();
             return true;
@@ -149,8 +151,8 @@ namespace Echoes
                     if ((ruinChestLootTaken & RuinDeviceBit(source, slot)) == 0)
                         ruinLootDevices.Add(RuinChestDevice(source, slot));
             }
-            else ruinLootDevices.Add(new RuinLootChoice(RuinLootAction.Take, source.Kind, 0, source.Id % PhoneNames.Length,
-                "拾取" + RuinObjectLabels[(int)source.Kind]));
+            else ruinLootDevices.Add(new RuinLootChoice(RuinLootAction.Take, source.Kind, 0, source.Id % ComputerNames.Length,
+                RuinObjectLabels[(int)source.Kind]));
 
             ruinLootChoices.AddRange(ruinLootDevices);
             ruinLootChoices.Add(new RuinLootChoice(RuinLootAction.Leave, RuinObjectKind.Chest, -1, 0,
@@ -178,7 +180,7 @@ namespace Echoes
             foreach (var room in ruinRooms)
             foreach (var item in room.Objects)
             {
-                if (item.Kind != kind || (ruinFinds & (1UL << item.Id)) == 0 || RuinMemoryReleased(item)) continue;
+                if (item.Kind != kind || !HasRuinFind(item.Id) || RuinMemoryReleased(item)) continue;
                 string label = RuinLootSource.Kind == RuinObjectKind.Chest ? "放回一个" : "留下一个";
                 ruinLootChoices.Add(new RuinLootChoice(RuinLootAction.Release, kind, item.Id, 0,
                     label + RuinObjectLabels[(int)kind] + "并拾取设备"));
@@ -213,9 +215,9 @@ namespace Echoes
             if (released.HasValue)
             {
                 var memory = released.Value;
-                ulong bit = 1UL << memory.Slot;
-                if ((ruinFinds & bit) == 0 || (ruinReleasedMemories & bit) != 0 || !IsRuinMemory(memory.Kind)) return;
-                ruinReleasedMemories |= bit;
+                if (!HasRuinFind(memory.Slot) || IsRuinMemoryReleased(memory.Slot) || !IsRuinMemory(memory.Kind)) return;
+                ref ulong releasedMask = ref (memory.Slot < 64 ? ref ruinReleasedMemories : ref ruinReleasedMemoriesExtra);
+                releasedMask |= 1UL << (memory.Slot & 63);
                 if (memory.Kind == RuinObjectKind.Heart) RuinHearts--;
                 else RuinBrains--;
                 RuinLootReleasedKind = memory.Kind;
@@ -246,7 +248,7 @@ namespace Echoes
         {
             item.Collected = true;
             item.OpenAge = 0;
-            ruinFinds |= 1UL << item.Id;
+            SetRuinFind(item.Id, true);
             AddRuinFind(item.Kind);
         }
 
@@ -276,18 +278,22 @@ namespace Echoes
 
         private void ResetRuinLootHistory()
         {
-            ruinChestLootTaken = ruinReleasedMemories = 0;
+            ruinChestLootTaken = ruinReleasedMemories = ruinReleasedMemoriesExtra = 0;
             ClearRuinLoot();
         }
 
         private void RestoreRuinLootFinds()
         {
-            ulong validTaken = 0, validReleased = 0;
+            ulong validTaken = 0, validReleased = 0, validReleasedExtra = 0;
             foreach (var room in ruinRooms)
             foreach (var item in room.Objects)
             {
                 if (!item.Collected) continue;
-                if (RuinMemoryReleased(item)) validReleased |= 1UL << item.Id;
+                if (RuinMemoryReleased(item))
+                {
+                    if (item.Id < 64) validReleased |= 1UL << item.Id;
+                    else validReleasedExtra |= 1UL << (item.Id & 63);
+                }
                 if (item.Kind != RuinObjectKind.Chest) continue;
                 int count = RuinChestItemCount(item);
                 for (int slot = 0; slot < count; slot++)
@@ -300,6 +306,7 @@ namespace Echoes
             }
             ruinChestLootTaken = validTaken;
             ruinReleasedMemories = validReleased;
+            ruinReleasedMemoriesExtra = validReleasedExtra;
         }
     }
 }

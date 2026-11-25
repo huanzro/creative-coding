@@ -192,7 +192,7 @@ namespace Echoes
             ruinLane = journey.RuinLane, ruinSteering = journey.RuinSteering,
             ruinHeartAge = journey.RuinHeartAge,
             ruinTransfer = journey.Phase == Stage.RuinTransfer ? journey.Progress : -1,
-            ruinUnlock = journey.RuinGateCharge,
+            ruinUnlock = journey.RuinDoorOpening,
             ruinFinds = NearbyRuinFinds(journey),
             starMotif = journey.StarMotif, starProgress = journey.StarProgress, starFlow = journey.StarFlow,
             starMachineStart = journey.StarMachineStart, starMachineEnd = journey.StarMachineEnd,
