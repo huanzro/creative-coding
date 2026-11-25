@@ -449,6 +449,10 @@ namespace Echoes
                 float heading = frame.Rotation.eulerAngles.y;
                 if (item.Kind == RuinObjectKind.Chest)
                 {
+                    // Keep the centerline clear for the close impact and gate shots.
+                    if (journey.Phase == Stage.RuinRetry && item.Lane == 0 &&
+                        Mathf.Abs(RuinTrack.Offset(item.Depth, journey.RuinRetryWallDepth, journey.RuinRoomLength)) < 3.75f)
+                        continue;
                     Vector3 at = frame.Point(item.Lane * 2.45f, height - .29f);
                     bool stocked = journey.RuinChestRemaining(item) > 0;
                     bool displaying = journey.RuinLootDisplaySource == item || !stocked;
