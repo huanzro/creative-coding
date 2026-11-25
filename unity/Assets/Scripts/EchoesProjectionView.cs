@@ -17,12 +17,13 @@ namespace Echoes
             var area = new Rect(0, 0, viewport.width, viewport.height);
             float bodySize = sideways ? Mathf.Min(area.width * .50f, area.height * .92f)
                                       : Mathf.Min(area.height * .67f, area.width * .93f);
+            if (frame.forest) bodySize *= .78f;
             bodySize *= Mathf.Clamp(characterScale, .35f, 1.40f);
             bodySize = Mathf.Min(bodySize, Mathf.Min(area.width, area.height) * (sideways ? 1.34f : .88f));
             float unit = Mathf.Min(area.height / Height, area.width / 880);
             float extent = Mathf.Max(.20f, unit) * Mathf.Clamp(lightReach, .65f, 2.45f);
-            var center = ProjectionPosition(SpiritFlight.ScreenY(frame.altitude), area, bodySize, sideways);
-            var source = ProjectionPosition(SpiritFlight.ScreenY(frame.releaseAltitude), area, bodySize, sideways);
+            var center = FrameProjectionPosition(frame, frame.altitude, area, bodySize, sideways);
+            var source = FrameProjectionPosition(frame, frame.releaseAltitude, area, bodySize, sideways);
             if (frame.openingTime >= 0)
             {
                 var shot = OpeningStoryboard.Sample(frame.openingTime);
@@ -40,10 +41,19 @@ namespace Echoes
                 float visibility = 1;
                 if (frame.forest)
                 {
-                    Vector2 axis = sideways ? Vector2.up : Vector2.right;
+                    Vector2 axis = sideways ? Vector2.down : Vector2.right;
                     Vector2 lane = axis * (sideways ? area.height : area.width) * frame.forestLane * (mirror ? -.063f : .063f);
                     center += lane;
                     source += lane;
+                    float swallowed = Mathf.Max(frame.forestFall, frame.forestDoorAge / 3f);
+                    if (swallowed >= 0)
+                    {
+                        Vector2 down = sideways ? Vector2.right * area.width : Vector2.up * area.height;
+                        center += down * (.20f * OpeningStoryboard.Ease(.08f,.81f,swallowed));
+                        visibility = 1 - OpeningStoryboard.Ease(.64f,.96f,swallowed);
+                        if (frame.forestDoor == 0 && frame.forestDoorAge >= 0)
+                            bodySize *= Mathf.Lerp(1,.08f,OpeningStoryboard.Ease(.62f,.86f,swallowed));
+                    }
                     if (frame.forestDescent >= 0)
                     {
                         float descent = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(.44f, 1, frame.forestDescent));
@@ -55,9 +65,19 @@ namespace Echoes
                 if (!frame.forest || frame.forestDescent < 0)
                     DrawFlightTrail(frame, palette[Mathf.Clamp(frame.chapter, 0, 2)], 1, extent, area, bodySize, sideways);
                 DrawCharacter(frame, center, source, bodySize, mirror, sideways ? -90 : 0, extent, true, visibility, visibility);
-                DrawLiveHandoff(frame, center, bodySize, mirror, sideways ? -90 : 0, extent, visibility);
+                if (frame.forest) DrawForestSwarm(frame, center, bodySize, mirror, sideways ? -90 : 0, visibility, true);
+                else DrawLiveHandoff(frame, center, bodySize, mirror, sideways ? -90 : 0, extent, visibility);
             }
             GUI.EndGroup();
+        }
+
+        private static Vector2 FrameProjectionPosition(SpiritFrame frame, float altitude, Rect area, float size, bool sideways)
+        {
+            if (!frame.forest) return ProjectionPosition(SpiritFlight.ScreenY(altitude), area, size, sideways);
+            float axis = sideways ? area.width : area.height;
+            float edge = Mathf.Min(size * .52f + 7, axis * .43f);
+            float height = Mathf.Lerp(axis - edge, edge, Mathf.Clamp01(altitude / 1.34f));
+            return sideways ? new Vector2(height, area.height * .54f) : new Vector2(area.width * .5f, height);
         }
 
         private static Vector2 ProjectionPosition(float normalizedY, Rect area, float size, bool sideways)
@@ -86,10 +106,10 @@ namespace Echoes
                 if (fade < .018f) continue;
                 Vector2 p = bodySize == 0
                     ? new Vector2(CenterX, CharacterY(point.x))
-                    : ProjectionPosition(SpiritFlight.ScreenY(point.x), viewport, bodySize, sideways);
+                    : FrameProjectionPosition(frame, point.x, viewport, bodySize, sideways);
                 Vector2 q = bodySize == 0
                     ? new Vector2(CenterX, CharacterY(before.x))
-                    : ProjectionPosition(SpiritFlight.ScreenY(before.x), viewport, bodySize, sideways);
+                    : FrameProjectionPosition(frame, before.x, viewport, bodySize, sideways);
                 float drift = (5 + age * 28f + speed * 24) * extent;
                 float oldDrift = drift + 1.5f * extent;
                 float thickness = Mathf.Max(.85f, (7 + speed * 13) * extent);
@@ -193,6 +213,85 @@ namespace Echoes
                 OpeningStoryboard.Ease(.16f, .46f, age));
             float radius = (17 + age * 65) * Mathf.Max(.24f, extent);
             Ripple(at.x, at.y, radius, red ? Scarlet : Amber, visible * opacity * .46f);
+        }
+
+        private void DrawForestSwarm(SpiritFrame frame, Vector2 center, float body, bool mirror, float rotation,
+            float gain, bool approach)
+        {
+            Vector2 Place(Vector2 offset) => center + PortraitOffset(offset, mirror, rotation) * body;
+            float scale = Mathf.Clamp(body / 180, .27f, 3.3f);
+            if (approach && frame.forestFlies != null)
+            {
+                foreach (ForestFlyView fly in frame.forestFlies)
+                {
+                    float far = Mathf.Clamp01(Mathf.Abs(fly.depth) / 8);
+                    Vector2 offset = new Vector2(.22f * fly.lane + .044f, -.93f * fly.height - .28f * far - .13f);
+                    float pulse = fly.red ? .68f+.32f*fly.ScarletPulse(frame.time) : 1;
+                    DrawFirefly(Place(offset), frame.motionTime + fly.id * .071f, fly.red,
+                        scale * (1 - .47f * far), fly.visibility * gain * pulse);
+                }
+            }
+
+            JourneyCue cue = (JourneyCue)frame.forestEvent;
+            float age = frame.forestEventAge;
+            bool settling = cue == JourneyCue.ForestAmber && age < .65f;
+            for (int i = 0; i < frame.forestReserve; i++)
+            {
+                Vector2 offset = ForestOrbit(i, frame.motionTime);
+                if (settling && i == frame.forestReserve - 1)
+                {
+                    Vector2 source = new Vector2(.22f*frame.forestContactLane+.044f,
+                        -.93f*frame.forestContactHeight-.13f-.035f*Mathf.Abs(frame.forestContactDepth));
+                    offset = Vector2.Lerp(HandPosition, offset, OpeningStoryboard.Ease(0, .65f, age));
+                    offset += (source-HandPosition)*(1-OpeningStoryboard.Ease(0,.19f,age));
+                }
+                DrawFirefly(Place(offset), frame.motionTime + .13f * i, false, scale * .34f, gain * .79f);
+            }
+            if (cue == JourneyCue.ForestScarlet && age < .67f)
+            {
+                float drift = OpeningStoryboard.Ease(0,.67f,age);
+                Vector2 departing = ForestOrbit(frame.forestReserve, frame.motionTime) + new Vector2(.19f, .45f) * drift;
+                DrawFirefly(Place(departing), frame.motionTime, false, scale * .34f * (1 - .44f * drift), gain * (1 - drift));
+                Ripple(Place(departing).x, Place(departing).y, body * (.075f + .19f * drift), Scarlet, (1 - drift) * gain * .5f);
+            }
+            if (frame.forestRescue && frame.forestSnareAge >= .72f)
+            {
+                float rescue = OpeningStoryboard.Ease(.72f, 1.85f, frame.forestSnareAge);
+                Vector2 departure = frame.forestTrap == ForestTrapKind.Web ? new Vector2(.24f,-.44f) : new Vector2(.10f,.53f);
+                DrawFirefly(Place(Vector2.Lerp(ForestOrbit(frame.forestReserve, frame.motionTime),departure,rescue)),
+                    frame.motionTime,false,scale * .47f,gain * Mathf.Sin(Mathf.PI * rescue));
+            }
+            if (cue == JourneyCue.Plant && age < 1.34f)
+            {
+                float seed = OpeningStoryboard.Ease(0,1.34f,age);
+                Vector2 target = new Vector2(.24f * frame.forestContactLane,
+                    -.93f * frame.forestContactHeight+.26f);
+                Vector2 offset = Vector2.Lerp(ForestOrbit(frame.forestReserve,frame.motionTime),target,seed);
+                DrawFirefly(Place(offset),frame.motionTime,false,scale*(.34f+.34f*seed),gain*(1-seed));
+            }
+            if (frame.forestTrap == ForestTrapKind.Cable && frame.forestDescent >= 0 && approach)
+            {
+                float coil = OpeningStoryboard.Ease(.30f,.71f,frame.forestDescent);
+                for (int turn = 0; turn < 3; turn++)
+                {
+                    Vector2 from = Place(new Vector2(-.35f, .49f-turn*.23f));
+                    for (int segment = 1; segment < 10; segment++)
+                    {
+                        float fraction = segment / 9f;
+                        Vector2 next = Place(new Vector2(-.35f+fraction*.68f*coil,
+                            .49f-turn*.23f+.055f*Mathf.Sin(fraction*6.28f+turn)));
+                        if (coil > .02f) Stroke(from, next, 2.8f*scale, Mint, gain * coil * .70f, glow);
+                        from = next;
+                    }
+                }
+            }
+        }
+
+        private static Vector2 ForestOrbit(int index, float time)
+        {
+            float phase = time * (index < 6 ? 1.24f : -1.06f) + 2.399963f * index;
+            float ring = index < 6 ? 1 : 1.43f;
+            return new Vector2(Mathf.Sin(phase)*.31f*ring, -.22f + Mathf.Cos(phase)*.19f*ring + .043f*(index%3));
         }
 
         private static Vector2 PortraitOffset(Vector2 offset, bool mirror, float rotation)

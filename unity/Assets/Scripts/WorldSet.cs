@@ -365,6 +365,8 @@ namespace Echoes
 
         public void Dispose()
         {
+            DisposeMachine();
+            DisposeMaze();
             UnityEngine.Object.Destroy(root);
             foreach(var mesh in meshes) UnityEngine.Object.Destroy(mesh);
             UnityEngine.Object.Destroy(stone);

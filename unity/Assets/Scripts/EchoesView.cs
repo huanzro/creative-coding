@@ -164,7 +164,9 @@ namespace Echoes
                 DrawActiveFirefly(journey, splitProjection);
             }
             DrawCharacter(frame, center, origin, actorSize, false, 0, 1, !splitProjection && !spatial, strength);
-            DrawLiveHandoff(frame, center, actorSize, false, 0, 1, splitProjection ? .24f : 1);
+            if (frame.forest)
+                DrawForestSwarm(frame, center, actorSize, false, 0, splitProjection ? .33f : .94f, !spatial);
+            else DrawLiveHandoff(frame, center, actorSize, false, 0, 1, splitProjection ? .24f : 1);
             if (frame.forest) DrawForestHud(journey);
             EndFrame(matrix);
         }

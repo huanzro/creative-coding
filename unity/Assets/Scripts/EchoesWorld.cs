@@ -13,9 +13,11 @@ namespace Echoes
         private readonly RenderTexture scene, graded;
         private readonly Material lens;
         private int lastWorld = -1;
+        private Stage lastPhase;
+        private int lastCloseShot;
         private bool lastOpening, rendered;
         private Vector3 position, sight, velocity, sightVelocity;
-        private float sectionAge, lastTravelTime;
+        private float sectionAge, lastTravelTime, lastDistance;
         public bool Ready => rendered && Texture != null;
         public RenderTexture Texture => graded != null ? graded : scene;
         public Vector2 ActorScreen { get; private set; } = new Vector2(.5f,.75f);
@@ -103,8 +105,14 @@ namespace Echoes
                 Vector3 wanted,focus;
                 if (forest) ForestShot(journey,frame,forestActor,out wanted,out focus);
                 else PlayCamera(journey,frame,speed,out wanted,out focus);
+                int closeShot = !forest ? 0 : journey.Phase==Stage.ForestDoor && journey.Progress>=.47f ? 1 :
+                    journey.ForestTrap==ForestTrapKind.Cable && journey.Progress>=.59f ? 2 : 0;
                 bool cut=lastWorld!=journey.World || (lastOpening && !journey.EnteredFromOpening) ||
-                    (!lastOpening && frame.time < lastTravelTime);
+                    (!lastOpening && frame.time < lastTravelTime) ||
+                    (forest && !lastOpening && Mathf.Abs(journey.Distance-lastDistance)>7.5f) ||
+                    (lastPhase==Stage.ForestDoor && journey.Phase!=Stage.ForestDoor);
+                bool matchCut=closeShot!=0 && closeShot!=lastCloseShot;
+                lastCloseShot=closeShot;
                 if (cut)
                 {
                     position=wanted; sight=focus;
@@ -113,23 +121,28 @@ namespace Echoes
                 }
                 else
                 {
-                    float track=forest ? .17f : .48f;
-                    position=Vector3.SmoothDamp(position,wanted,ref velocity,track,90,dt);
-                    sight=Vector3.SmoothDamp(sight,focus,ref sightVelocity,track,90,dt);
+                    float track=!forest ? .48f : journey.Phase==Stage.ForestDoor || journey.ForestTrap==ForestTrapKind.Cable ? .082f : .17f;
+                    position=matchCut ? wanted : Vector3.SmoothDamp(position,wanted,ref velocity,track,90,dt);
+                    sight=matchCut ? focus : Vector3.SmoothDamp(sight,focus,ref sightVelocity,track,90,dt);
+                    if(matchCut) velocity=sightVelocity=Vector3.zero;
                 }
                 camera.fieldOfView=Mathf.Lerp(camera.fieldOfView,49-3*frame.voice,dt*4);
             }
             sectionAge+=dt;
             lastWorld=journey.World;
             lastOpening=opening;
+            lastPhase=journey.Phase;
             lastTravelTime=frame.time;
+            lastDistance=journey.Distance;
             camera.transform.SetPositionAndRotation(position,Quaternion.LookRotation(sight-position));
             float time=opening?frame.openingTime:frame.motionTime;
             Vector3 key=LightScene(journey,frame,period,time,opening);
 
             set.Respond(journey,frame.openingTime);
             Shader.SetGlobalVector(TerrainSink, forest ? WorldSet.ForestSink(journey) : Vector4.zero);
-            set.ForestScenery(journey,forest,time,forestActor,frame.glide);
+            set.DrawMaze(journey,forest,time);
+            set.DrawMachine(journey,forest,time,forestActor);
+            set.ForestScenery(journey,forest,time,forestActor,frame.glide,split);
             Vector3 shotActor = opening ? OpeningStoryboard.Sample(time).Actor :
                 new Vector3(.5f,SpiritFlight.ScreenY(frame.altitude),1);
             Vector2 screen = new Vector2(shotActor.x,shotActor.y);
@@ -139,14 +152,17 @@ namespace Echoes
             if(forest)
             {
                 screen=new Vector2(viewport.x,1-viewport.y);
-                const float modelScale=.41f;
+                float modelScale=.41f;
+                if (journey.Phase == Stage.ForestDoor && journey.ForestDoor == 0)
+                    modelScale *= Mathf.Lerp(1,.08f,OpeningStoryboard.Ease(.62f,.86f,journey.Progress));
                 body=modelScale*720*(5.6f*Mathf.Tan(15.25f*Mathf.Deg2Rad))/
                     (SpiritRig.HeightScale*depth*Mathf.Tan(camera.fieldOfView*.5f*Mathf.Deg2Rad));
             }
             ActorScreen=screen;
             ActorBody=body;
             Vector3 actorAt=forest ? forestActor : camera.ViewportToWorldPoint(new Vector3(screen.x,1-screen.y,depth));
-            float floor=position.y<-.8f?WorldSet.CaveFloor:WorldSet.Ground(actorAt.x,actorAt.z);
+            float floor=forest ? WorldSet.ForestPoint(journey,frame.forestLane,journey.Distance,0).y-.54f :
+                position.y<-.8f ? WorldSet.CaveFloor : WorldSet.Ground(actorAt.x,actorAt.z);
             float weight=Mathf.Clamp01(1-(actorAt.y-floor-.72f)*.76f);
             Shader.SetGlobalVector(Footfall,new Vector4(actorAt.x,floor,actorAt.z,weight*(split?.25f:.58f)));
             if (opening)
@@ -169,6 +185,8 @@ namespace Echoes
                 float fade=opening?1:Mathf.SmoothStep(.25f,1,Mathf.InverseLerp(0,.56f,sectionAge));
                 if (forest && journey.Phase==Stage.ForestTransition)
                     fade=Mathf.Lerp(fade,.07f,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.76f,1,journey.Progress)));
+                if (forest && (journey.Phase==Stage.ForestFalling || journey.Phase==Stage.ForestDoor))
+                    fade *= 1-.93f*OpeningStoryboard.Ease(.79f,1,journey.Progress);
                 lens.SetVector("_Lens",new Vector4(fade,opening?1:.25f,0,0));
                 RenderTexture before=RenderTexture.active;
                 Graphics.Blit(scene,graded,lens);
@@ -180,17 +198,32 @@ namespace Echoes
         private static Vector3 ForestActor(Journey journey,SpiritFrame frame)
         {
             bool transition=journey.Phase==Stage.ForestTransition;
-            Vector3 point=WorldSet.ForestPoint(journey.ForestLane,journey.Distance,frame.altitude);
+            Vector3 point=WorldSet.ForestPoint(journey,journey.ForestLane,journey.Distance,frame.altitude);
+            point.x += journey.ForestLoopOffset;
+            float phase = journey.Progress;
+            if (journey.Phase == Stage.ForestFalling)
+            {
+                Vector3 floor = WorldSet.ForestPoint(journey,journey.ForestLane,journey.Distance,0);
+                float fall = OpeningStoryboard.Ease(0,.44f,phase);
+                point = Vector3.Lerp(point,floor + Vector3.up*.13f,fall);
+                float catchBeat = OpeningStoryboard.Ease(.43f,.84f,phase);
+                point += new Vector3(Mathf.Sin(phase*14)*.13f,journey.ForestTrap==ForestTrapKind.Web?2.9f*catchBeat:-2.2f*catchBeat,catchBeat*.57f);
+                return point;
+            }
+            if (journey.Phase == Stage.ForestDoor)
+                return WorldSet.MachineDoorActor(point,journey.ForestDoor,phase);
             if (journey.Phase==Stage.ForestTrapped)
             {
                 float draw=Mathf.SmoothStep(0,1,Mathf.InverseLerp(0,.31f,journey.Age));
-                Vector3 trap=WorldSet.ForestPoint(journey.ForestTrapLane,journey.ForestTrapDepth,
+                Vector3 trap=WorldSet.ForestPoint(journey,journey.ForestTrapLane,journey.ForestTrapDepth,
                     journey.ForestTrapAltitude);
                 return Vector3.Lerp(point,trap,draw*.68f)+Vector3.up*(Mathf.Sin(journey.Age*8)*.034f*draw);
             }
             if (!transition) return point;
 
-            Vector3 mouth=WorldSet.ForestPoint(journey.ForestTrapLane,journey.ForestTrapDepth+2.35f,0);
+            if (journey.ForestTrap==ForestTrapKind.Cable)
+                return WorldSet.MachineCableActor(point,phase,journey.ForestCableAnchor);
+            Vector3 mouth=WorldSet.ForestPoint(journey,journey.ForestTrapLane,journey.ForestTrapDepth+2.35f,0);
             float t=journey.Progress;
             float move=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.20f,.75f,t));
             point=Vector3.Lerp(point,mouth,move);
@@ -212,10 +245,35 @@ namespace Echoes
 
         private static void ForestShot(Journey j,SpiritFrame frame,Vector3 actor,out Vector3 at,out Vector3 focus)
         {
-            float ground=WorldSet.Ground(actor.x,actor.z);
-            float corridorX=actor.x*.93f;
-            at=new Vector3(corridorX-.22f,ground+1.78f+frame.altitude*1.73f,actor.z-4.73f);
-            focus=new Vector3(corridorX*1.06f,ground+1.26f+frame.altitude*1.83f,actor.z+8.05f);
+            float ground=WorldSet.ForestPoint(j,frame.forestLane,j.Distance,0).y-.54f;
+            float corridorX=j.ForestCenterAt(j.Distance);
+            float bank=actor.x-corridorX;
+            at=new Vector3(corridorX+bank*.91f-.20f,ground+1.86f+frame.altitude*3.20f,actor.z-4.73f);
+            focus=new Vector3(corridorX+bank*.82f,ground+1.43f+frame.altitude*3.52f,actor.z+7.85f);
+            if(j.Phase==Stage.ForestDoor)
+            {
+                float enter=OpeningStoryboard.Ease(.05f,.44f,j.Progress);
+                at=Vector3.Lerp(at,actor+new Vector3(.18f,1.02f,-1.56f),enter);
+                focus=Vector3.Lerp(focus,actor+new Vector3(0,-.20f,.91f),enter);
+                return;
+            }
+            if(j.ForestTrap==ForestTrapKind.Cable)
+            {
+                float reveal=OpeningStoryboard.Window(j.Progress,.15f,.27f,.39f,.55f);
+                float close=OpeningStoryboard.Ease(.42f,.59f,j.Progress);
+                at=Vector3.Lerp(at,actor+new Vector3(21.5f,13.6f,-13.2f),reveal);
+                focus=Vector3.Lerp(focus,new Vector3(corridorX,2.0f,220),reveal);
+                at=Vector3.Lerp(at,actor+new Vector3(.26f,1.23f,-2.22f),close);
+                focus=Vector3.Lerp(focus,actor+Vector3.forward*1.11f,close);
+                return;
+            }
+            if(j.Phase==Stage.ForestFalling)
+            {
+                float move=OpeningStoryboard.Ease(.06f,.51f,j.Progress);
+                at=Vector3.Lerp(at,actor+new Vector3(.61f,1.31f,-4.13f),move);
+                focus=Vector3.Lerp(focus,actor+Vector3.forward*1.11f,move);
+                return;
+            }
             if (j.Phase==Stage.ForestTransition)
             {
                 bool web=j.ForestTrap==ForestTrapKind.Web;
@@ -226,7 +284,7 @@ namespace Echoes
 
                 // Follow above the performer when entering the narrow vertical shaft.
                 float descent=Mathf.SmoothStep(0,1,Mathf.InverseLerp(web?.61f:.50f,web?.87f:.78f,j.Progress));
-                Vector3 shaft=WorldSet.ForestPoint(j.ForestTrapLane,j.ForestTrapDepth+2.35f,0);
+                Vector3 shaft=WorldSet.ForestPoint(j,j.ForestTrapLane,j.ForestTrapDepth+2.35f,0);
                 at=Vector3.Lerp(at,new Vector3(shaft.x+.12f,actor.y+1.58f,shaft.z-.34f),descent);
                 focus=Vector3.Lerp(focus,actor+new Vector3(0,-.38f,.43f),descent);
             }

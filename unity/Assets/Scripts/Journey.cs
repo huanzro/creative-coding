@@ -12,12 +12,14 @@ namespace Echoes
         Tutorial, Prologue, ForestRoute, ForestPlant, ForestWind, ForestCrossing,
         RuinGather, RuinVoice, RuinRelease, RuinMisread, RuinRepair, RuinSide, RuinCrossing,
         StarsRoute, StarsDelegated, StarsSeal, Complete,
-        ForestExplore, ForestPlanting, ForestTrapped, ForestTransition
+        ForestExplore, ForestPlanting, ForestTrapped, ForestTransition,
+        ForestFalling, ForestDoor, ForestLoop
     }
     public enum JourneyCue
     {
         None, Observe, Assist, Withdraw, Plant, Gust, Gate, Misread, Correct, Star, Seal,
-        ForestAmber, ForestScarlet, ForestCaptured, ForestRescued, ForestRestart
+        ForestAmber, ForestScarlet, ForestCaptured, ForestRescued, ForestRestart,
+        ForestRescueLight, ForestDoor
     }
     public enum RuinPath { Unfinished, Repaired, Assisted, Arcade }
     public enum StarPath { Unfinished, Manual, Delegated, Corrected }
@@ -26,7 +28,7 @@ namespace Echoes
     public struct JourneyCheckpoint
     {
         public int version, chapter, lesson, plants, forestRoute, ruin, starPaths, withdrawals, mistakes;
-        public int forestSeed, forestReserve, forestLane;
+        public int forestSeed, forestReserve, forestLane, forestBranch, forestSites, forestDepth;
         public bool complete;
     }
 
@@ -150,20 +152,22 @@ namespace Echoes
         public bool EnteredFromOpening => arrivedByOpening;
 
         public JourneyCheckpoint Checkpoint => new JourneyCheckpoint {
-            version = 3, chapter = Chapter, lesson = Lesson, plants = Plants, forestRoute = ForestRoute,
+            version = 4, chapter = Chapter, lesson = Lesson, plants = Plants, forestRoute = ForestRoute,
             forestSeed = forestSeed, forestReserve = savedForestLights, forestLane = savedForestLane,
+            forestBranch = (int)savedForestBranch, forestSites = savedForestPlants, forestDepth = savedForestDepth,
             ruin = (int)RuinResult, starPaths = StarBits, withdrawals = Withdrawals, mistakes = Mistakes,
             complete = Phase == Stage.Complete
         };
 
         public bool Restore(JourneyCheckpoint checkpoint)
         {
-            if ((checkpoint.version != 2 && checkpoint.version != 3) || checkpoint.chapter < 0 || checkpoint.chapter > 2 ||
+            if (checkpoint.version < 2 || checkpoint.version > 4 || checkpoint.chapter < 0 || checkpoint.chapter > 2 ||
                 checkpoint.lesson < -1 || checkpoint.lesson > 2 || (checkpoint.lesson >= 0 && checkpoint.chapter != 0) ||
-                checkpoint.plants < 0 || checkpoint.plants > (checkpoint.version == 2 ? 2 : ForestPlantsRequired) ||
-                checkpoint.forestRoute < 0 || checkpoint.forestRoute > 2 ||
-                checkpoint.forestReserve < 0 || checkpoint.forestReserve > 32 || Math.Abs((long)checkpoint.forestLane) > 1 ||
+                checkpoint.plants < 0 || checkpoint.plants > (checkpoint.version == 2 ? 2 : 3) ||
+                checkpoint.forestRoute < 0 || checkpoint.forestRoute > (checkpoint.version == 4 ? 3 : 2) ||
+                checkpoint.forestReserve < 0 || checkpoint.forestReserve > 64 || Math.Abs((long)checkpoint.forestLane) > 1 ||
                 checkpoint.ruin < 0 || checkpoint.ruin > 3 || (checkpoint.starPaths & ~63) != 0) return false;
+            if (checkpoint.version == 4 && !IsForestCheckpointValid(checkpoint)) return false;
             Enter(checkpoint.chapter, checkpoint.lesson >= 0, true);
             Lesson = checkpoint.lesson;
             Plants = checkpoint.plants;
@@ -173,16 +177,23 @@ namespace Echoes
             while (StarCount < 3 && PathAt(StarCount) != StarPath.Unfinished) StarCount++;
             Withdrawals = checkpoint.withdrawals & 7;
             Mistakes = checkpoint.mistakes & 7;
-            if (checkpoint.version == 3)
+            if (checkpoint.version == 4)
             {
                 forestSeed = checkpoint.forestSeed;
                 savedForestLights = checkpoint.forestReserve;
                 savedForestLane = checkpoint.forestLane;
+                savedForestBranch = (ForestBranch)checkpoint.forestBranch;
+                savedForestPlants = checkpoint.forestSites;
+                savedForestDepth = checkpoint.forestDepth;
             }
-            else if (InForest && checkpoint.complete)
+            else if (InForest)
             {
-                Enter(1, false, false);
-                return true;
+                if (checkpoint.complete || checkpoint.version == 3 && checkpoint.plants == 3)
+                {
+                    Enter(1, false, false);
+                    return true;
+                }
+                ForestRoute = 0;
             }
             StartSection();
             if (checkpoint.complete && Lesson < 0 && Chapter != 0) Complete();
@@ -281,7 +292,8 @@ namespace Echoes
             LastRelease = PoseTime;
             ReleaseAltitude = Flight.Height;
             Light = 1;
-            Flight.Release(Voice);
+            if (InForest) Flight.ReleaseForest(Voice);
+            else Flight.Release(Voice);
             if (Held >= .25f && Voice >= .58f && Charge >= .48f && PoseTime - LastSpin >= 1.3f)
                 LastSpin = PoseTime;
 
@@ -325,7 +337,9 @@ namespace Echoes
             PoseTime += dt;
             PoseVoice = float.IsNaN(voice) || float.IsInfinity(voice) ? 0 : Clamp(voice);
             DancePhase = (DancePhase + dt * (.164f + .122f * PoseVoice)) % 1;
-            if (!IsForestSequence && (!InForest || advanceJourney && Gesture != Hand.Missing)) Flight.Step(dt, Gesture);
+            if (!InForest) Flight.Step(dt, Gesture);
+            else if (!IsForestSequence && Section != ForestSection.Shaft && advanceJourney && Gesture != Hand.Missing)
+                Flight.StepForest(dt, Gesture, ForestHeightLimit);
             storyPulse = Math.Max(0, storyPulse - dt);
             Light = Math.Max(0, Light - dt * .85f);
             if (!advanceJourney || Phase == Stage.Complete) return;

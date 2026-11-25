@@ -10,11 +10,12 @@ namespace Echoes
 
         private void DrawForestHud(Journey j)
         {
-            if (j.Phase == Stage.ForestTransition) return;
+            if (j.Phase == Stage.ForestTransition || j.Phase == Stage.ForestDoor || j.Phase == Stage.ForestFalling) return;
             PrepareInterface();
             Paint(new Rect(997, 79, 254, 130), InkGlass);
             GUI.Label(new Rect(1013, 88, 220, 26), $"随行萤火  {j.ForestLights}", body);
-            GUI.Label(new Rect(1013, 118, 220, 26), $"种下根光  {j.Plants}/{j.ForestPlantsRequired}", body);
+            if (j.Phase == Stage.ForestPlanting)
+                GUI.Label(new Rect(1013, 118, 220, 26), $"种下根光  {j.Plants}/{j.ForestPlantsRequired}", body);
             for (int lane = -1; lane <= 1; lane++)
             {
                 float x = 1042 + (lane + 1) * 79;
