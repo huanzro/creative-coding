@@ -3,7 +3,7 @@ Shader "Hidden/Echoes/WorldMist"
     SubShader
     {
         Tags { "Queue"="Transparent+7" "RenderType"="Transparent" }
-        Cull Off ZWrite Off ZTest LEqual Blend SrcAlpha One
+        Cull Off ZWrite Off ZTest LEqual Blend SrcAlpha One ColorMask RGB
         Pass
         {
             CGPROGRAM

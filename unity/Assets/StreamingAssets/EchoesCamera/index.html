@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>光的回响 · 手势识别</title>
+  <style>
+    :root { color-scheme: dark; font: 16px system-ui, sans-serif; color: #ebf4ef; background: #111b1a; }
+    main { max-width: 36rem; margin: 2rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.75rem; margin: 0 0 .5rem; }
+    p { color: #becac4; line-height: 1.55; }
+    video { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: contain; background: #080e0d; border-radius: .7rem; transform: scaleX(-1); }
+    button { color: #12221c; background: #b0e0c7; border: 0; border-radius: .4rem; padding: .65rem .95rem; font: inherit; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: wait; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>光的回响 · 手势识别</h1>
+    <p>允许摄像头后，保持本页打开并回到 Unity。进入关卡后先张手，握拳约半秒，再张手起飞。</p>
+    <video id="preview" autoplay muted playsinline></video>
+    <p id="status" role="status">正在准备摄像头…</p>
+    <button id="camera" type="button">开启摄像头</button>
+  </main>
+  <script type="module" src="camera.mjs"></script>
+</body>
+</html>

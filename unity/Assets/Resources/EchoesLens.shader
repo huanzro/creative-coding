@@ -27,7 +27,8 @@ Shader "Hidden/Echoes/WorldLens"
             {
                 float2 uv=i.uv;
                 float2 px=_MainTex_TexelSize.xy*float2(4.6,4.6);
-                float3 baseColor=tex2D(_MainTex,uv).rgb;
+                float4 scene=tex2D(_MainTex,uv);
+                float3 baseColor=scene.rgb;
                 float3 bloom=highlights(uv+float2(px.x,0))+highlights(uv-float2(px.x,0))+
                     highlights(uv+float2(0,px.y))+highlights(uv-float2(0,px.y));
                 bloom+=(highlights(uv+px*2)+highlights(uv-px*2)+highlights(uv+float2(px.x,-px.y)*2)+
@@ -42,7 +43,8 @@ Shader "Hidden/Echoes/WorldLens"
                 float exposure=min(1,_ProjectionGrade.x)+max(0,_ProjectionGrade.x-1)*headroom*headroom;
                 float2 fromActor=(uv-_ProjectionProfile.xy)*float2(_ProjectionGrade.w,1);
                 float edge=smoothstep(_ProjectionProfile.z,_ProjectionProfile.z+_ProjectionProfile.w,length(fromActor));
-                float radial=lerp(1,lerp(_ProjectionGrade.z,1,edge),_ProjectionGrade.y);
+                // The depth-tested actor writes zero coverage. Leave its pixels outside the radial mask.
+                float radial=lerp(1,lerp(_ProjectionGrade.z,1,edge),_ProjectionGrade.y*saturate(scene.a));
                 return float4(saturate(color*exposure*radial*_Lens.x),1);
             }
             ENDCG

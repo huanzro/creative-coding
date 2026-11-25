@@ -14,9 +14,9 @@ namespace Echoes
         private RenderTexture compositePlate;
         private float plateTime = -1;
 
-        public void UpdateWorld(Journey journey, SpiritFrame frame, bool split)
+        public void UpdateWorld(Journey journey, SpiritFrame frame, bool split, bool previewWorld = false)
         {
-            if (frame.openingTime < 0 && !frame.forest && !frame.ruins && !UseWorld) return;
+            if (frame.openingTime < 0 && !frame.forest && !frame.ruins && !UseWorld && !previewWorld) return;
             if (world == null) world = new EchoesWorld();
             Vector2 amber = Vector2.zero, red = Vector2.zero;
             if (frame.openingTime >= 0)
@@ -29,7 +29,7 @@ namespace Echoes
                 red = Vector2.Scale(center+OpeningFlyOffset(time,shot,true)*(162*shot.Actor.z),scale);
             }
             world.Render(journey,frame,spirit,split,TimeOfDay,ScrollSpeed,amber,red,
-                ScreenBrightness,ProjectionFalloff,split && ProjectionGradient);
+                ScreenBrightness,ProjectionFalloff,ProjectionGradient);
             if (frame.openingTime >= 0 && !world.Ready) UpdatePlates(frame.openingTime);
         }
 
@@ -42,7 +42,7 @@ namespace Echoes
             float size=162*shot.Actor.z;
             Vector2 fingertips=actor+HandPosition*size;
             Vector2 fly=actor+OpeningFlyOffset(t,shot,false)*size;
-            float overlayGain=ProjectionOverlayGain(split);
+            float overlayGain=ProjectionOverlayGain;
             float strength=(split?.34f:1)*overlayGain;
             float catchLight=OpeningStoryboard.Window(t,11.52f,12.4f,15.3f,17.0f);
             DrawLiftRibbon(fly+new Vector2(0,-18),fingertips,t,catchLight*strength*.67f);

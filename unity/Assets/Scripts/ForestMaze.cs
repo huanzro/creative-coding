@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace Echoes
 {
     public enum ForestMazeNodeKind { Entry, Corridor, Junction, DeadEnd, RootChamber }
-    public enum ForestMazeMotion { Walking, Choosing, WaitingAtWall, TurningBack, Retracing, FacingJunction, FacingPassage, ApproachingWall, ReturningToChoice }
+    public enum ForestMazeMotion { Walking, Choosing, WaitingAtWall, TurningBack, Retracing, ApproachingWall }
 
     public sealed class ForestMazeNode
     {
@@ -70,31 +70,6 @@ namespace Echoes
 
         internal float ArrivalHeading(int node, int incoming) =>
             incoming >= 0 ? Heading(incoming, node) : Heading(node, connections[node][0].Other(node));
-
-        internal void OrderedExits(int node, int incoming, out int left, out int right)
-        {
-            left = right = -1;
-            float approach = ArrivalHeading(node, incoming);
-            foreach (ForestMazeEdge edge in connections[node])
-            {
-                int next = edge.Other(node);
-                if (next == incoming) continue;
-                if (left < 0)
-                {
-                    left = next;
-                    continue;
-                }
-
-                float leftAngle = DeltaAngle(approach, Heading(node, left));
-                float nextAngle = DeltaAngle(approach, Heading(node, next));
-                if (nextAngle < leftAngle || nextAngle == leftAngle && next < left)
-                {
-                    right = left;
-                    left = next;
-                }
-                else right = next;
-            }
-        }
 
         internal int ClosestExit(int node, float heading, int excluded)
         {

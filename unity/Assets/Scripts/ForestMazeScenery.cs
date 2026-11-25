@@ -121,7 +121,7 @@ namespace Echoes
                 float left = Mathf.Abs(p.x-Journey.ForkTrackX(ForestBranch.Left,depth));
                 float right = Mathf.Abs(p.x-Journey.ForkTrackX(ForestBranch.Right,depth));
                 float track = Mathf.SmoothStep(0,1,Mathf.InverseLerp(1.75f,4.26f,Mathf.Min(left,right)));
-                float original = Mathf.SmoothStep(0,1,Mathf.InverseLerp(.9f,3.7f,Mathf.Abs(p.x-1.55f*Mathf.Sin(p.z*.12f))));
+                float original = ForestTrackMoss(p.x,p.z);
                 float shoulder = Mathf.SmoothStep(0,1,Mathf.InverseLerp(138,141.1f,p.z));
                 Color clay = new Color(.27f, .232f, .164f);
                 Color routeTint = left<right ? new Color(.26f,.32f,.271f) : new Color(.33f,.298f,.224f);

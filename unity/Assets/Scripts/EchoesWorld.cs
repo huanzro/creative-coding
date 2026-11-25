@@ -134,7 +134,7 @@ namespace Echoes
                 {
                     float track=ruins ? .11f : !forest ? .48f :
                         journey.Phase==Stage.ForestDoor || journey.ForestTrap==ForestTrapKind.Cable ? .095f :
-                        frame.forestMaze && journey.MazeMotion==ForestMazeMotion.FacingPassage ? .40f : .24f;
+                        frame.forestMaze ? .18f : .24f;
                     position=matchCut ? wanted : Vector3.SmoothDamp(position,wanted,ref velocity,track,90,dt);
                     sight=matchCut ? focus : Vector3.SmoothDamp(sight,focus,ref sightVelocity,track,90,dt);
                     if(matchCut) velocity=sightVelocity=Vector3.zero;
@@ -207,7 +207,7 @@ namespace Echoes
             float? facing=forest && (frame.forestMaze || journey.LeftMazeApproach ||
                 journey.Branch==ForestBranch.Right && journey.Distance<140) ? (float?)WorldSet.ForestHeading(journey) :
                 ruins ? (float?)(Mathf.Atan2(ruinRoute.Forward.x,ruinRoute.Forward.z)*Mathf.Rad2Deg) : null;
-            if (!split) spirit.DrawInWorld(camera,screen,body,depth,key,performer,spatial,facing);
+            if (!split) spirit.DrawInWorld(camera,screen,body,depth,key,performer,spatial,facing,projectionGradient && lens!=null);
 
             camera.Render();
             if (lens!=null)
@@ -430,7 +430,13 @@ namespace Echoes
             focus=new Vector3(corridorX+bank*.82f,ground+1.43f+frame.altitude*3.52f,actor.z+7.85f);
             if (frame.forestMaze)
             {
-                at=actor+heading*new Vector3(.09f,.93f,-2.84f);
+                float follow = 2.84f;
+                if (j.ForestMazeTarget >= 0)
+                {
+                    float side = Mathf.Abs(Mathf.Sin((j.ForestMazeHeading-j.ForestMazePassageHeading)*Mathf.Deg2Rad));
+                    follow = Mathf.Min(follow,(ForestMaze.PassageHalf-.48f)/Mathf.Max(.01f,side));
+                }
+                at=actor+heading*new Vector3(.09f,.93f,-follow);
                 focus=actor+heading*new Vector3(0,.29f,3.15f);
                 if (j.ForestMazeWallOffset > 0)
                 {

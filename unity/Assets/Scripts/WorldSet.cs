@@ -80,6 +80,14 @@ namespace Echoes
                 bank * (Mathf.Sin(z*.143f+1.3f) * 1.16f + Mathf.PerlinNoise(x*.121f+12,z*.097f+8)*2.1f);
         }
 
+        private static float ForestTrackMoss(float x,float z)
+        {
+            float opening = Mathf.InverseLerp(19,38,z);
+            float center = Mathf.Lerp(1.55f,.48f,opening)*Mathf.Sin(z*.12f);
+            float halfWidth = Mathf.Lerp(.9f,2.65f,opening);
+            return Mathf.SmoothStep(0,1,Mathf.InverseLerp(halfWidth,halfWidth+2.8f,Mathf.Abs(x-center)));
+        }
+
         private void Put(string name, WorldMesh geometry, Material material) =>
             Put(name, geometry.Finish(name), material, Vector3.zero, Vector3.one);
 
@@ -154,7 +162,7 @@ namespace Echoes
                 return new Vector3(px,Ground(px,pz),pz);
             }, p =>
             {
-                float trail = Mathf.SmoothStep(0,1,Mathf.InverseLerp(.9f,3.7f,Mathf.Abs(p.x-1.55f*Mathf.Sin(p.z*.12f))));
+                float trail = ForestTrackMoss(p.x,p.z);
                 Color clay = new Color(.27f,.232f,.164f);
                 Color moss = new Color(.177f,.246f,.168f);
                 return WorldMesh.Shade(Color.Lerp(clay,moss,trail),.66f+.55f*Mathf.PerlinNoise(p.x*.64f+9,p.z*.54f+9));

@@ -317,7 +317,7 @@ namespace Echoes
                 }
                 return true;
             }
-            if (!Started || IsRuinSequence || IsForestSequence && !CanQueueMazeReturnTouch) return false;
+            if (!Started || IsRuinSequence || IsForestSequence && !CanSteerMaze) return false;
             LastTouch = PoseTime;
             TouchOption = option;
             if (Lesson >= 0) PracticeTouch(option);
@@ -455,8 +455,8 @@ namespace Echoes
 
         public string LeftLabel => Phase == Stage.Complete ? (Chapter < 2 ? "A · 下一章" : "A · 回看路线") :
             RuinLootOpen ? "A · 切换" : Phase == Stage.RuinRetry ? RuinRetryLeftLabel :
-            InRuins && Phase == Stage.RuinExplore && FindRuinPortal(RuinDirection.Left) != null ? "A · 进入左岔道" :
-            InForest || InRuins ? "A · 向左" : Phase == Stage.Tutorial && Lesson == 2 ? "A · 看落点" : "A · 看一眼";
+            ForestMazeWalkArea ? "A · 左转" : InForest || InRuins ? "A · 向左" :
+            Phase == Stage.Tutorial && Lesson == 2 ? "A · 看落点" : "A · 看一眼";
 
         public string RightLabel
         {
@@ -466,7 +466,7 @@ namespace Echoes
                 if (RuinLootOpen) return "B · 确认";
                 if (Phase == Stage.RuinRetry) return RuinRetryRightLabel;
                 if (RuinCanTake) return RuinTakeLabel;
-                if (InRuins && Phase == Stage.RuinExplore && FindRuinPortal(RuinDirection.Right) != null) return "B · 进入右岔道";
+                if (ForestMazeWalkArea) return "B · 右转";
                 if (InForest || InRuins) return "B · 向右";
                 if (Phase == Stage.StarsDelegated) return "B · 收回授权";
                 if (Phase == Stage.StarsSeal) return "B · 留给自己";

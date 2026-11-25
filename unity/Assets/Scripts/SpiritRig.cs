@@ -14,6 +14,7 @@ namespace Echoes
         private static readonly int SceneLight = Shader.PropertyToID("_SceneLight");
         private static readonly int ContactLight = Shader.PropertyToID("_ContactLight");
         private static readonly int StageKey = Shader.PropertyToID("_StageKey");
+        private static readonly int StageCoverage = Shader.PropertyToID("_StageCoverage");
         private readonly Texture2D fallback;
         private readonly Material material;
         private readonly RenderTexture target;
@@ -135,7 +136,13 @@ namespace Echoes
             poseContact = contact;
             ForestPredatorShot encounter=ForestPredatorShot.Read(frame);
             var center=new Vector3(0,1.16f,0);
-            RenderModel(encounter.Prey(center), Vector3.zero, anchors, commands, opening ? .31f : .17f);
+            Matrix4x4 portraitPose = encounter.Prey(center);
+            if (frame.forestMaze && !encounter.Visible)
+            {
+                portraitPose = Matrix4x4.Translate(center) * Matrix4x4.Rotate(Quaternion.Euler(0,frame.forestMazeHeading,0)) *
+                    Matrix4x4.Translate(-center) * portraitPose;
+            }
+            RenderModel(portraitPose, Vector3.zero, anchors, commands, opening ? .31f : .17f);
             if(encounter.Visible)
             {
                 if(predator==null) predator=new ForestPredatorRig();
@@ -152,10 +159,11 @@ namespace Echoes
                 UpdateTrails(time, frame.glide > .10f || frame.turnAge >= 0 || frame.touchAge >= 0 || frame.releaseAge >= 0);
         }
 
-        private void RenderModel(Matrix4x4 basis, Vector3 key, Vector3[] joints, CommandBuffer buffer, float ambient)
+        private void RenderModel(Matrix4x4 basis, Vector3 key, Vector3[] joints, CommandBuffer buffer, float ambient, bool maskBackground = false)
         {
             material.SetVector(StageKey, new Vector4(key.x,key.y,key.z,key.sqrMagnitude>.1f?1:0));
             material.SetVector(SceneLight, new Vector4(poseTint.r,poseTint.g,poseTint.b,ambient));
+            material.SetFloat(StageCoverage,maskBackground ? 0 : 1);
             if (guest != null) guest.Draw(pose, joints, basis, buffer, material);
             else model.Draw(pose,poseTint,joints,previous.cast == 1,basis,buffer);
             Vector3 point = joints[1] + basis.MultiplyVector(new Vector3(.08f,.045f,-.135f));
@@ -177,7 +185,7 @@ namespace Echoes
         }
 
         public void DrawInWorld(Camera camera, Vector2 screen, float bodyPixels, float depth, Vector3 key,
-            CommandBuffer buffer, bool upright = false, float? facing = null)
+            CommandBuffer buffer, bool upright = false, float? facing = null, bool maskBackground = false)
         {
             if (!rendered) return;
             Vector3 point = camera.ViewportToWorldPoint(new Vector3(screen.x,1-screen.y,depth));
@@ -188,7 +196,7 @@ namespace Echoes
             Matrix4x4 transform = Matrix4x4.TRS(point,orientation,Vector3.one*scale)
                 * Matrix4x4.Translate(new Vector3(0,-1.16f,0))
                 * ForestPredatorShot.Read(previous).Prey(new Vector3(0,1.16f,0));
-            RenderModel(transform,key,sceneAnchors,buffer,.20f);
+            RenderModel(transform,key,sceneAnchors,buffer,.20f,maskBackground);
         }
 
         private void UpdateTrails(float time, bool active)
