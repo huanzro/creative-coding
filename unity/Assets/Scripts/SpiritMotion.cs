@@ -179,6 +179,15 @@ namespace Echoes
                 pose.pitch -= 7 * contact;
                 pose.expression += contact * .55f;
             }
+            if (frame.lesson == 0 && frame.hand != Hand.Fist && frame.releaseAge < 0)
+            {
+                float demonstrate = OpeningStoryboard.Window(time,.42f,.97f,1.55f,2.24f);
+                float offer = OpeningStoryboard.Window(time,1.63f,2.26f,2.58f,3.51f);
+                pose.right = SpiritArm.Blend(pose.right,Hold,demonstrate);
+                pose.right = SpiritArm.Blend(pose.right,Offer,offer);
+                pose.left = SpiritArm.Blend(pose.left,Hold,demonstrate*.81f);
+                pose.nod += 8*demonstrate-11*offer;
+            }
             return pose;
         }
 

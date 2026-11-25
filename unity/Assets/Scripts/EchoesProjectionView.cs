@@ -213,20 +213,5 @@ namespace Echoes
             if (red) Ripple(at.x, at.y, (13 + Mathf.Max(0, beat) * 8) * size, hue, opacity * .32f);
         }
 
-        private void DrawConstellation(Journey journey, Color color)
-        {
-            int visible = journey.AmberMarks.Count;
-            Vector2 previous = Vector2.zero;
-            for (int i = 0; i < visible; i++)
-            {
-                float appear = journey.Phase == Stage.Complete ? 1 :
-                    OpeningStoryboard.Ease(i * .48f, i * .48f + .8f, journey.Age);
-                Vector2 at = new Vector2(Width * (.27f + .063f * i),
-                    Height * (.49f - journey.AmberMarks[i] * .31f + Mathf.Sin(i * 1.67f) * .07f));
-                if (i > 0) Stroke(previous, at, 3, color, appear * .3f, glow);
-                Orb(at.x, at.y, 17, Amber, appear * .83f);
-                previous = at;
-            }
-        }
     }
 }

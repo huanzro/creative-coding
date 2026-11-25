@@ -5,7 +5,7 @@ namespace Echoes
     [Serializable]
     public struct SpiritFrame
     {
-        public int chapter, touch, cast;
+        public int chapter, touch, cast, lesson;
         public Hand hand;
         public FireflyKind fireflyResponse;
         public float fireflyPulse;
@@ -15,7 +15,7 @@ namespace Echoes
 
         public static SpiritFrame Read(Journey journey, int cast = 0) => new SpiritFrame {
             chapter = journey.Chapter, time = journey.Time, motionTime = journey.PoseTime, phase = journey.DancePhase,
-            cast = cast, fireflyResponse = journey.Fireflies.Response, fireflyPulse = journey.Fireflies.Pulse,
+            cast = cast, lesson = journey.Lesson, fireflyResponse = journey.FireflyResponse, fireflyPulse = journey.FireflyPulse,
             voice = journey.PoseVoice, light = journey.Light, charge = journey.Charge,
             touch = journey.TouchOption, hand = journey.Gesture,
             altitude = journey.Flight.Height, verticalSpeed = journey.Flight.Speed, glide = journey.Flight.Glide,

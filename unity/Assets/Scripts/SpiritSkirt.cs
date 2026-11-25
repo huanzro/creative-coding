@@ -44,11 +44,13 @@ namespace Echoes
             Mesh.bounds = new Bounds(new Vector3(0, .73f, 0), new Vector3(2, 1.5f, 2));
         }
 
-        public void Drape(SpiritPose pose)
+        public void Drape(SpiritPose pose, bool longDress)
         {
             for (int layer = 0; layer < Layers; layer++)
             for (int row = 0; row <= Along; row++)
             {
+                float length = .615f + .089f * layer + (longDress ? .125f - layer*.024f : 0);
+                float fullness = longDress ? .625f : .566f;
                 float down = row / (float)Along;
                 float hem = down * down;
                 float lag = pose.time * 3.02f - down * 2.4f - layer * .28f;
@@ -57,9 +59,9 @@ namespace Echoes
                     float angle = column * (2 * Mathf.PI / Pleats);
                     float scallop = Mathf.Cos(angle * (layer == 1 ? 9 : 8) + layer * .31f);
                     float wake = Mathf.Sin(angle * 2 + lag);
-                    float depth = down * (.615f + .089f * layer) + hem * (.031f * scallop + .017f * wake);
+                    float depth = down * length + hem * (.031f * scallop + .017f * wake);
                     depth -= hem * (.12f * pose.flare + .035f * pose.tuck * Mathf.Cos(angle));
-                    float radius = .156f + (2 - layer) * .030f + .566f * Mathf.Pow(Mathf.Max(0, depth), .89f);
+                    float radius = .156f + (2 - layer) * .030f + fullness * Mathf.Pow(Mathf.Max(0, depth), .89f);
                     float pleat = Mathf.Cos(angle * 10 + down * .88f + layer * .35f);
                     radius += down * (.027f * pleat + hem * (.012f * wake + pose.flare * .105f));
                     // The front of the gown lifts with the knees before the hem catches up.

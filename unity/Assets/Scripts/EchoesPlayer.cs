@@ -9,6 +9,7 @@ namespace Echoes
         private readonly Journey journey = new Journey();
         private EchoesView view;
         private OpeningSound openingSound;
+        private TravelSound travelSound;
         private bool preview, projection, mirror, audioReady, cameraReady, paused, inputReady;
         private bool settings, characterOnly, splitProjection, noHand;
         private int cast;
@@ -33,8 +34,8 @@ namespace Echoes
 #endif
         private int savedRevision;
         private Frame remote = new Frame();
-        private const string SaveKey = "EchoesUnity.Checkpoint.1.";
-        private static readonly string[] Titles = { "沉睡森林", "回声之门", "星海回响" };
+        private const string SaveKey = "EchoesUnity.Checkpoint.3D.2";
+        private static readonly string[] Titles = { "沉睡森林", "回声遗迹", "星海回响" };
 #if UNITY_EDITOR
         public static EchoesPlayer Active { get; private set; }
         public static event Action CharacterWindowRequested;
@@ -44,7 +45,7 @@ namespace Echoes
         [Serializable]
         private sealed class Frame
         {
-            public int chapter, round, lesson, choice, flock, quota, score;
+            public int chapter, round, lesson, choice, flock, quota;
             public float time, light, charge, voice, progress;
             public bool closed, waiting, complete, paused, preview;
             public string title, message, left, right, phase;
@@ -76,10 +77,12 @@ namespace Echoes
             // Awake is not rerun when Unity reloads scripts during a Play Mode iteration.
             preview = Application.platform != RuntimePlatform.WebGLPlayer;
             view = new EchoesView();
+            view.UseWorld = PlayerPrefs.GetInt("EchoesUnity.World3D", 1) != 0;
             cast = Mathf.Clamp(PlayerPrefs.GetInt("EchoesUnity.Cast", 0), 0, CastNames.Length - 1);
             if (FindObjectOfType<AudioListener>() == null)
                 gameObject.AddComponent<AudioListener>();
             openingSound = new OpeningSound(gameObject);
+            travelSound = new TravelSound(gameObject);
             savedRevision = journey.Revision;
             Application.targetFrameRate = 60;
 #if UNITY_EDITOR
@@ -127,17 +130,17 @@ namespace Echoes
             else journey.SetHand(Hand.Missing);
             view.Advance(journey);
             openingSound.Follow(journey.IsOpening ? journey.OpeningTime : -1, paused);
+            travelSound.Follow(journey, paused);
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
-            exhibit.Tick(now, !paused && !journey.IsOpening && Application.isFocused, journey.Voice);
+            exhibit.HoldingAuthorization = journey.Phase == Stage.StarsDelegated;
+            exhibit.Tick(now, !paused && !journey.IsOpening && Application.isFocused,
+                Mathf.Max(journey.Voice * .42f, journey.WindOutput));
 #endif
 
             if (!journey.IsOpening && savedRevision != journey.Revision)
             {
                 savedRevision = journey.Revision;
-                PlayerPrefs.SetInt(SaveKey + "chapter", journey.Chapter);
-                PlayerPrefs.SetInt(SaveKey + "round", journey.Round);
-                PlayerPrefs.SetInt(SaveKey + "lesson", journey.Lesson);
-                PlayerPrefs.SetInt(SaveKey + "score", journey.Score);
+                PlayerPrefs.SetString(SaveKey, JsonUtility.ToJson(journey.Checkpoint));
                 PlayerPrefs.Save();
             }
 
@@ -153,38 +156,39 @@ namespace Echoes
 
         private Frame Snapshot()
         {
-            string left = "A · 看轨迹", right = "B · 借一步";
-            if (journey.Phase == Stage.Tutorial)
-                left = right = journey.Lesson == 2 ? "进入序幕" : "练习中";
-            else if (journey.Phase == Stage.Fork)
-            { left = "A · 林荫绕路"; right = "B · 风带捷径"; }
-            else if (journey.Phase == Stage.Complete && journey.Chapter < 2) left = right = "下一章";
-            else if (journey.Phase == Stage.Answer)
-            { left = "A · 点最后一颗星"; right = "B · 看回响"; }
-            else if (journey.Chapter == 2 && journey.Phase != Stage.Complete)
-            { left = "A · 同相"; right = "B · 反相"; }
-            else if (journey.Phase == Stage.RecordReady || journey.Phase == Stage.Record) left = right = "记录动作";
-            else if (journey.Phase == Stage.ReplayReady || journey.Phase == Stage.ReplayFailed)
-            { left = "A · 自己的节拍"; right = "B · 借用回声"; }
             return new Frame {
-                chapter = journey.Chapter, round = journey.Round, lesson = journey.Lesson, choice = journey.Choice,
-                flock = journey.Flock, quota = journey.Quota, score = journey.Score, time = journey.Time,
+                chapter = journey.Chapter, round = journey.StarCount, lesson = journey.Lesson, choice = journey.ForestRoute,
+                flock = journey.Plants, quota = 2, time = journey.Time,
                 light = journey.Light, charge = journey.Charge, voice = journey.Voice, progress = journey.Progress,
                 closed = journey.Gesture == Hand.Fist, complete = journey.Phase == Stage.Complete,
                 waiting = !inputReady || !journey.Started, paused = paused, preview = preview,
                 title = journey.IsOpening ? "序幕" : journey.Lesson >= 0 ? "回声庭院 · 试玩" : Titles[journey.Chapter],
-                message = journey.Phase == Stage.Replay
-                    ? journey.Message + (journey.RequiredHand == Hand.Open ? " 当前要张手。" : " 当前要握拳。")
-                    : journey.Message,
-                left = left, right = right, phase = journey.Phase.ToString(), spirit = LocalSpirit
+                message = !journey.IsOpening && !paused && inputReady && journey.Gesture == Hand.Missing
+                    ? "请把手放回画面，张开手继续。 " + journey.Message : journey.Message,
+                left = journey.LeftLabel, right = journey.RightLabel, phase = journey.Phase.ToString(), spirit = LocalSpirit
             };
         }
 
         private SpiritFrame LocalSpirit => SpiritFrame.Read(journey, cast);
 
+        private bool StageSplit
+        {
+            get
+            {
+#if UNITY_EDITOR
+                return splitProjection || editorProjection;
+#else
+                return splitProjection;
+#endif
+            }
+        }
+
         private void LateUpdate()
         {
-            view?.UpdateSpirit(projection ? remote.spirit : LocalSpirit);
+            if (view == null) return;
+            SpiritFrame frame = projection ? remote.spirit : LocalSpirit;
+            view.UpdateSpirit(frame);
+            if (!projection && !characterOnly) view.UpdateWorld(journey, frame, StageSplit);
         }
 
         private void OnGUI()
@@ -198,11 +202,7 @@ namespace Echoes
             if (characterOnly) view.DrawProjection(spirit, mirror, true);
             else
             {
-                bool split = splitProjection;
-#if UNITY_EDITOR
-                split |= editorProjection;
-#endif
-                view.DrawStage(journey, spirit, split);
+                view.DrawStage(journey, spirit, StageSplit);
             }
             if (Application.platform == RuntimePlatform.WebGLPlayer) return;
             if (journey.IsOpening)
@@ -258,15 +258,22 @@ namespace Echoes
 #endif
 #if UNITY_EDITOR
             if (GUI.Button(new Rect(20, 309, 183, 30), "打开独立人物窗口", button)) CharacterWindowRequested?.Invoke();
-            if (GUI.Button(new Rect(218, 309, 138, 30), "预览片头", button)) PlayOpening();
             if (editorProjection) GUI.Label(new Rect(367, 309, 143, 29), "已分屏", label);
 #endif
+            if (GUI.Button(new Rect(218, 309, 138, 30), "预览片头", button)) PlayOpening();
             GUI.Label(new Rect(20, 358, 100, 28), "出场角色", label);
             int picked = GUI.SelectionGrid(new Rect(116, 356, 388, 31), cast, CastNames, 2, button);
             if (picked != cast)
             {
                 cast = picked;
                 PlayerPrefs.SetInt("EchoesUnity.Cast", cast);
+                PlayerPrefs.Save();
+            }
+            bool world = GUI.Toggle(new Rect(20, 398, 212, 29), view.UseWorld, "使用三维关卡背景");
+            if (world != view.UseWorld)
+            {
+                view.UseWorld = world;
+                PlayerPrefs.SetInt("EchoesUnity.World3D", world ? 1 : 0);
                 PlayerPrefs.Save();
             }
         }
@@ -278,13 +285,13 @@ namespace Echoes
         {
             view?.DrawProjection(LocalSpirit, mirrored, sideways, viewport, characterScale, lightReach);
         }
+#endif
 
         public void PlayOpening()
         {
             settings = paused = characterOnly = false;
             journey.PlayOpening();
         }
-#endif
 
         public void BrowserHand(string value)
         {
@@ -322,9 +329,12 @@ namespace Echoes
 
         private void Touch(int option, bool physical)
         {
+            int cueBefore = journey.CueId;
             if (paused || !inputReady || !journey.Touch(option)) return;
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
-            exhibit.Flash(option, Time.unscaledTime, physical);
+            bool changed = journey.CueId != cueBefore;
+            if (changed && journey.Cue == JourneyCue.Withdraw) exhibit.ClearLamp(1);
+            else exhibit.Flash(option, Time.unscaledTime, physical && changed && journey.Cue == JourneyCue.Assist);
 #endif
         }
 
@@ -344,9 +354,9 @@ namespace Echoes
 
         public void Restore(string unused)
         {
-            if (!PlayerPrefs.HasKey(SaveKey + "chapter")) return;
-            journey.Restore(PlayerPrefs.GetInt(SaveKey + "chapter"), PlayerPrefs.GetInt(SaveKey + "round"),
-                PlayerPrefs.GetInt(SaveKey + "lesson"), PlayerPrefs.GetInt(SaveKey + "score"));
+            if (!PlayerPrefs.HasKey(SaveKey)) return;
+            try { journey.Restore(JsonUtility.FromJson<JourneyCheckpoint>(PlayerPrefs.GetString(SaveKey))); }
+            catch (ArgumentException) { return; }
             savedRevision = journey.Revision;
         }
 
@@ -381,6 +391,8 @@ namespace Echoes
 #endif
             openingSound?.Dispose();
             openingSound = null;
+            travelSound?.Dispose();
+            travelSound = null;
             view?.Dispose();
             view = null;
         }

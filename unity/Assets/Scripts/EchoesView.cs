@@ -9,6 +9,8 @@ namespace Echoes
         private const float Width = 1280, Height = 720, CenterX = 640;
         private readonly Texture2D far, arches, flowers, ruins, stars, glow, ring;
         private readonly SpiritRig spirit;
+        private EchoesWorld world;
+        public bool UseWorld { get; set; } = true;
         private readonly List<Vector3> traces = new List<Vector3>(140);
         private readonly List<Vector4> flightTrace = new List<Vector4>(70);
         private float flightAt = float.NegativeInfinity;
@@ -100,7 +102,7 @@ namespace Echoes
 
         public void Advance(Journey journey)
         {
-            if (journey.Chapter != lastChapter || journey.Time < lastTime)
+            if (journey.World != lastChapter || journey.Time < lastTime)
             {
                 traces.Clear();
                 atmosphere.Reset();
@@ -108,12 +110,12 @@ namespace Echoes
                 lastDistance = 0;
                 lastJourneyDistance = journey.Distance;
                 traceAt = 0;
-                lastChapter = journey.Chapter;
+                lastChapter = journey.World;
                 verticalPan = 0;
             }
             float dt = journey.Time - lastTime;
             atmosphere.Step(dt, journey.Gesture, journey.Voice, journey.Started, ScrollSpeed);
-            lastDistance += (journey.Distance - lastJourneyDistance) * ScrollSpeed;
+            lastDistance += (journey.Distance - lastJourneyDistance) * ScrollSpeed * .042f;
             lastJourneyDistance = journey.Distance;
             lastTime = journey.Time;
             verticalPan = Mathf.Lerp(verticalPan, Mathf.Lerp(-.085f, .10f, journey.Flight.Height),
@@ -132,11 +134,31 @@ namespace Echoes
             Matrix4x4 matrix = BeginFrame(ScreenViewport);
             if (journey.IsOpening)
             {
-                DrawOpening(frame, splitProjection);
+                if (world != null && world.Ready) DrawSpatialOpening(frame, splitProjection);
+                else DrawOpening(frame, splitProjection);
                 EndFrame(matrix);
                 return;
             }
             var color = palette[journey.Chapter];
+            bool spatial = UseWorld && world != null && world.Ready;
+            if (spatial) Paint(new Rect(0,0,Width,Height),Color.white,world.Texture);
+            else DrawLegacyBackground(journey, frame, color);
+            DrawChapterFeedback(journey, color);
+            if (splitProjection && !spatial)
+                Paint(new Rect(100, -100, 1080, 940), new Color(0, 0, 0, .35f), glow);
+            DrawTrace(journey, color, splitProjection ? .20f : .72f);
+            float strength = splitProjection ? .38f : .87f;
+            DrawFlightTrail(frame, color, strength, 1, new Rect(0, 0, Width, Height));
+            DrawActiveFirefly(journey, splitProjection);
+            var center = new Vector2(CenterX, CharacterY(frame.altitude));
+            var origin = new Vector2(CenterX, CharacterY(frame.releaseAltitude));
+            DrawCharacter(frame, center, origin, 162, false, 0, 1, !splitProjection && !spatial, strength);
+            DrawLiveHandoff(frame, center, 162, false, 0, 1, splitProjection ? .24f : 1);
+            EndFrame(matrix);
+        }
+
+        private void DrawLegacyBackground(Journey journey, SpiritFrame frame, Color color)
+        {
             float distance = lastDistance + atmosphere.Drift;
             Paint(new Rect(0, 0, Width, Height), new Color(.025f, .045f, .08f));
             if (journey.Chapter == 0)
@@ -146,7 +168,7 @@ namespace Echoes
                 Tiles(flowers, distance, .90f, 1.37f, -.14f + verticalPan, .91f);
             }
             else Tiles(journey.Chapter == 1 ? ruins : stars, distance, .60f, 1.48f, -.22f + verticalPan, 1);
-            float period = TimeOfDay > 0 ? TimeOfDay - 1 : Mathf.Clamp01(journey.Round * .8f / 3 + journey.Time / 150) * 3;
+            float period = TimeOfDay > 0 ? TimeOfDay - 1 : Mathf.Clamp01(journey.Time / 90) * 3;
             int index = Mathf.Min(2, Mathf.FloorToInt(period));
             float mix = Mathf.SmoothStep(0, 1, period - index);
             Paint(new Rect(0, 0, Width, Height), Opacity(Color.Lerp(Sky[index], Sky[index + 1], mix),
@@ -164,18 +186,6 @@ namespace Echoes
             }
             if (journey.EnteredFromOpening && frame.motionTime < 2.4f)
                 DrawOpeningArrival(1 - OpeningStoryboard.Ease(.15f, 2.4f, frame.motionTime));
-            DrawChallenge(journey, color);
-            if (splitProjection)
-                Paint(new Rect(100, -100, 1080, 940), new Color(0, 0, 0, .53f), glow);
-            DrawTrace(journey, color, splitProjection ? .28f : 1);
-            float strength = splitProjection ? .40f : 1;
-            DrawFlightTrail(frame, color, strength, 1, new Rect(0, 0, Width, Height));
-            DrawActiveFirefly(journey, splitProjection);
-            var center = new Vector2(CenterX, CharacterY(frame.altitude));
-            var origin = new Vector2(CenterX, CharacterY(frame.releaseAltitude));
-            DrawCharacter(frame, center, origin, 162, false, 0, 1, !splitProjection, strength);
-            DrawLiveHandoff(frame, center, 162, false, 0, 1, splitProjection ? .24f : 1);
-            EndFrame(matrix);
         }
 
         private static void Tiles(Texture2D texture, float distance, float speed, float zoom, float y, float opacity)
@@ -206,67 +216,6 @@ namespace Echoes
             }
         }
 
-        private void DrawChallenge(Journey j, Color color)
-        {
-            if (j.Chapter == 0 && j.Lesson < 0)
-            {
-                for (int i = 0; i < j.Flock; i++)
-                {
-                    float x = CenterX - 92 - i * 23 + Mathf.Sin(j.Time * 2 + i) * 16;
-                    float y = CharacterY(j.Flight.Height) + Mathf.Sin(j.Time * 2.2f + i * 1.7f) * 33;
-                    Orb(x, y, 12, color, .56f);
-                }
-                if (j.Phase == Stage.Travel && j.Choice == 1)
-                    for (int i = 0; i <= j.Round; i++)
-                    {
-                        float x = CenterX + ((i + 1f) / (j.Round + 2) - j.Progress) * Width;
-                        Orb(x, Height * .53f, 180, new Color(.8f, .9f, 1), .28f);
-                        Ripple(x, Height * .53f, 70, color, .37f);
-                    }
-                if (j.Phase == Stage.Nest) Ripple(Width * .73f, Height * .61f, 40 + 40 * j.Progress, color, .65f);
-            }
-            else if (j.Chapter == 1)
-            {
-                for (int i = 0; i < j.SlotCount; i++)
-                {
-                    float x = CenterX + (i - (j.SlotCount - 1) * .5f) * 109;
-                    float y = Height * .72f;
-                    Color cue = i < j.Recording.Count && j.Recording[i] == Hand.Open
-                        ? new Color(1, .77f, .48f) : color;
-                    float alpha = i == j.Slot ? .55f + .35f * j.Progress : .31f;
-                    Ripple(x, y, 27 + (i == j.Slot ? j.Progress * 7 : 0), cue, alpha);
-                    Orb(x, y, 25, cue, alpha);
-                }
-            }
-            else if (j.Phase == Stage.Wave || j.Phase == Stage.WaveResult)
-            {
-                var incomingColor = j.Storm ? new Color(.88f, .48f, 1f) : new Color(.46f, .89f, 1f);
-                Ripple(j.WaveX * Width, CharacterY(j.Flight.Height), 68 + j.IncomingAmplitude * 105, incomingColor, .75f);
-                if (j.HasResponse) Ripple(j.ResponseX * Width, CharacterY(j.Flight.Height), 82, color, .72f);
-                if (j.Phase == Stage.Wave && j.Gesture == Hand.Fist)
-                {
-                    float x = CenterX - 160;
-                    float y = Height * .73f;
-                    Paint(new Rect(x, y, 320, 4), new Color(1, 1, 1, .22f));
-                    Paint(new Rect(x + Mathf.Clamp01(j.Target * .5f + .25f) * 320 - 25, y - 4, 50, 12), Opacity(color, .43f));
-                    Orb(x + Mathf.Clamp01(j.Preview * .5f + .25f) * 320, y + 2, 12,
-                        j.Aligned ? new Color(.59f, 1, .77f) : Color.white, .9f);
-                }
-            }
-            else if (j.Chapter == 2 && j.Phrase.Count > 0)
-            {
-                if (j.Phase == Stage.Answer || j.Phase == Stage.Complete) DrawConstellation(j, color);
-                for (int i = 0; i < j.Phrase.Count; i++)
-                {
-                    float x = CenterX + (i - 1) * 145;
-                    float radius = 22 + Mathf.Abs(j.Phrase[i]) * 54;
-                    Ripple(x, Height * .67f, radius, color, .78f);
-                    if (j.Phase == Stage.Answer)
-                        Ripple(x, Height * .67f, radius + 16 + Mathf.Sin(j.Time * 2 + i) * 12,
-                            new Color(.48f, .86f, 1), .7f);
-                }
-            }
-        }
 
         private void Orb(float x, float y, float radius, Color color, float alpha)
         {
@@ -280,7 +229,6 @@ namespace Echoes
         public void UpdateSpirit(SpiritFrame frame)
         {
             spirit.Render(frame);
-            if (frame.openingTime >= 0) UpdatePlates(frame.openingTime);
             int scene = frame.openingTime >= 0 ? 3 : frame.chapter;
             if (scene != trailScene || frame.motionTime < flightAt)
             {
@@ -389,7 +337,7 @@ namespace Echoes
                 if (GUI.Button(new Rect(935 + i * 78, 658, 72, 34), names[i], button)) select((i - 1).ToString());
             if (settings != null)
             {
-                var panel = new Rect(724, 72, 527, 410);
+                var panel = new Rect(724, 72, 527, 446);
                 Paint(panel, new Color(.02f, .05f, .09f, .96f));
                 GUI.BeginGroup(panel);
                 settings(body, button);
@@ -418,6 +366,7 @@ namespace Echoes
         public void Dispose()
         {
             spirit.Dispose();
+            world?.Dispose();
             ReleasePlates();
             UnityEngine.Object.Destroy(glow);
             UnityEngine.Object.Destroy(ring);

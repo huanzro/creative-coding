@@ -14,6 +14,46 @@ namespace Echoes
         private RenderTexture compositePlate;
         private float plateTime = -1;
 
+        public void UpdateWorld(Journey journey, SpiritFrame frame, bool split)
+        {
+            if (frame.openingTime < 0 && !UseWorld) return;
+            if (world == null) world = new EchoesWorld();
+            Vector2 amber = Vector2.zero, red = Vector2.zero;
+            if (frame.openingTime >= 0)
+            {
+                float time = frame.openingTime;
+                var shot = OpeningStoryboard.Sample(time);
+                var center = new Vector2(shot.Actor.x*Width, shot.Actor.y*Height);
+                var scale = new Vector2(1/Width,1/Height);
+                amber = Vector2.Scale(center+OpeningFlyOffset(time,shot,false)*(162*shot.Actor.z),scale);
+                red = Vector2.Scale(center+OpeningFlyOffset(time,shot,true)*(162*shot.Actor.z),scale);
+            }
+            world.Render(journey,frame,spirit,split,TimeOfDay,ScrollSpeed,amber,red);
+            if (frame.openingTime >= 0 && !world.Ready) UpdatePlates(frame.openingTime);
+        }
+
+        private void DrawSpatialOpening(SpiritFrame frame,bool split)
+        {
+            float t=frame.openingTime;
+            var shot=OpeningStoryboard.Sample(t);
+            Paint(new Rect(0,0,Width,Height),Color.white,world.Texture);
+            Vector2 actor=new Vector2(shot.Actor.x*Width,shot.Actor.y*Height);
+            float size=162*shot.Actor.z;
+            Vector2 fingertips=actor+HandPosition*size;
+            Vector2 fly=actor+OpeningFlyOffset(t,shot,false)*size;
+            float strength=split?.34f:1;
+            float catchLight=OpeningStoryboard.Window(t,11.52f,12.4f,15.3f,17.0f);
+            DrawLiftRibbon(fly+new Vector2(0,-18),fingertips,t,catchLight*strength*.67f);
+            float scarlet=OpeningStoryboard.Window(t,26.83f,27.62f,29.96f,30.54f);
+            DrawScarletSpiral(actor,t,scarlet*strength*.34f);
+            DrawLandingDebris(t);
+            float start=1-OpeningStoryboard.Ease(.03f,1.18f,t);
+            Paint(new Rect(0,0,Width,Height),new Color(.006f,.012f,.017f,start));
+            float bar=28*OpeningStoryboard.Ease(0,.8f,t)*(1-OpeningStoryboard.Ease(35.2f,37.5f,t));
+            Paint(new Rect(0,0,Width,bar),Color.black);
+            Paint(new Rect(0,Height-bar,Width,bar),Color.black);
+        }
+
         private void PreparePlates()
         {
             var shader = Resources.Load<Shader>("OpeningPlates");

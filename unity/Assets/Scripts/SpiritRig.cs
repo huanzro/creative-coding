@@ -13,19 +13,23 @@ namespace Echoes
         };
         private static readonly int SceneLight = Shader.PropertyToID("_SceneLight");
         private static readonly int ContactLight = Shader.PropertyToID("_ContactLight");
+        private static readonly int StageKey = Shader.PropertyToID("_StageKey");
         private readonly Texture2D fallback;
         private readonly Material material;
         private readonly RenderTexture target;
         private readonly CommandBuffer commands;
         private readonly SpiritModel model;
-        private readonly IllustratedSpirit painted;
         private readonly Camera portraitCamera;
         private readonly float[] dance = new float[SpiritDance.TrackCount];
         private readonly Vector3[] anchors = new Vector3[4];
+        private readonly Vector3[] sceneAnchors = new Vector3[4];
         private readonly List<TracePoint>[] traces = new List<TracePoint>[4];
         private float lastSample = float.NegativeInfinity, lastTrail = float.NegativeInfinity;
         private float tracked, closed, voice;
         private SpiritFrame previous;
+        private SpiritPose pose;
+        private Color poseTint;
+        private float poseContact;
         private bool rendered;
 
         public bool Articulated => rendered;
@@ -54,10 +58,7 @@ namespace Echoes
             };
             commands = new CommandBuffer { name = "Echoes 3D character" };
             material = new Material(shader);
-            model = new SpiritModel(material, commands);
-            var paintedShader = Resources.Load<Shader>("IllustratedSpirit");
-            if (fallback != null && paintedShader != null && paintedShader.isSupported)
-                painted = new IllustratedSpirit(fallback, paintedShader);
+            model = new SpiritModel(material);
             var cameraObject = new GameObject("Echoes portrait camera") { hideFlags = HideFlags.HideAndDontSave };
             cameraObject.transform.position = new Vector3(0, 1.16f, -5.6f);
             portraitCamera = cameraObject.AddComponent<Camera>();
@@ -105,7 +106,7 @@ namespace Echoes
             lastSample = time;
             bool changedCast = previous.cast != frame.cast;
             previous = frame;
-            SpiritPose pose = SpiritMotion.Sample(frame, tracked, closed, voice, dance);
+            pose = SpiritMotion.Sample(frame, tracked, closed, voice, dance);
             commands.Clear();
             Color tint = Accent[Mathf.Clamp(frame.chapter, 0, Accent.Length - 1)];
             float contact = frame.fireflyPulse * .80f;
@@ -121,11 +122,9 @@ namespace Echoes
                 tint = Color.Lerp(tint, new Color(1,.33f,.26f), scarlet * .90f);
                 contact = Mathf.Max(scarlet, warm) * .86f;
             }
-            material.SetVector(SceneLight, new Vector4(tint.r, tint.g, tint.b, opening ? .31f : .17f));
-            if (frame.cast == 1 && painted != null) painted.Draw(pose, tint, contact, anchors, commands);
-            else model.Draw(pose, tint, anchors);
-            Vector3 light = anchors[1] + new Vector3(.08f, .045f, -.135f);
-            material.SetVector(ContactLight, new Vector4(light.x, light.y, light.z, contact));
+            poseTint = tint;
+            poseContact = contact;
+            RenderModel(Matrix4x4.identity, Vector3.zero, anchors, commands, opening ? .31f : .17f);
             portraitCamera.Render();
             rendered = true;
             if (changedCast)
@@ -135,6 +134,26 @@ namespace Echoes
             }
             if (!opening)
                 UpdateTrails(time, frame.glide > .10f || frame.turnAge >= 0 || frame.touchAge >= 0 || frame.releaseAge >= 0);
+        }
+
+        private void RenderModel(Matrix4x4 basis, Vector3 key, Vector3[] joints, CommandBuffer buffer, float ambient)
+        {
+            material.SetVector(StageKey, new Vector4(key.x,key.y,key.z,key.sqrMagnitude>.1f?1:0));
+            material.SetVector(SceneLight, new Vector4(poseTint.r,poseTint.g,poseTint.b,ambient));
+            model.Draw(pose,poseTint,joints,previous.cast == 1,basis,buffer);
+            Vector3 point = joints[1] + basis.MultiplyVector(new Vector3(.08f,.045f,-.135f));
+            material.SetVector(ContactLight,new Vector4(point.x,point.y,point.z,poseContact));
+        }
+
+        public void DrawInWorld(Camera camera, Vector2 screen, float bodyPixels, float depth, Vector3 key, CommandBuffer buffer)
+        {
+            if (!rendered) return;
+            Vector3 point = camera.ViewportToWorldPoint(new Vector3(screen.x,1-screen.y,depth));
+            float scale = bodyPixels * HeightScale / 720 *
+                (depth*Mathf.Tan(camera.fieldOfView*.5f*Mathf.Deg2Rad))/(5.6f*Mathf.Tan(15.25f*Mathf.Deg2Rad));
+            Matrix4x4 transform = Matrix4x4.TRS(point,camera.transform.rotation,Vector3.one*scale)
+                * Matrix4x4.Translate(new Vector3(0,-1.16f,0));
+            RenderModel(transform,key,sceneAnchors,buffer,.20f);
         }
 
         private void UpdateTrails(float time, bool active)
@@ -163,7 +182,6 @@ namespace Echoes
                 UnityEngine.Object.Destroy(portraitCamera.gameObject);
             }
             model?.Dispose();
-            painted?.Dispose();
             commands?.Dispose();
             if (target != null) { target.Release(); UnityEngine.Object.Destroy(target); }
             if (material != null) UnityEngine.Object.Destroy(material);

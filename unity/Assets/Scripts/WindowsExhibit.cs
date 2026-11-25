@@ -24,6 +24,7 @@ namespace Echoes
         public bool FanSupported { get; private set; }
         public bool LampsEnabled { get; set; }
         public bool FanEnabled { get; set; }
+        public bool HoldingAuthorization { get; set; }
         public string Status { get; private set; } = "串口未连接";
         public event Action<int> Pressed;
 
@@ -125,8 +126,14 @@ namespace Echoes
             lampEnd[option] = now + (physical ? 1.8f : .5f);
         }
 
-        private float Lamp(int option, float now) => LampsEnabled && lampEnd[option] >= 0
-            ? Math.Max(0, Math.Min(1, 1 - (now - lampEnd[option]) / .42f)) : 0;
+        public void ClearLamp(int option) => lampEnd[option] = -1;
+
+        private float Lamp(int option, float now)
+        {
+            if (!LampsEnabled) return 0;
+            if (option == 1 && HoldingAuthorization) return 1;
+            return lampEnd[option] >= 0 ? Math.Max(0, Math.Min(1, 1 - (now - lampEnd[option]) / .42f)) : 0;
+        }
 
         public void StopOutput()
         {

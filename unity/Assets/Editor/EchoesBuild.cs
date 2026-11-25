@@ -118,6 +118,24 @@ namespace Echoes
             Debug.Log("Echoes Web build: " + output);
         }
 
+        [MenuItem("Echoes of Light/Build Windows Preview")]
+        public static void Windows()
+        {
+            Prepare(false);
+            if (!BuildPipeline.IsBuildTargetSupported(BuildTargetGroup.Standalone, BuildTarget.StandaloneWindows64))
+                throw new InvalidOperationException("Install Windows Build Support for this Unity Editor.");
+            string output = Path.Combine(Project, "Builds", "Windows", "Echoes of Light.exe");
+            var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions {
+                scenes = new[] { ScenePath },
+                locationPathName = output,
+                target = BuildTarget.StandaloneWindows64,
+                options = BuildOptions.None
+            });
+            if (report.summary.result != BuildResult.Succeeded)
+                throw new InvalidOperationException("Unity Windows build failed: " + report.summary.result);
+            Debug.Log("Echoes Windows build: " + output);
+        }
+
         private static void CopyDirectory(string source, string destination)
         {
             Directory.CreateDirectory(destination);

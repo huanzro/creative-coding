@@ -8,6 +8,7 @@ Shader "Hidden/Echoes/Spirit3D"
         _Fabric ("Embroidered silk", Float) = 0
         _Face ("Face detail mask", Float) = 0
         _Expression ("Lids, expression and gaze", Vector) = (1,0,0,0)
+        _StageKey ("Directional light of the set", Vector) = (0,0,0,0)
     }
     SubShader
     {
@@ -24,6 +25,7 @@ Shader "Hidden/Echoes/Spirit3D"
             float4 _ContactLight;
             float _Fabric, _Face;
             float4 _Expression;
+            float4 _StageKey;
             struct Vertex
             {
                 float4 position : POSITION;
@@ -109,8 +111,8 @@ Shader "Hidden/Echoes/Spirit3D"
             float4 frag(Varyings input) : SV_Target
             {
                 float3 normal = normalize(input.normal);
-                float3 eye = normalize(float3(0, 1.16, -5.6) - input.world);
-                float3 key = normalize(float3(.47, .83, -.43));
+                float3 eye = normalize(_WorldSpaceCameraPos - input.world);
+                float3 key = normalize(lerp(float3(.47,.83,-.43),_StageKey.xyz,_StageKey.w));
                 float3 fill = normalize(float3(-.76, .18, .34));
                 float diffuse = saturate(dot(normal, key));
                 float cool = saturate(dot(normal, fill));

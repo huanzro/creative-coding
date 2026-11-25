@@ -19,3 +19,13 @@ Exact source pages are recorded in `dist/assets/sources.json`; downloaded bytes 
 - Apache license text is retained in `dist/vendor/LICENSE`.
 
 No runtime CDN, analytics, external fonts, image upload, or video recording is used.
+
+## 3D world surface textures
+
+The following CC0 diffuse maps from Poly Haven are used on procedurally built meshes in `unity/Assets/Resources/WorldMaterials/`. [Poly Haven license](https://polyhaven.com/license)
+
+| Local asset | Source |
+| --- | --- |
+| `Bark.jpg` | [Bark Brown 01](https://polyhaven.com/a/bark_brown_01) |
+| `Stone.jpg` | [Mossy Rock](https://polyhaven.com/a/mossy_rock) |
+| `Ground.jpg` | [Forest Leaves 02](https://polyhaven.com/a/forest_leaves_02) |
