@@ -38,7 +38,9 @@ namespace Echoes
         private readonly float[] touchBegan = new float[4];
         private readonly bool[] pendingTouch = new bool[4];
         private Frame remote = new Frame();
-        private const string SaveKey = "EchoesUnity.Checkpoint.3D.2";
+        private const string SaveKey = "EchoesUnity.Checkpoint.Ruins.6";
+        private const string PreviousRuinsSaveKey = "EchoesUnity.Checkpoint.Ruins.5";
+        private const string PreviousSaveKey = "EchoesUnity.Checkpoint.3D.2";
         private static readonly string[] Titles = { "沉睡森林", "回声遗迹", "星海回响" };
 #if UNITY_EDITOR
         public static EchoesPlayer Active { get; private set; }
@@ -175,8 +177,9 @@ namespace Echoes
         {
             return new Frame {
                 chapter = journey.Chapter, round = journey.StarCount, lesson = journey.Lesson, choice = journey.ForestRoute,
-                flock = journey.InForest ? journey.ForestLights : journey.Plants,
-                quota = journey.InForest ? journey.ForestPlantsRequired : 2, time = journey.Time,
+                flock = journey.InRuins ? journey.RuinInventory : journey.InForest ? journey.ForestLights : journey.Plants,
+                quota = journey.InRuins ? Journey.RuinCapacity : journey.InForest ? journey.ForestPlantsRequired : 2,
+                time = journey.Time,
                 light = journey.Light, charge = journey.Charge, voice = journey.Voice, progress = journey.Progress,
                 closed = journey.Gesture == Hand.Fist, complete = journey.Phase == Stage.Complete,
                 waiting = !inputReady || !journey.Started, paused = paused, preview = preview,
@@ -287,7 +290,7 @@ namespace Echoes
                 PlayerPrefs.SetInt("EchoesUnity.Cast", cast);
                 PlayerPrefs.Save();
             }
-            bool world = GUI.Toggle(new Rect(20, 420, 300, 27), view.UseWorld, "遗迹和星海使用三维背景");
+            bool world = GUI.Toggle(new Rect(20, 420, 300, 27), view.UseWorld, "星海使用三维背景");
             if (world != view.UseWorld)
             {
                 view.UseWorld = world;
@@ -383,7 +386,7 @@ namespace Echoes
         private void Touch(int option, bool physical)
         {
             int cueBefore = journey.CueId;
-            bool steering = journey.InForest;
+            bool steering = journey.InForest || journey.InRuins;
             if (paused || !inputReady || !journey.Touch(option)) return;
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
             if (steering) return;
@@ -409,8 +412,13 @@ namespace Echoes
 
         public void Restore(string unused)
         {
-            if (!PlayerPrefs.HasKey(SaveKey)) return;
-            try { journey.Restore(JsonUtility.FromJson<JourneyCheckpoint>(PlayerPrefs.GetString(SaveKey))); }
+            string save = PlayerPrefs.GetString(SaveKey,
+                PlayerPrefs.GetString(PreviousRuinsSaveKey, PlayerPrefs.GetString(PreviousSaveKey, "")));
+            if (string.IsNullOrEmpty(save)) return;
+            try
+            {
+                if (!journey.Restore(JsonUtility.FromJson<JourneyCheckpoint>(save))) return;
+            }
             catch (ArgumentException) { return; }
             savedRevision = journey.Revision;
         }

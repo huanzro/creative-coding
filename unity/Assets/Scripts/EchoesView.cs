@@ -140,22 +140,22 @@ namespace Echoes
                 return;
             }
             var color = palette[journey.Chapter];
-            bool spatial = (UseWorld || frame.forest) && world != null && world.Ready;
+            bool spatial = (UseWorld || frame.forest || frame.ruins) && world != null && world.Ready;
             if (spatial) Paint(new Rect(0,0,Width,Height),Color.white,world.Texture);
             else DrawLegacyBackground(journey, frame, color);
-            if (!frame.forest) DrawChapterFeedback(journey, color);
+            if (!frame.forest && !frame.ruins) DrawChapterFeedback(journey, color);
             if (splitProjection && !spatial)
                 Paint(new Rect(100, -100, 1080, 940), new Color(0, 0, 0, .35f), glow);
             float strength = splitProjection ? .38f : .87f;
             var center = new Vector2(CenterX, CharacterY(frame.altitude));
             var origin = new Vector2(CenterX, CharacterY(frame.releaseAltitude));
             float actorSize = 162;
-            if (frame.forest && spatial)
+            if ((frame.forest || frame.ruins) && spatial)
             {
                 center = Vector2.Scale(world.ActorScreen, new Vector2(Width, Height));
                 origin = center + Vector2.up * Mathf.Clamp(frame.altitude - frame.releaseAltitude, -.7f, .7f) * 92;
                 actorSize = world.ActorBody;
-                strength *= frame.forestDescent < 0 ? .62f : .34f;
+                strength *= frame.forestDescent < 0 && frame.ruinTransfer < 0 ? .62f : .34f;
             }
             else
             {
@@ -166,8 +166,9 @@ namespace Echoes
             DrawCharacter(frame, center, origin, actorSize, false, 0, 1, !splitProjection && !spatial, strength);
             if (frame.forest)
                 DrawForestSwarm(frame, center, actorSize, false, 0, splitProjection ? .33f : .94f, !spatial);
-            else DrawLiveHandoff(frame, center, actorSize, false, 0, 1, splitProjection ? .24f : 1);
+            else if (!frame.ruins) DrawLiveHandoff(frame, center, actorSize, false, 0, 1, splitProjection ? .24f : 1);
             if (frame.forest) DrawForestHud(journey);
+            if (frame.ruins) DrawRuinHud(journey);
             EndFrame(matrix);
         }
 

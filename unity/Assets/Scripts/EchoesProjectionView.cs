@@ -17,7 +17,7 @@ namespace Echoes
             var area = new Rect(0, 0, viewport.width, viewport.height);
             float bodySize = sideways ? Mathf.Min(area.width * .50f, area.height * .92f)
                                       : Mathf.Min(area.height * .67f, area.width * .93f);
-            if (frame.forest) bodySize *= .78f;
+            if (frame.forest || frame.ruins) bodySize *= .78f;
             bodySize *= Mathf.Clamp(characterScale, .35f, 1.40f);
             bodySize = Mathf.Min(bodySize, Mathf.Min(area.width, area.height) * (sideways ? 1.34f : .88f));
             float unit = Mathf.Min(area.height / Height, area.width / 880);
@@ -62,21 +62,32 @@ namespace Echoes
                         visibility = 1 - Mathf.SmoothStep(0, 1, Mathf.InverseLerp(.68f, .98f, frame.forestDescent));
                     }
                 }
+                if (frame.ruins)
+                {
+                    Vector2 lateral = sideways ? Vector2.down : Vector2.right;
+                    Vector2 lane = lateral * (sideways ? area.height : area.width) * frame.ruinLane * (mirror ? -.13f : .13f);
+                    center += lane;
+                    source += lane;
+                    if (frame.ruinTransfer >= 0)
+                        visibility -= .40f * Mathf.Sin(Mathf.Clamp01(frame.ruinTransfer) * Mathf.PI);
+                    DrawRuinFinds(frame, center, bodySize, mirror, sideways);
+                }
                 if (!frame.forest || frame.forestDescent < 0)
                     DrawFlightTrail(frame, palette[Mathf.Clamp(frame.chapter, 0, 2)], 1, extent, area, bodySize, sideways);
                 DrawCharacter(frame, center, source, bodySize, mirror, sideways ? -90 : 0, extent, true, visibility, visibility);
                 if (frame.forest) DrawForestSwarm(frame, center, bodySize, mirror, sideways ? -90 : 0, visibility, true);
-                else DrawLiveHandoff(frame, center, bodySize, mirror, sideways ? -90 : 0, extent, visibility);
+                else if (!frame.ruins) DrawLiveHandoff(frame, center, bodySize, mirror, sideways ? -90 : 0, extent, visibility);
             }
             GUI.EndGroup();
         }
 
         private static Vector2 FrameProjectionPosition(SpiritFrame frame, float altitude, Rect area, float size, bool sideways)
         {
-            if (!frame.forest) return ProjectionPosition(SpiritFlight.ScreenY(altitude), area, size, sideways);
+            if (!frame.forest && !frame.ruins) return ProjectionPosition(SpiritFlight.ScreenY(altitude), area, size, sideways);
             float axis = sideways ? area.width : area.height;
             float edge = Mathf.Min(size * .52f + 7, axis * .43f);
-            float height = Mathf.Lerp(axis - edge, edge, Mathf.Clamp01(altitude / Mathf.Max(1,frame.forestHeightCeiling)));
+            float ceiling = frame.ruins ? Journey.RuinHeightLimit : Mathf.Max(1, frame.forestHeightCeiling);
+            float height = Mathf.Lerp(axis - edge, edge, Mathf.Clamp01(altitude / ceiling));
             return sideways ? new Vector2(height, area.height * .54f) : new Vector2(area.width * .5f, height);
         }
 

@@ -210,8 +210,20 @@ namespace Echoes
             if (j.RuinResult!=RuinPath.Unfinished)
             {
                 Vector2 fringe=points[0]+new Vector2(-82,j.RuinResult==RuinPath.Arcade?-47:39);
-                DottedPath(fringe,points[0],j.RuinResult==RuinPath.Arcade?Iris:Mint,.72f);
-                Knot(fringe.x,fringe.y,Mint,1,0);
+                if (j.RuinRetryOutcome == RuinRetryResolution.Takeover)
+                {
+                    Vector2 turn = Vector2.Lerp(fringe, points[0], .55f) + new Vector2(-4, -21);
+                    DottedPath(fringe,turn,GlassBlue,.72f);
+                    DottedPath(turn,points[0],Amber,.76f);
+                    Knot(turn.x,turn.y,Amber,1,.18f);
+                }
+                else if (j.RuinRetryOutcome == RuinRetryResolution.Remembered)
+                {
+                    DottedPath(fringe+new Vector2(0,-27),points[0],Iris,.30f);
+                    DottedPath(fringe,points[0],Amber,.76f);
+                }
+                else DottedPath(fringe,points[0],j.RuinResult==RuinPath.Arcade?Iris:Mint,.72f);
+                Knot(fringe.x,fringe.y,j.RuinRetryOutcome==RuinRetryResolution.Remembered?Amber:Mint,1,0);
             }
             for(int i=0;i<3;i++)
             {

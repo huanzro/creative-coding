@@ -10,6 +10,7 @@ namespace Echoes
         private readonly AudioClip[] cues = new AudioClip[Enum.GetValues(typeof(JourneyCue)).Length];
         private readonly AudioClip[] machineScenes = new AudioClip[4];
         private readonly AudioClip[] rescues = new AudioClip[2];
+        private AudioClip forestMachineLoop, archiveLoop;
         private int heard;
         private int sceneStamp;
 
@@ -51,7 +52,7 @@ namespace Echoes
             if (journey.Cue==JourneyCue.ForestRescueLight || journey.Cue==JourneyCue.ForestDoor) return;
             int index=(int)journey.Cue;
             if(cues[index]==null) cues[index]=Compose(journey.Cue);
-            source.panStereo=journey.InForest ? journey.ForestLane * .42f :
+            source.panStereo=journey.InRuins ? journey.RuinLane * .31f : journey.InForest ? journey.ForestLane * .42f :
                 journey.Cue==JourneyCue.Observe?-.31f:journey.Cue==JourneyCue.Assist?.29f:0;
             source.PlayOneShot(cues[index]);
         }
@@ -60,12 +61,32 @@ namespace Echoes
         {
             float distance=journey.InForest && journey.Branch==ForestBranch.Right && !paused ? journey.Distance : 0;
             float target=OpeningStoryboard.Ease(117,163,distance)*.19f;
+            if (journey.InRuins && !paused)
+                target=(.10f + .028f * Math.Abs(journey.RuinLayer)) * (journey.Phase == Stage.RuinTransfer ? .66f : 1);
+            switch (journey.RuinRetryState)
+            {
+                case RuinRetryPhase.Impact:
+                case RuinRetryPhase.Choice:
+                    target *= .30f;
+                    break;
+                case RuinRetryPhase.Listen:
+                case RuinRetryPhase.Release:
+                    target *= .13f;
+                    break;
+            }
             if (journey.Phase==Stage.ForestTransition) target*=1-OpeningStoryboard.Ease(.59f,1,journey.Progress);
             machinery.volume=Mathf.MoveTowards(machinery.volume,target,Time.unscaledDeltaTime*.38f);
-            if (target>0 && !machinery.isPlaying)
+            if (target>0)
             {
-                if (machinery.clip==null) machinery.clip=ComposeMachineLoop();
-                machinery.Play();
+                AudioClip bed = journey.InRuins ? archiveLoop ?? (archiveLoop=ComposeArchiveLoop()) :
+                    forestMachineLoop ?? (forestMachineLoop=ComposeMachineLoop());
+                if (machinery.clip != bed)
+                {
+                    machinery.Stop();
+                    machinery.clip=bed;
+                }
+                if (!machinery.isPlaying) machinery.Play();
+                machinery.pitch = journey.InRuins ? 1 + .048f * journey.RuinLayer : 1;
             }
             if (target<=0 && machinery.volume<=0 && machinery.isPlaying) machinery.Stop();
             if (paused) return;
@@ -87,6 +108,20 @@ namespace Echoes
                 samples[i]=(float)((Tone(t,44)+.49*Tone(t,66)+.23*Tone(t,132))*(.105+.045*Tone(t,.5)));
             }
             return MachineClip("Buried machine",samples);
+        }
+
+        private static AudioClip ComposeArchiveLoop()
+        {
+            const int length = Rate * 8;
+            var samples = new float[length];
+            for (int index = 0; index < length; index++)
+            {
+                double t = index / (double)Rate;
+                double drift = .64 + .19 * Tone(t, .25) + .17 * Tone(t, .375);
+                samples[index] = (float)(drift * (.14 * Tone(t, 64) + .069 * Tone(t, 96) +
+                    .031 * Tone(t, 144.125) * Tone(t, 1.25) + .014 * Tone(t, 216) * Tone(t, .50)));
+            }
+            return MachineClip("Civilization archive", samples);
         }
 
         private static AudioClip ComposeMachineScene(int scene)
@@ -208,12 +243,16 @@ namespace Echoes
 
         private static AudioClip Compose(JourneyCue cue)
         {
+            if (cue == JourneyCue.RuinHeartbeat) return ComposeHeart();
+            if (cue == JourneyCue.RuinRetryBeat) return ComposeHeart(true);
+            if (cue == JourneyCue.RuinWall) return ComposeWall();
             bool misread=cue==JourneyCue.Misread || cue==JourneyCue.ForestScarlet;
             bool gust=cue==JourneyCue.Gust || cue==JourneyCue.ForestCaptured;
-            double seconds=cue==JourneyCue.Seal?1.6:gust?.66:.64;
+            double seconds=cue==JourneyCue.Seal || cue==JourneyCue.RuinEscape ? 1.6 : gust?.66:.64;
             double pitch=cue==JourneyCue.Withdraw?329.6:cue==JourneyCue.Assist?392:cue==JourneyCue.Observe?659.25:
                 cue==JourneyCue.ForestAmber?783.99:cue==JourneyCue.ForestRescued?587.33:
-                cue==JourneyCue.Correct?493.88:misread?293.66:cue==JourneyCue.Gate?440:523.25;
+                cue==JourneyCue.RuinCollect?698.46:cue==JourneyCue.RuinDoor?369.99:cue==JourneyCue.RuinTravel?311.13:
+                cue==JourneyCue.RuinReplay?273.4:cue==JourneyCue.RuinEscape?659.25:cue==JourneyCue.Correct?493.88:misread?293.66:cue==JourneyCue.Gate?440:523.25;
             var data=new float[(int)(seconds*Rate)];
             var random=new System.Random(38+(int)cue);
             double noise=0;
@@ -233,6 +272,40 @@ namespace Echoes
             return clip;
         }
 
+        private static AudioClip ComposeHeart(bool retry = false)
+        {
+            var data = new float[Rate];
+            for (int i = 0; i < data.Length; i++)
+            {
+                double t = i / (double)Rate;
+                double impulse = HeartStroke(t - (retry ? .08 : .024)) + .67 * HeartStroke(t - (retry ? .46 : .201));
+                data[i] = (float)impulse;
+            }
+            return MachineClip(retry ? "Recall the heartbeat" : "First heart close-up", data);
+        }
+
+        private static AudioClip ComposeWall()
+        {
+            var samples = new float[Rate];
+            var grains = new System.Random(119);
+            double low = 0;
+            for (int i = 0; i < samples.Length; i++)
+            {
+                double t = i / (double)Rate;
+                low += (grains.NextDouble() * 2 - 1 - low) * .085;
+                samples[i] = (float)(Math.Min(1,t*180) * Math.Exp(-10*t) *
+                    (.42 * Tone(t,52) + .16 * Tone(t,88) + .36 * low * Math.Exp(-24*t)));
+            }
+            return MachineClip("Archive wall impact", samples);
+        }
+
+        private static double HeartStroke(double t)
+        {
+            if (t < 0) return 0;
+            return Math.Min(1, t * 130) * Math.Exp(-t * 26) *
+                (.42 * Tone(t, 61) + .105 * Tone(t, 131) + .062 * Tone(t, 282) * Math.Exp(-t * 27));
+        }
+
         private static double Tone(double t,double hz) => Math.Sin(t*hz*2*Math.PI);
 
         public void Dispose()
@@ -245,9 +318,10 @@ namespace Echoes
             }
             if(machinery!=null)
             {
-                if(machinery.clip!=null) UnityEngine.Object.Destroy(machinery.clip);
                 UnityEngine.Object.Destroy(machinery);
             }
+            if(forestMachineLoop!=null) UnityEngine.Object.Destroy(forestMachineLoop);
+            if(archiveLoop!=null) UnityEngine.Object.Destroy(archiveLoop);
             foreach(var clip in machineScenes)
                 if(clip!=null) UnityEngine.Object.Destroy(clip);
             foreach(var clip in rescues)

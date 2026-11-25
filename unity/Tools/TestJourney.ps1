@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-$sources = 'Journey.cs', 'JourneyChapters.cs', 'JourneyForest.cs', 'ForestMaze.cs', 'JourneyMaze.cs', 'AtmosphereMotion.cs', 'ExhibitProtocol.cs', 'SpiritFrame.cs', 'OpeningTiming.cs', 'SpiritFlight.cs', 'FireflyCourse.cs' |
+$sources = 'Journey.cs', 'JourneyChapters.cs', 'JourneyForest.cs', 'ForestMaze.cs', 'JourneyMaze.cs', 'JourneyRuins.cs', 'JourneyRuinLoot.cs', 'JourneyRuinRetry.cs', 'RuinAtlas.cs', 'AtmosphereMotion.cs', 'ExhibitProtocol.cs', 'SpiritFrame.cs', 'OpeningTiming.cs', 'SpiritFlight.cs', 'FireflyCourse.cs' |
     ForEach-Object { Join-Path $PSScriptRoot "../Assets/Scripts/$_" }
 Add-Type -Path $sources
 
@@ -17,15 +17,42 @@ function Pose($game, $hand, $seconds, $voice) {
     Step $game $seconds $voice
 }
 
-function FinishMainGate($game, $voice) {
-    Pose $game Open .06 0
-    Pose $game Fist 1.01 $voice
-    Assert ($game.Phase -eq 'RuinRelease') 'The correct grip and sound should open the first gate.'
-    Step $game ($game.Beat - $game.Age) 0
-    Pose $game Open .04 0
-    Assert ($game.Phase -eq 'RuinMisread') 'A timed open hand should reach the authored misread.'
+function RuinSteer($game, $lane) {
+    while ($game.RuinTargetLane -ne $lane) {
+        Assert ($game.Touch([int]($game.RuinTargetLane -lt $lane))) 'The tunnel accepts a lateral target.'
+    }
 }
 
+function FlyRuin($game, $depth, $height, $lane) {
+    $game.SetHand([Echoes.Hand]::Open)
+    RuinSteer $game $lane
+    for ($i = 0; $i -lt 1500 -and $game.Distance -lt $depth -and $game.Phase -eq 'RuinExplore' -and !$game.RuinGuide; $i++) {
+        if ($game.RuinLootOpen) {
+            while ($game.RuinLootChoices[$game.RuinLootIndex].Action -ne 'Leave') { [void]$game.Touch(0) }
+            [void]$game.Touch(1)
+        }
+        $game.Flight.Reset($height, [Echoes.Journey]::RuinHeightLimit)
+        $game.Step(.02, .34)
+    }
+}
+
+function FollowRuin($game, $portal, [switch]$AllowWall) {
+    $height = if ($portal.Direction -eq 'Forward') { .69 } else { $portal.Altitude }
+    FlyRuin $game ($portal.Depth + .15) $height $portal.Lane
+    if ($AllowWall -and $game.Phase -eq 'RuinRetry') { return }
+    if ($portal.Gate -eq 'Palm' -and !$portal.Opened) {
+        Assert ($game.RuinGuide -eq $portal) 'A selected palm gate pauses at its prompt.'
+        Pose $game Fist .48 0
+        Pose $game Open .03 0
+    }
+    if ($portal.Gate -eq 'Voice' -and !$portal.Opened) {
+        Assert ($game.RuinGuide -eq $portal) 'A selected voice gate pauses at its prompt.'
+        Step $game .55 .30
+    }
+    Step $game .60 0
+    Assert ($game.Phase -eq 'RuinTransfer' -and $game.RuinEntrance -eq $portal) 'The chosen threshold starts its directional transition.'
+    Step $game 1.30 0
+}
 function Grant($game) {
     [void]$game.Touch(0)
     [void]$game.Touch(1)
@@ -126,19 +153,45 @@ Assert ($game.Plants -eq 2 -and $game.ForestTrap -eq 'Maw') 'Planting the low ro
 $plantedLeft = [Echoes.Journey]::new(25)
 Assert ($plantedLeft.Restore($game.Checkpoint) -and $plantedLeft.ForestTrap -eq 'Maw' -and $plantedLeft.ForestLane -eq -1) 'The completed meadow checkpoint replays its last root and ending.'
 Step $game 5.3 0
-Assert ($game.Chapter -eq 1 -and $game.Phase -eq 'RuinGather') 'Both roots lead into the existing ruins.'
-FinishMainGate $game .3
-[void]$game.Touch(0)
-Assert ($game.Phase -eq 'RuinRepair') 'A at the misread presents the two hand traces and enters correction.'
-Pose $game Fist .22 .5
-Pose $game Open .05 0
-Assert ($game.Phase -eq 'RuinRepair') 'The correction needs its silence and a new release.'
-Step $game .72 0
-Pose $game Fist .54 0
-Pose $game Open .06 0
-Assert ($game.Phase -eq 'RuinCrossing' -and $game.RuinResult -eq 'Repaired') 'A quiet held release should correct the record.'
-Step $game 4.6 0
-Assert ($game.Phase -eq 'Complete') 'The aligned stone bridge should advance.'
+Assert ($game.Chapter -eq 1 -and $game.Phase -eq 'RuinExplore') 'Both roots lead into the flight-based ruins.'
+Assert ($game.RuinRetryRequired -in 6..9) 'The wall is seeded between six and nine distinct side tunnels.'
+foreach ($nextRoom in 1,11,12,3,13,14,5,8,10) {
+    $through = $game.RuinPortals | Where-Object TargetRoom -eq $nextRoom
+    FollowRuin $game $through -AllowWall
+    if ($game.Phase -eq 'RuinRetry') { break }
+    Assert ($game.RuinRoomId -eq $nextRoom) 'The branch opens its own tunnel.'
+}
+if ($game.Phase -eq 'RuinExplore') { FlyRuin $game ($game.RuinRoomLength - 2) .60 0 }
+Assert ($game.Phase -eq 'RuinRetry' -and $game.RuinRetryVisited -ge $game.RuinRetryRequired) 'Exploring distinct passages triggers the wall in a clear stretch.'
+Step $game 4.50 0
+Assert ($game.RuinRetryState -eq 'Choice') 'Impact and the archived choice lead to two available branches.'
+$choiceSave = $game.Checkpoint
+$guide = [Echoes.Journey]::new(17)
+Assert ($guide.Restore($choiceSave) -and $guide.RuinRetryState -eq 'Choice') 'The wall can be resumed after restoring.'
+Pose $guide Open .1 0
+[void]$guide.Touch(0)
+Step $guide 11 0
+Assert ($guide.Phase -eq 'Complete' -and $guide.RuinRetryOutcome -eq 'Guided') 'The player can complete the guided route.'
+Assert ($guide.Restore($choiceSave)) 'The same checkpoint can exercise taking back control.'
+Pose $guide Open .1 0
+[void]$guide.Touch(0)
+Step $guide 4.25 0
+[void]$guide.Touch(1)
+Step $guide 3.65 0
+Assert ($guide.Phase -eq 'Complete' -and $guide.RuinRetryOutcome -eq 'Takeover') 'Taking over records a deviation in the system route.'
+[void]$game.Touch(1)
+Step $game 1.20 0
+$correctSide = [int]($game.RuinRetryTraceLane -gt 0)
+[void]$game.Touch(1 - $correctSide)
+Assert ($game.RuinRetryState -eq 'Fault') 'A wrong replay direction pauses on its remembered trace.'
+Step $game 2.85 0
+[void]$game.Touch($correctSide)
+Assert ($game.RuinRetryState -eq 'Listen') 'The second attempt can follow the original movement.'
+Step $game 2.65 0
+Assert ($game.RuinRetryState -eq 'Release') 'Silence allows both beats to sound before breath opens the wall.'
+Step $game .59 .33
+Step $game 3.55 0
+Assert ($game.Phase -eq 'Complete' -and $game.RuinResult -eq 'Explored' -and $game.RuinRetryOutcome -eq 'Remembered' -and $game.RuinRetryAttempts -eq 2) 'The remembered route completes without a quota and preserves retries.'
 [void]$game.Touch(1)
 Pose $game Open .1 0
 Grant $game
@@ -166,8 +219,8 @@ Assert ($game.Touch(0) -and $game.IsObserving) 'A should revisit the completed c
 Assert ($game.Touch(1) -and $game.Cue -eq 'Seal') 'B should replay the final echo without changing the route.'
 $saved=[Echoes.Journey]::new()
 Assert ($saved.Restore($game.Checkpoint)) 'An earned checkpoint should load.'
-Assert ($saved.Phase -eq 'Complete' -and $saved.Plants -eq 2 -and $saved.RuinResult -eq 'Repaired' -and
-    $saved.StarCount -eq 3 -and $saved.Withdrawals -eq 1 -and $saved.Mistakes -eq 2) 'Restore the completed route and consequences.'
+Assert ($saved.Phase -eq 'Complete' -and $saved.Plants -eq 2 -and $saved.RuinResult -eq 'Explored' -and
+    $saved.RuinRetryOutcome -eq 'Remembered' -and $saved.StarCount -eq 3 -and $saved.Withdrawals -eq 1 -and $saved.Mistakes -eq 2) 'Restore the completed route and consequences.'
 
 function ReachesWall($maze,$node,$next) {
     while ($maze.Nodes[$next].Kind -eq 'Corridor') {
@@ -358,32 +411,98 @@ Assert ($machine.Phase -eq 'ForestTransition' -and $machine.ForestTrap -eq 'Cabl
 Step $machine 8.9 0
 Assert ($machine.Chapter -eq 1) 'The right branch also enters the existing ruins.'
 
-$arcade=[Echoes.Journey]::new()
-$arcade.SelectChapter(1)
-FinishMainGate $arcade .71
-Assert ($arcade.FastEcho) 'Full sound selects the shorter echo window.'
-Pose $arcade Fist .71 0
-Assert ($arcade.Phase -eq 'RuinSide') 'A sustained wrong response should open the alternate arcade.'
-Pose $arcade Open .05 0
-Pose $arcade Fist .35 0
-Pose $arcade Open .05 0
-Assert ($arcade.ReflectionIndex -eq 0) 'Releasing early should retry the current reflection.'
-for ($i = 0; $i -lt 3; $i++) {
-    Pose $arcade Fist ($arcade.Beat - $arcade.Age) 0
-    Pose $arcade Open .06 0
+$ruins=[Echoes.Journey]::new(92)
+$ruins.SelectChapter(1)
+Assert ($ruins.InRuins -and $ruins.RuinLayer -eq 0 -and $ruins.RuinVisitedCount -eq 1) 'The entrance is its own level with a threshold to restore.'
+$gate = $ruins.RuinPortals | Where-Object Gate -eq Palm
+FlyRuin $ruins $gate.Depth $gate.Altitude $gate.Lane
+Assert ($ruins.RuinGuide -eq $gate -and !$gate.Opened) 'A closed side passage is encountered with an explicit guide.'
+Pose $ruins Fist .22 0
+Pose $ruins Open .03 0
+Assert (!$gate.Opened) 'A short shake does not consume the optional gesture.'
+Pose $ruins Fist .45 0
+Pose $ruins Open .03 0
+Assert ($gate.Opened -and $ruins.Cue -eq 'RuinDoor') 'A timed release opens the palm door.'
+RuinSteer $ruins 0
+Step $ruins .8 0
+Assert ($ruins.Phase -eq 'RuinExplore' -and $ruins.RuinRoomId -eq 0) 'Turning away can skip even an unlocked branch.'
+$ruins.Retry()
+Assert (($ruins.RuinPortals | Where-Object Gate -eq Palm).Opened) 'Retry returns to the threshold and preserves opened doors.'
+FollowRuin $ruins $gate
+Assert ($ruins.RuinRoomId -eq 1 -and $ruins.RuinRoomStyle -eq 2 -and $ruins.RuinVisitedCount -eq 2) 'An optional side branch enters a distinct nested gallery.'
+$voiceGate = $ruins.RuinPortals | Where-Object Gate -eq Voice
+FollowRuin $ruins $voiceGate
+Assert ($ruins.RuinRoomId -eq 6 -and $ruins.RuinLayer -eq -2) 'A simple voice prompt gains access to another distinct layer.'
+
+$ceilingRoute=[Echoes.Journey]::new(92)
+$ceilingRoute.SelectChapter(1)
+$top = $ceilingRoute.RuinPortals | Where-Object Direction -eq Upper
+Pose $ceilingRoute Open (($top.Depth - 9.7) / 2.35) 0
+for ($attempt = 0; $attempt -lt 7 -and $ceilingRoute.Phase -eq 'RuinExplore'; $attempt++) {
+    Pose $ceilingRoute Fist .18 .30
+    Pose $ceilingRoute Open .35 .30
 }
-Assert ($arcade.RuinResult -eq 'Arcade' -and $arcade.Phase -eq 'RuinCrossing') 'The three differently timed reflections should go to the shared bridge.'
+Assert ($ceilingRoute.Phase -eq 'RuinTransfer' -and $ceilingRoute.RuinEntrance -eq $top -and
+    $ceilingRoute.Flight.Height -gt 1) 'Actual repeated releases make the ceiling entrance reachable without a test altitude override.'
+Step $ceilingRoute 1.30 0
+Assert ($ceilingRoute.RuinLayer -eq 1) 'A ceiling branch leads to an independent upper floor.'
 
-$single=[Echoes.Journey]::new()
-$single.SelectChapter(1)
-Pose $single Open .12 0
-[void]$single.Touch(0)
-[void]$single.Touch(1)
-Assert ($single.Phase -eq 'RuinRelease' -and $single.RuinResult -eq 'Unfinished') 'Borrowing the first gate must leave the second one active.'
-Pose $single Fist .35 0
-Pose $single Open .05 0
-Assert ($single.Phase -eq 'RuinRelease' -and $single.TimingWindow -gt .6) 'The wide catch-up beat must preserve the first gate.'
+$heartbeat=[Echoes.Journey]::new(92)
+$heartbeat.SelectChapter(1)
+$heart = $heartbeat.RuinObjects | Where-Object Kind -eq Heart
+FlyRuin $heartbeat ($heart.Depth - 1.3) $heart.Altitude $heart.Lane
+Assert ($heartbeat.Cue -eq 'RuinHeartbeat' -and $heartbeat.RuinHeartAge -ge 0 -and !$heart.Collected -and $heart.Reveal -gt .3) 'The first heart reveals and startles before contact.'
+$heartSave=$heartbeat.Checkpoint
+FlyRuin $heartbeat $heart.Depth $heart.Altitude $heart.Lane
+Assert ($heartbeat.RuinHearts -eq 1 -and $heart.Collected) 'Matching x, y and z collects the heart once.'
+Assert ($heartbeat.Restore($heartSave)) 'The pre-pickup heart checkpoint restores.'
+$heardCue=$heartbeat.CueId
+$heart = $heartbeat.RuinObjects | Where-Object Kind -eq Heart
+FlyRuin $heartbeat ($heart.Depth - 1.3) $heart.Altitude $heart.Lane
+Assert ($heartbeat.RuinHeartAge -lt 0 -and $heartbeat.CueId -eq $heardCue) 'The scare stays consumed after a checkpoint restore.'
+FlyRuin $heartbeat $heart.Depth $heart.Altitude $heart.Lane
+Assert ($heartbeat.RuinHearts -eq 1 -and $heartbeat.Cue -eq 'RuinCollect') 'A previously heard heart remains collectible without a second scare.'
 
+$atlas = [Echoes.Journey]::new(77)
+$atlas.SelectChapter(1)
+$atlasSave = $atlas.Checkpoint
+$passages = [System.Collections.Generic.Dictionary[int,int[]]]::new()
+$directions = [System.Collections.Generic.HashSet[string]]::new()
+$styles = [System.Collections.Generic.HashSet[int]]::new()
+$depths = [System.Collections.Generic.HashSet[int]]::new()
+$kinds = @{ Phone=0; Computer=0; Heart=0; Brain=0 }
+for ($room=0; $room -lt 16; $room++) {
+    $atlasSave.ruinRoom = $room
+    Assert ($atlas.Restore($atlasSave)) 'Each authored room is valid as a saved starting threshold.'
+    [void]$depths.Add($atlas.RuinLayer)
+    foreach ($portal in $atlas.RuinPortals) { [void]$directions.Add($portal.Direction.ToString()) }
+    $passages[$room] = [int[]]@($atlas.RuinPortals | ForEach-Object { $_.TargetRoom })
+    foreach ($item in $atlas.RuinObjects) {
+        if ($item.Kind -eq 'Chest') { [void]$styles.Add($item.ChestStyle) }
+        else { $kinds[$item.Kind.ToString()]++ }
+    }
+}
+Assert ($directions.Count -eq 6 -and $depths.Count -eq 7 -and $styles.Count -eq 10) 'The atlas has every entry direction, seven elevations and ten distinct chests.'
+Assert ($kinds.Phone -gt $kinds.Heart -and $kinds.Phone -gt $kinds.Brain -and $kinds.Computer -gt $kinds.Heart -and $kinds.Computer -gt $kinds.Brain) 'Both technological finds individually appear more frequently.'
+foreach ($start in 0..15) {
+    $reached = [System.Collections.Generic.HashSet[int]]::new()
+    $pending = [System.Collections.Generic.Queue[int]]::new()
+    $pending.Enqueue($start)
+    while ($pending.Count -gt 0) {
+        $found = $pending.Dequeue()
+        if (!$reached.Add($found) -or $found -eq -1) { continue }
+        foreach ($next in $passages[$found]) { $pending.Enqueue($next) }
+    }
+    Assert ($reached.Contains(-1)) 'Every room has a path to the voluntary exit.'
+    if ($start -eq 0) { Assert ($reached.Count -eq 17) 'Every layer and secret room is reachable from the entry.' }
+}
+
+$atlasSave.ruinFinds = -1
+$atlasSave.ruinRoom = 15
+Assert ($atlas.Restore($atlasSave) -and $atlas.RuinInventory -eq 15 -and $atlas.RuinChests -eq 10) 'Restoring a crowded inventory still caps artifacts at 15, independently of the chests.'
+$overflow = $atlas.RuinObjects | Where-Object { !$_.Collected -and $_.Kind -ne 'Chest' } | Select-Object -First 1
+FlyRuin $atlas $overflow.Depth $overflow.Altitude $overflow.Lane
+Assert (!$overflow.Collected -and $atlas.RuinInventory -eq 15) 'A contact cannot add a sixteenth artifact.'
 $flight=[Echoes.SpiritFlight]::new()
 $flight.Reset(.11)
 $flight.Release(.3)
@@ -410,4 +529,4 @@ Assert ($touch -eq 3 -and $enabled -eq 7) 'Both physical inputs remain distinct.
 Assert ([Echoes.ExhibitProtocol]::Output(1, 1, .5, 200, $true) -eq "EOL3 IO 1 12 4 0 0 2 6 -1 166`n") 'Both lamps and bounded fan share the output packet.'
 Assert ([Echoes.ExhibitProtocol]::Output(1, 0, 0, 200, $false) -eq "EOL3 SET 1 0 0 0 0 0 0 -1`n") 'Lighting-only firmware still has a supported output.'
 Assert ([Echoes.ExhibitProtocol]::Output(1, .5, .5, 0, $true, $true) -eq "EOL3 IO 1 6 4 0 6 0 0 -1 0`n") 'Forest EOL3 palette routes the fireflies to dim warm yellow and red lamps.'
-Write-Output 'Passed forest ground and flight controls, visible hazards and nine-second rescue, seeded physical maze and retracing, both roots, three machine doors, upper gallery, ruins, stars, checkpoints, projection and EOL3.'
+Write-Output 'Passed forest controls, rescue, seeded maze, both roots, machine doors and upper gallery, layered ruins, all wall outcomes, stars, checkpoints, projection and EOL3.'
