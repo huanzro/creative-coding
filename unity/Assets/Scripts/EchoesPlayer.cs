@@ -282,7 +282,14 @@ namespace Echoes
                 new[] { "自动", "薄暮", "蓝调", "月夜", "破晓" }, 5, button);
             GUI.Label(new Rect(20, 98, 160, 27), "背景速度 " + view.ScrollSpeed.ToString("0.00") + "×", label);
             view.ScrollSpeed = GUI.HorizontalSlider(new Rect(182, 109, 317, 21), view.ScrollSpeed, .25f, 2);
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+            bool enabled = GUI.enabled;
+            GUI.enabled = enabled && !desktopCamera.Active;
+#endif
             noHand = GUI.Toggle(new Rect(20, 139, 210, 27), noHand, "模拟手离开画面");
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+            GUI.enabled = enabled;
+#endif
             characterOnly = GUI.Toggle(new Rect(226, 139, 153, 27), characterOnly, "纯黑人物");
             mirror = GUI.Toggle(new Rect(400, 139, 115, 27), mirror, "镜像");
 #if UNITY_EDITOR
@@ -553,7 +560,7 @@ namespace Echoes
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
             exhibit.TouchChanged -= PhysicalTouch;
             exhibit.Dispose();
-            desktopCamera.Dispose();
+            CloseDesktopCamera();
 #endif
 #if !UNITY_WEBGL || UNITY_EDITOR
             microphone.Stop();

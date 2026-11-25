@@ -9,27 +9,48 @@ namespace Echoes
         private bool deviceSettings;
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
         private readonly DesktopHandCamera desktopCamera = new DesktopHandCamera();
+        private bool runInBackgroundBeforeCamera;
         private string[] serialPorts = Array.Empty<string>();
         private string comPort;
 #endif
 
         private Hand PreviewHand(bool keyboard)
         {
-            if (noHand) return Hand.Missing;
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
             if (desktopCamera.Active) return desktopCamera.Gesture;
 #endif
-            return !keyboard ? Hand.Missing : Input.GetKey(KeyCode.Space) ? Hand.Fist : Hand.Open;
+            return noHand || !keyboard ? Hand.Missing : Input.GetKey(KeyCode.Space) ? Hand.Fist : Hand.Open;
         }
 
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
         private void OpenCameraPage()
         {
-            noHand = false;
+            string url = StartDesktopCamera();
+            if (url != null) Application.OpenURL(url);
+        }
+
+        private string StartDesktopCamera()
+        {
             string page = Path.Combine(Application.streamingAssetsPath, "EchoesCamera");
             string media = Application.isEditor ? Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "dist")) : page;
+            bool wasActive = desktopCamera.Active;
             string url = desktopCamera.Start(page, media);
-            if (url != null) Application.OpenURL(url);
+            if (url != null && !wasActive)
+            {
+                runInBackgroundBeforeCamera = Application.runInBackground;
+                Application.runInBackground = true;
+                noHand = false;
+                journey.SetHand(Hand.Missing);
+            }
+            return url;
+        }
+
+        private void CloseDesktopCamera()
+        {
+            if (!desktopCamera.Active) return;
+            desktopCamera.Dispose();
+            Application.runInBackground = runInBackgroundBeforeCamera;
+            journey.SetHand(Hand.Missing);
         }
 
         private void RefreshSerialPorts()
@@ -86,16 +107,19 @@ namespace Echoes
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
             if (GUI.Button(new Rect(20, 55, 180, 32), desktopCamera.Active ? "关闭摄像头" : "开启摄像头", button))
             {
-                if (desktopCamera.Active) desktopCamera.Dispose();
+                if (desktopCamera.Active) CloseDesktopCamera();
                 else OpenCameraPage();
             }
             if (desktopCamera.Active && GUI.Button(new Rect(258, 55, 245, 32), "重新打开识别页", button))
             {
-                desktopCamera.Dispose();
+                CloseDesktopCamera();
                 OpenCameraPage();
             }
             GUI.Label(new Rect(20, 99, 485, 55), desktopCamera.Status, label);
-            GUI.Label(new Rect(20, 151, 485, 33), "在浏览器允许摄像头后回到 Unity，保持识别页打开。", label);
+            string hint = paused ? "游戏已暂停，点「继续」后可用手势。" : journey.IsOpening
+                ? "序幕播放中，进入关卡后可控制精灵。"
+                : "保持识别页打开。先张手，握拳约半秒，再张手。";
+            GUI.Label(new Rect(20, 151, 485, 33), hint, label);
 #endif
 #if !UNITY_WEBGL || UNITY_EDITOR
             GUI.Label(new Rect(20, 191, 105, 27), "麦克风", label);
