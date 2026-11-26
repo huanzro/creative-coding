@@ -19,7 +19,9 @@ namespace Echoes
     internal sealed class StarInkFrame
     {
         public float time, depth;
+        public int canvasId, historyVersion, tick;
         public StarInkMark[] marks;
+        public StarTrailGrowth[] growth;
         public bool pointing;
         public int penMark = -1;
         public Vector3 cursor, hand;
@@ -31,19 +33,30 @@ namespace Echoes
         public const float PerformerDepth = 5.8f, FieldOfView = 49f;
         public const float Aspect = 16f / 9;
         private const int MaxMarks = 24, MaxSamples = 300;
-        private const float FingerDeadband = .0013f;
+        private static int nextCanvasId;
         private readonly List<StarInkMark> marks = new List<StarInkMark>(MaxMarks);
+        private readonly List<StarTrailGrowth> growth = new List<StarTrailGrowth>(32);
+        private readonly System.Random growthRandom = new System.Random();
         private StarInkFrame frame = new StarInkFrame();
         private StarInkMark pen;
-        private Vector2 filtered;
+        private StarBrush brush;
         private Vector2 previousTip;
         private float prevTime, penTime;
+        private float distanceToGrowth, lastGrowth = float.NegativeInfinity, flyCheckAt;
+        private int fireflies;
         private int paper = -1;
         private StarInkMesh worldInk, portraitInk;
+        private StarRibbonRenderer ribbons;
         private CommandBuffer portraitCommands;
         private Material material;
         private int worldPass, portraitPass, alphaPass;
         private RenderTexture inkLayer, portraitLayer;
+        private StarInkFrame paintedFrame;
+        private int paintedTick;
+        private float paintedTime, paintedDepth;
+        private Rect paintedArea;
+        private Vector4 paintedPlacement;
+        private bool paintedMirror, paintedSideways;
 
         public int Revision { get; private set; }
         public StarInkFrame Frame => frame;
@@ -51,6 +64,7 @@ namespace Echoes
         public void Update(Journey journey, Camera camera, Vector3 atFinger, Vector2 portraitTip)
         {
             if (paper != journey.StarPaper) Clear(journey.StarPaper);
+            frame.tick++;
             frame.depth = journey.Distance;
             frame.time = journey.Time;
             Vector3 origin = camera.transform.InverseTransformPoint(atFinger);
@@ -78,34 +92,29 @@ namespace Echoes
                     changed |= FinishStroke();
                 if (pen == null)
                 {
-                    filtered = sample;
-                    Vector3 seed = PointInSky(filtered, frame.depth);
+                    brush.Reset(sample, frame.time);
+                    Vector3 seed = PointInSky(sample, frame.depth);
                     pen = new StarInkMark { born = frame.time, origin = seed, points = new List<Vector3>(96) { seed } };
                     Add(pen);
                     changed = true;
                     penTime = frame.time;
+                    distanceToGrowth = .56f + (float)growthRandom.NextDouble() * .49f;
+                    frame.cursor = seed;
                 }
                 else if (dt > 0)
                 {
-                    Vector2 delta = sample - filtered;
-                    float gap = delta.magnitude;
-                    if (gap > FingerDeadband)
-                    {
-                        float rate = Mathf.Lerp(20, 52, Mathf.Clamp01(gap * 16));
-                        float follow = (1 - Mathf.Exp(-dt * rate)) * (1 - FingerDeadband / gap);
-                        filtered += delta * follow;
-                    }
-                    Vector3 point = PointInSky(filtered, frame.depth);
+                    Vector3 point = PointInSky(brush.Follow(sample, frame.time, dt), frame.depth);
+                    frame.cursor = point;
                     Vector3 last = pen.points[pen.points.Count - 1];
                     float distance = (point - last).sqrMagnitude;
                     if (distance >= .026f * .026f || distance > .006f * .006f && frame.time - penTime > .09f)
                     {
                         AppendPoint(pen.points, point);
+                        GrowOnStroke(last, point);
                         penTime = frame.time;
                         changed = true;
                     }
                 }
-                frame.cursor = PointInSky(filtered, frame.depth);
                 previousTip = sample;
             }
             prevTime = frame.time;
@@ -115,11 +124,13 @@ namespace Echoes
             {
                 var mark = marks[i];
                 if (mark == pen || LastDepth(mark) >= frame.depth + .15f) continue;
+                if (mark.motif == 0 && mark.points.Count > 1) frame.historyVersion++;
                 marks.RemoveAt(i);
                 RefreshMarks();
                 changed = true;
             }
             frame.penMark = pen == null ? -1 : marks.IndexOf(pen);
+            AgeFireflies();
             if (changed) Revision++;
         }
 
@@ -128,9 +139,46 @@ namespace Echoes
             if (pen == null) return false;
             var points = pen.points;
             bool added = (frame.cursor - points[points.Count - 1]).sqrMagnitude > .0025f * .0025f;
-            if (added) AppendPoint(points, frame.cursor);
+            if (added)
+            {
+                Vector3 last = points[points.Count - 1];
+                AppendPoint(points, frame.cursor);
+                GrowOnStroke(last, frame.cursor);
+            }
+            if (points.Count > 1) frame.historyVersion++;
             pen = null;
             return added;
+        }
+
+        private void GrowOnStroke(Vector3 last, Vector3 next)
+        {
+            distanceToGrowth -= Vector3.Distance(last, next);
+            if (distanceToGrowth > 0 || frame.time - lastGrowth < .19f) return;
+            distanceToGrowth = .86f + (float)growthRandom.NextDouble() * .69f;
+            lastGrowth = frame.time;
+            // Adjacent control-point midpoints lie on the same curve rendered in both windows.
+            Vector3 origin = (last + next) * .5f;
+            bool flower = growthRandom.NextDouble() < .48;
+            if (flower)
+                for (int i = growth.Count - 1; i >= 0; i--)
+                    if (growth[i].flower && (growth[i].origin - origin).sqrMagnitude < .31f * .31f)
+                    {
+                        flower = false;
+                        break;
+                    }
+            if (!flower) fireflies++;
+            growth.Add(new StarTrailGrowth { origin = origin, born = frame.time, seed = growthRandom.Next(), flower = flower });
+            frame.growth = growth.ToArray();
+        }
+
+        private void AgeFireflies()
+        {
+            if (fireflies == 0 || frame.time < flyCheckAt) return;
+            flyCheckAt = frame.time + .24f;
+            int expired = growth.RemoveAll(item => !item.flower && frame.time - item.born >= item.Lifetime);
+            if (expired == 0) return;
+            fireflies -= expired;
+            frame.growth = growth.ToArray();
         }
 
         private static void AppendPoint(List<Vector3> points, Vector3 point)
@@ -161,6 +209,7 @@ namespace Echoes
             if (marks.Count == MaxMarks)
             {
                 if (marks[0] == pen) pen = null;
+                else if (marks[0].motif == 0 && marks[0].points.Count > 1) frame.historyVersion++;
                 marks.RemoveAt(0);
             }
             marks.Add(mark);
@@ -173,9 +222,13 @@ namespace Echoes
         {
             paper = next;
             marks.Clear();
-            frame = new StarInkFrame();
+            growth.Clear();
+            frame = new StarInkFrame { canvasId = ++nextCanvasId };
             pen = null;
             prevTime = 0;
+            lastGrowth = float.NegativeInfinity;
+            fireflies = 0;
+            flyCheckAt = 0;
         }
 
         public void Restore(Journey journey, JourneyCheckpoint checkpoint)
@@ -186,19 +239,27 @@ namespace Echoes
             if (checkpoint.version >= 11)
             {
                 string saved = checkpoint.starArtwork;
-                if (string.IsNullOrEmpty(saved) || saved.Length > 700000) return;
+                if (string.IsNullOrEmpty(saved) || saved.Length > 2000000) return;
                 StarInkFrame old;
                 try { old = JsonUtility.FromJson<StarInkFrame>(saved); }
                 catch (ArgumentException) { return; }
-                if (old?.marks == null || old.marks.Length > MaxMarks) return;
-                foreach (StarInkMark mark in old.marks)
+                if (old == null) return;
+                if (old.marks != null && old.marks.Length <= MaxMarks)
                 {
-                    if (mark == null || !SafePoint(mark.origin) || !(mark.born >= -3 && mark.born <= frame.time + .04f)) continue;
-                    if (StarMotifs.Valid(mark.motif) && Mathf.Abs(mark.portraitTip.x) < 1 && Mathf.Abs(mark.portraitTip.y) < 1 ||
-                        mark.motif == 0 && mark.points != null && mark.points.Count > 0 && mark.points.Count <= MaxSamples &&
-                        mark.points.TrueForAll(SafePoint))
-                        marks.Add(mark);
+                    foreach (StarInkMark mark in old.marks)
+                    {
+                        if (mark == null || !SafePoint(mark.origin) || !(mark.born >= -3 && mark.born <= frame.time + .04f)) continue;
+                        if (StarMotifs.Valid(mark.motif) && Mathf.Abs(mark.portraitTip.x) < 1 && Mathf.Abs(mark.portraitTip.y) < 1 ||
+                            mark.motif == 0 && mark.points != null && mark.points.Count > 0 && mark.points.Count <= MaxSamples &&
+                            mark.points.TrueForAll(SafePoint))
+                            marks.Add(mark);
+                    }
                 }
+                if (old.growth != null)
+                    foreach (StarTrailGrowth item in old.growth)
+                        if (item.flower && item.born >= 0 && item.born <= frame.time && SafePoint(item.origin))
+                            growth.Add(item);
+                frame.growth = growth.ToArray();
                 RefreshMarks();
                 return;
             }
@@ -224,6 +285,7 @@ namespace Echoes
             alphaPass = material.FindPass("StraightAlpha");
             worldInk = new StarInkMesh("Star Sea world-space ribbons");
             portraitInk = new StarInkMesh("Star Sea portrait ribbons");
+            ribbons = new StarRibbonRenderer(material);
             portraitCommands = new CommandBuffer { name = "Star Sea portrait paint" };
             return true;
         }
@@ -234,12 +296,20 @@ namespace Echoes
             worldInk.Build(frame, null);
             Transform eye = camera.transform;
             Vector3 origin = eye.position - eye.forward * frame.depth;
-            commands.DrawMesh(worldInk.Mesh, Matrix4x4.TRS(origin, eye.rotation, Vector3.one), material, 0, worldPass);
+            var basis = Matrix4x4.TRS(origin, eye.rotation, Vector3.one);
+            ribbons.Draw(frame, commands, basis, null);
+            if (worldInk.Mesh.vertexCount > 0) commands.DrawMesh(worldInk.Mesh, basis, material, 0, worldPass);
         }
 
         public Texture DrawPortrait(StarInkFrame source, Rect area, Vector2 actor, float size, bool mirror, bool sideways, float extent)
         {
-            if (source?.marks == null || area.width < 2 || area.height < 2 || !Prepare()) return null;
+            if (source == null || (source.marks == null && source.growth == null) ||
+                area.width < 2 || area.height < 2 || !Prepare()) return null;
+            var placement = new Vector4(actor.x, actor.y, size, extent);
+            if (source == paintedFrame && source.tick == paintedTick && source.time == paintedTime && source.depth == paintedDepth &&
+                area == paintedArea && placement == paintedPlacement && mirror == paintedMirror && sideways == paintedSideways &&
+                portraitLayer != null && portraitLayer.IsCreated())
+                return portraitLayer;
             var portrait = new PortraitProjection(area, actor, size, mirror, sideways, extent);
             portraitInk.Build(source, portrait);
             int width = Mathf.Clamp(Mathf.CeilToInt(area.width), 32, 1280);
@@ -257,10 +327,20 @@ namespace Echoes
             portraitCommands.Clear();
             portraitCommands.SetRenderTarget(inkLayer);
             portraitCommands.ClearRenderTarget(false, true, Color.clear);
-            portraitCommands.DrawMesh(portraitInk.Mesh, Matrix4x4.identity, material, 0, portraitPass);
+            ribbons.Draw(source, portraitCommands, Matrix4x4.identity, portrait);
+            if (portraitInk.Mesh.vertexCount > 0)
+                portraitCommands.DrawMesh(portraitInk.Mesh, Matrix4x4.identity, material, 0, portraitPass);
             Graphics.ExecuteCommandBuffer(portraitCommands);
             Graphics.Blit(inkLayer, portraitLayer, material, alphaPass);
             RenderTexture.active = before;
+            paintedFrame = source;
+            paintedTime = source.time;
+            paintedDepth = source.depth;
+            paintedTick = source.tick;
+            paintedArea = area;
+            paintedPlacement = placement;
+            paintedMirror = mirror;
+            paintedSideways = sideways;
             return portraitLayer;
         }
 
@@ -280,6 +360,7 @@ namespace Echoes
         {
             worldInk?.Dispose();
             portraitInk?.Dispose();
+            ribbons?.Dispose();
             portraitCommands?.Dispose();
             ReleaseTexture(inkLayer);
             ReleaseTexture(portraitLayer);
@@ -332,20 +413,31 @@ namespace Echoes
 
             public Vector3 Gesture(Vector3 point, float cameraDepth)
             {
-                float depth = Mathf.Max(2.5f, point.z - cameraDepth);
-                float unit = Mathf.Min(area.width, area.height) * .67f;
-                Vector2 at = actor + Rotate(new Vector2(point.x, -point.y)) * (unit / depth);
+                Vector2 at = actor + Rotate(new Vector2(point.x, -point.y)) * GrowthScale(point.z - cameraDepth);
                 return new Vector3(at.x, at.y, 0);
             }
 
+            public Vector3 GrowthDirection(Vector2 axis) => Rotate(new Vector2(axis.x, -axis.y));
             public float Halo => Mathf.Clamp(Mathf.Min(area.width, area.height) * .014f + extent * 2, 4.5f, 16);
+            public float DistanceScale => Mathf.Min(area.width, area.height) * .67f;
+            public float GrowthScale(float depth) => DistanceScale / Mathf.Max(2.5f, depth);
+            public Vector4 RibbonCanvas => new Vector4(actor.x, actor.y, DistanceScale, Halo);
+            public Vector4 RibbonAxes
+            {
+                get
+                {
+                    float mirrorX = mirror ? -1 : 1;
+                    return sideways ? new Vector4(0, -1, -mirrorX, 0) : new Vector4(mirrorX, 0, 0, -1);
+                }
+            }
         }
     }
 
     internal sealed class StarInkMesh : IDisposable
     {
-        private static readonly Color InkCool = new Color(.37f, .80f, 1);
-        private static readonly Color InkWarm = new Color(1, .73f, .48f);
+        private static readonly Color Gold = new Color(1, .70f, .23f);
+        private static readonly Color Honey = new Color(1, .53f, .13f);
+        private static readonly Color Cream = new Color(1, .91f, .55f);
         private readonly List<Vector3> vertices = new List<Vector3>(16000);
         private readonly List<Color32> colors = new List<Color32>(16000);
         private readonly List<Vector2> uv = new List<Vector2>(16000);
@@ -373,17 +465,18 @@ namespace Echoes
                     StarInkMark mark = frame.marks[i];
                     var art = StarTrailArt.Find(mark.motif);
                     if (art != null) AddPattern(mark, art, frame, portrait, eye, halo, i == newest);
-                    else if (mark.points?.Count > 0)
-                        AddGesture(mark.points, frame.depth, portrait, eye, halo,
-                            frame.pointing && i == frame.penMark ? frame.cursor : (Vector3?)null);
                 }
             }
+            if (frame.growth != null)
+                foreach (StarTrailGrowth item in frame.growth)
+                    AddGrowth(item, frame, portrait);
             if (frame.pointing)
             {
                 float shimmer = .72f + .11f * Mathf.Sin(frame.time * 6f);
                 Vector3 at = screen ? portrait.Gesture(frame.cursor, frame.depth) : frame.cursor;
                 AddSpark(at, halo * 1.45f, new Color(.61f, .94f, 1, shimmer));
             }
+            if (Mesh.vertexCount == 0 && vertices.Count == 0) return;
             Mesh.Clear(false);
             Mesh.SetVertices(vertices);
             Mesh.SetUVs(0, uv);
@@ -444,36 +537,85 @@ namespace Echoes
             AddRibbon(screen, eye, halo * .70f, visible * .69f, art, 0);
         }
 
-        private void AddGesture(List<Vector3> points, float depth, StarInkSpace.PortraitProjection portrait, Vector3 eye,
-            float halo, Vector3? cursor)
+        // Both forms share a warm palette and the same 3D attachment point.
+        private void AddGrowth(StarTrailGrowth item, StarInkFrame frame, StarInkSpace.PortraitProjection portrait)
         {
-            bool screen = portrait != null;
-            Vector3 end = points[points.Count - 1];
-            bool live = cursor.HasValue && (cursor.Value - end).sqrMagnitude > .0005f * .0005f;
-            if (live) end = cursor.Value;
-            int count = points.Count + (live ? 1 : 0);
-            int first = 0;
-            while (first < points.Count && points[first].z < depth + .45f) first++;
-            if (first + 1 >= count) return;
-            samples.Clear();
-            samples.Add(points[first]);
-            for (int i = first + 1; i < count - 1; i++)
+            float age = frame.time - item.born;
+            float life = item.Lifetime;
+            if (age < 0 || (!item.flower && age >= life)) return;
+            Vector3 position = item.origin;
+            float phase = item.Variation * 6.28318f;
+            float flyT = Mathf.Clamp01(age / life);
+            if (!item.flower)
             {
-                Vector3 control = points[i];
-                Vector3 a = (points[i - 1] + control) * .5f;
-                Vector3 next = i + 1 == count - 1 ? end : points[i + 1];
-                Vector3 b = (control + next) * .5f;
-                for (int j = 0; j <= 2; j++)
-                {
-                    float t = j / 3f;
-                    samples.Add(Vector3.Lerp(Vector3.Lerp(a, control, t), Vector3.Lerp(control, b, t), t));
-                }
-                if (i == count - 2) samples.Add(b);
+                float drift = Mathf.SmoothStep(0, 1, flyT);
+                position += new Vector3(Mathf.Cos(phase) * .50f * drift + .09f * Mathf.Sin(flyT * 6) * flyT,
+                    (.40f + .36f * item.Variation) * drift + .065f * Mathf.Sin(flyT * 8) * flyT,
+                    (.16f + .23f * item.Variation) * drift);
             }
-            samples.Add(end);
-            if (screen)
-                for (int i = 0; i < samples.Count; i++) samples[i] = portrait.Gesture(samples[i], depth);
-            AddRibbon(screen, eye, halo, .84f, null, 1);
+            float depth = position.z - frame.depth;
+            if (depth < .45f || depth > 50f || Mathf.Abs(position.x) > depth * .83f + .45f ||
+                Mathf.Abs(position.y) > depth * .49f + .45f) return;
+            float fade = NearFade(depth);
+            float scale = Mathf.Lerp(.82f, 1.19f, item.Variation);
+            Vector3 up = Vector3.up;
+            Vector3 right = Vector3.right;
+            if (portrait != null)
+            {
+                position = portrait.Gesture(position, frame.depth);
+                scale *= portrait.GrowthScale(depth);
+                up = portrait.GrowthDirection(Vector2.up);
+                right = portrait.GrowthDirection(Vector2.right);
+            }
+            if (item.flower) AddBloom(position, right, up, age, scale, fade, phase);
+            else AddFirefly(position, right, up, age, flyT, scale, fade, phase);
+        }
+
+        private void AddBloom(Vector3 root, Vector3 right, Vector3 up, float age, float scale, float fade, float phase)
+        {
+            float sprout = Mathf.SmoothStep(0, 1, Mathf.Clamp01(age / .83f));
+            float petals = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(.26f, 1.13f, age));
+            float bend = Mathf.Cos(phase) * .031f;
+            Vector3 stem = (up * .173f + right * bend) * (scale * sprout);
+            Vector3 head = root + stem;
+            float strength = fade * sprout;
+            AddEllipse(root + stem * .48f, right * (scale * .025f), stem * .54f, WithAlpha(Honey, strength * .58f), true);
+            for (int side = -1; side <= 1; side += 2)
+            {
+                Vector3 leaf = right * side * .88f + up * .48f;
+                Vector3 cross = right * -.48f + up * side * .88f;
+                AddEllipse(root + stem * (side < 0 ? .44f : .63f) + leaf * (scale * .036f * sprout),
+                    cross * (scale * .032f * sprout), leaf * (scale * .066f * sprout),
+                    WithAlpha(Gold, strength * .48f), true);
+            }
+            if (petals <= .001f) return;
+            for (int i = 0; i < 5; i++)
+            {
+                float angle = phase + i * 1.25664f;
+                float x = Mathf.Cos(angle), y = Mathf.Sin(angle);
+                Vector3 petal = right * x + up * y;
+                Vector3 cross = right * -y + up * x;
+                AddEllipse(head + petal * (scale * .074f * petals), cross * (scale * .063f * petals),
+                    petal * (scale * .102f * petals), WithAlpha(Color.Lerp(Honey, Gold, .45f + .09f * i), fade * petals * .86f), true);
+            }
+            AddEllipse(head, right * (scale * .071f), up * (scale * .071f), WithAlpha(Cream, fade * petals), false);
+        }
+
+        private void AddFirefly(Vector3 position, Vector3 right, Vector3 up, float age, float flight, float scale,
+            float fade, float phase)
+        {
+            float alpha = Mathf.SmoothStep(0, 1, Mathf.Clamp01(age / .26f)) *
+                (1 - Mathf.SmoothStep(0, 1, Mathf.InverseLerp(.56f, 1, flight))) * fade;
+            float beat = .74f + .26f * Mathf.Sin(age * 17f + phase);
+            AddEllipse(position, right * (scale * .116f), up * (scale * .111f), WithAlpha(Gold, alpha * .69f), false);
+            AddEllipse(position, right * (scale * .043f), up * (scale * .048f), WithAlpha(Cream, alpha), false);
+            for (int side = -1; side <= 1; side += 2)
+            {
+                Vector3 wing = right * side * (.90f * beat) + up * .51f;
+                Vector3 cross = right * -.51f + up * (.90f * side);
+                AddEllipse(position + wing * (scale * .048f), cross * (scale * .024f), wing * (scale * .058f),
+                    WithAlpha(Cream, alpha * (.29f + beat * .31f)), true);
+            }
         }
 
         private void AddRibbon(bool screen, Vector3 eye, float radius, float alpha, StarTrailArt art, float progress)
@@ -489,7 +631,7 @@ namespace Echoes
                 Vector3 side = Vector3.Cross(along, tangent).normalized;
                 if (side.sqrMagnitude < .001f) side = Vector3.up;
                 float t = i / (float)(count - 1);
-                Color tint = art == null ? Color.Lerp(InkCool, InkWarm, t * .60f) : art.Pigment(t * progress);
+                Color tint = art.Pigment(t * progress);
                 float gain = screen ? 1 : NearFade(p.z - eye.z);
                 AddVertex(p - side * radius, WithAlpha(tint, alpha * gain), new Vector2(0, .5f));
                 AddVertex(p + side * radius, WithAlpha(tint, alpha * gain), new Vector2(1, .5f));
@@ -499,11 +641,17 @@ namespace Echoes
 
         private void AddSpark(Vector3 p, float radius, Color tint)
         {
+            AddEllipse(p, Vector3.right * radius, Vector3.up * radius, tint, false);
+        }
+
+        private void AddEllipse(Vector3 p, Vector3 across, Vector3 axis, Color tint, bool petal)
+        {
             int i = vertices.Count;
-            AddVertex(p + new Vector3(-radius, -radius, 0), tint, new Vector2(0, 0));
-            AddVertex(p + new Vector3(radius, -radius, 0), tint, new Vector2(1, 0));
-            AddVertex(p + new Vector3(-radius, radius, 0), tint, new Vector2(0, 1));
-            AddVertex(p + new Vector3(radius, radius, 0), tint, new Vector2(1, 1));
+            float u = petal ? 2 : 0;
+            AddVertex(p - across - axis, tint, new Vector2(u, 0));
+            AddVertex(p + across - axis, tint, new Vector2(u + 1, 0));
+            AddVertex(p - across + axis, tint, new Vector2(u, 1));
+            AddVertex(p + across + axis, tint, new Vector2(u + 1, 1));
             AddQuad(i, i + 2);
         }
 

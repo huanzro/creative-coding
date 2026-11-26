@@ -197,6 +197,7 @@ namespace Echoes
             if (forestDebugPoint.HasValue || ruinWallDebug || journey.IsOpening || view == null) return;
             bool artworkChanged = journey.InStars && savedStarInk != view.StarInkRevision;
             if (savedRevision == journey.Revision && (!artworkChanged || !flush && now < nextInkSave)) return;
+            if (journey.InStars && !flush && view.StarArtwork.pointing) return;
             var checkpoint = journey.Checkpoint;
             if (journey.InStars)
             {
