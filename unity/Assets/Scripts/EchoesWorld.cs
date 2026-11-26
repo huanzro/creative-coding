@@ -150,7 +150,7 @@ namespace Echoes
                 else
                 {
                     float track=ruinExit ? Mathf.Lerp(.11f,.023f,OpeningStoryboard.Ease(3.7f,4.84f,journey.Age)) :
-                        ruins ? .11f : !forest ? .48f :
+                        ruins || stars ? .11f : !forest ? .48f :
                         journey.Phase==Stage.ForestDoor || journey.ForestTrap==ForestTrapKind.Cable ? .095f :
                         frame.forestMaze ? .18f : .24f;
                     position=matchCut ? wanted : Vector3.SmoothDamp(position,wanted,ref velocity,track,90,dt);
@@ -244,13 +244,14 @@ namespace Echoes
             if (ruinExit)
                 facing=Mathf.LerpAngle(facing.GetValueOrDefault(),camera.transform.eulerAngles.y-180,
                     OpeningStoryboard.Ease(4.35f,4.98f,journey.Age));
-            if ((!split || stars) && actorVisible)
+            if (!split && actorVisible)
                 spirit.DrawInWorld(camera,screen,body,depth,key,performer,spatial,facing,lens!=null);
             if (stars)
             {
-                if (split) performer.Clear();
-                Vector3 finger = spirit.Articulated ? spirit.WorldFingertip : actorAt;
                 Vector2 portrait = spirit.Articulated ? spirit.Landmark(1) : new Vector2(.23f, -.07f);
+                Vector3 finger = !split && spirit.Articulated ? spirit.WorldFingertip :
+                    camera.ViewportToWorldPoint(new Vector3(screen.x + portrait.x * body / 1280,
+                        1 - screen.y - portrait.y * body / 720, depth));
                 starInk?.Update(journey, camera, finger, portrait);
                 starInk?.DrawWorld(camera, performer);
             }
@@ -823,6 +824,7 @@ namespace Echoes
             else
             {
                 at=WorldSet.StarEntryCamera+Vector3.forward*(68*(1-Mathf.Exp(-travel/68)));
+                at+=Quaternion.LookRotation(WorldSet.StarEntrySight)*(Vector3)StarInkSpace.TravelOffset(j.Distance);
                 focus=at+WorldSet.StarEntrySight;
             }
         }

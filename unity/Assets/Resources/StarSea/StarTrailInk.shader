@@ -9,16 +9,18 @@ Shader "Hidden/Echoes/StarTrailInk"
             #include "UnityCG.cginc"
             float4 _InkViewport;
             float4 _InkCanvas, _InkAxes;
-            float _InkDepth;
+            float3 _InkEye;
+            float _InkTime;
             struct Vertex { float4 vertex : POSITION; float4 color : COLOR; float2 uv : TEXCOORD0; };
-            struct Ribbon { float4 vertex : POSITION; float3 direction : NORMAL; float4 color : COLOR; float2 uv : TEXCOORD0; };
-            struct Pixel { float4 position : SV_POSITION; fixed4 color : COLOR; float2 uv : TEXCOORD0; };
+            struct Ribbon { float4 vertex : POSITION; float3 direction : NORMAL; float4 color : COLOR; float2 uv : TEXCOORD0; float3 reveal : TEXCOORD1; };
+            struct Pixel { float4 position : SV_POSITION; fixed4 color : COLOR; float2 uv : TEXCOORD0; float3 reveal : TEXCOORD1; };
             Pixel vert(Vertex v)
             {
                 Pixel o;
                 o.position = UnityObjectToClipPos(v.vertex);
                 o.color = v.color;
                 o.uv = v.uv;
+                o.reveal = 0;
                 return o;
             }
             float4 portraitClip(float2 pixel)
@@ -35,26 +37,29 @@ Shader "Hidden/Echoes/StarTrailInk"
                 o.position = portraitClip(v.vertex.xy);
                 o.color = v.color;
                 o.uv = v.uv;
+                o.reveal = 0;
                 return o;
             }
             Pixel vertWorldRibbon(Ribbon v)
             {
-                float3 fromEye = v.vertex.xyz - float3(0, 0, _InkDepth);
+                float3 fromEye = v.vertex.xyz - _InkEye;
                 float3 across = cross(fromEye, v.direction);
                 float magnitude = dot(across, across);
                 across = magnitude > .000001 ? across * rsqrt(magnitude) : float3(0, 1, 0);
-                float3 expanded = v.vertex.xyz + across * ((v.uv.x * 2 - 1) * .078);
+                float3 expanded = v.vertex.xyz + across * ((v.uv.x * 2 - 1) * lerp(.078, .063, v.reveal.z));
                 Pixel o;
                 o.position = UnityObjectToClipPos(float4(expanded, 1));
                 o.color = v.color;
                 o.color.a *= smoothstep(.45, 2.4, fromEye.z);
                 o.uv = v.uv;
+                o.reveal = v.reveal;
                 return o;
             }
             float2 projectRibbon(float3 center)
             {
+                center -= _InkEye;
                 float2 plane = float2(dot(center.xy, _InkAxes.xy), dot(center.xy, _InkAxes.zw));
-                return _InkCanvas.xy + plane * (_InkCanvas.z / max(2.5, center.z - _InkDepth));
+                return _InkCanvas.xy + plane * (_InkCanvas.z / max(2.5, center.z));
             }
             Pixel vertPortraitRibbon(Ribbon v)
             {
@@ -62,11 +67,14 @@ Shader "Hidden/Echoes/StarTrailInk"
                 float2 along = projectRibbon(v.vertex.xyz + v.direction * .045) - center;
                 float magnitude = dot(along, along);
                 float2 side = magnitude > .000001 ? float2(-along.y, along.x) * rsqrt(magnitude) : float2(0, 1);
+                float relativeDepth = v.vertex.z - _InkEye.z;
+                float width = clamp(sqrt(5.8 / max(2.5, relativeDepth)), .65, 1.24) * _InkCanvas.w;
                 Pixel o;
-                o.position = portraitClip(center + side * ((v.uv.x * 2 - 1) * _InkCanvas.w));
+                o.position = portraitClip(center + side * ((v.uv.x * 2 - 1) * width * lerp(1, .83, v.reveal.z)));
                 o.color = v.color;
-                o.color.a *= smoothstep(.45, 2.4, v.vertex.z - _InkDepth);
+                o.color.a *= smoothstep(.45, 2.4, relativeDepth);
                 o.uv = v.uv;
+                o.reveal = v.reveal;
                 return o;
             }
             fixed4 glow(Pixel i) : SV_Target
@@ -88,6 +96,16 @@ Shader "Hidden/Echoes/StarTrailInk"
                 float alpha = saturate((halo + core * .90) * i.color.a);
                 float3 tint = lerp(i.color.rgb, float3(.94, .98, 1), core * .57);
                 return fixed4(tint * alpha, alpha);
+            }
+            fixed4 glowRibbon(Pixel i) : SV_Target
+            {
+                if (i.reveal.z > .5)
+                {
+                    float arrival = max(_InkTime - i.reveal.x, (_InkEye.z - i.reveal.y) * .68);
+                    i.color.a *= smoothstep(0, .040, arrival);
+                    i.color.rgb = lerp(i.color.rgb, float3(.97, .96, 1), .36 * (1 - smoothstep(.03, .17, arrival)));
+                }
+                return glow(i);
             }
         ENDCG
         Pass
@@ -117,7 +135,7 @@ Shader "Hidden/Echoes/StarTrailInk"
             Blend One One, One OneMinusSrcAlpha
             CGPROGRAM
             #pragma vertex vertWorldRibbon
-            #pragma fragment glow
+            #pragma fragment glowRibbon
             ENDCG
         }
         Pass
@@ -127,7 +145,7 @@ Shader "Hidden/Echoes/StarTrailInk"
             Blend One One, One OneMinusSrcAlpha
             CGPROGRAM
             #pragma vertex vertPortraitRibbon
-            #pragma fragment glow
+            #pragma fragment glowRibbon
             ENDCG
         }
         Pass

@@ -443,7 +443,7 @@ namespace Echoes
             GUI.enabled = enabled && settings == null;
             string hint = ruinEnding ? (ruinSurvey ? "松开空格仰视 · Z 发声俯视" : "") :
                 mazeWalking ? "A/B 转向 · 松开空格走 · 按住停" :
-                stars ? "按住鼠标画光 · Z轻声 · X加速" : "空格握拳 · 松开张手 · Z轻声 · X加速";
+                stars ? "按住鼠标引导光迹 · Z / X 加速" : "空格握拳 · 松开张手 · Z轻声 · X加速";
             GUI.Label(new Rect(393, 651, 310, 25), hint, body);
             Paint(new Rect(396, 680, 270, 4), new Color(1, 1, 1, .2f));
             Paint(new Rect(396, 680, volume * 270, 4), new Color(.81f, .85f, 1));

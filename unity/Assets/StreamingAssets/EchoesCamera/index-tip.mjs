@@ -1,6 +1,17 @@
 const unit = value => Math.max(0, Math.min(1, value));
 export const handSampleInterval = 1000 / 30;
 
+export async function loadHandDetector() {
+  const { FilesetResolver, HandLandmarker } = await import('./vendor/vision_bundle.mjs');
+  const vendor = new URL('./vendor/', import.meta.url);
+  const files = await FilesetResolver.forVisionTasks(new URL('wasm', vendor).href);
+  return HandLandmarker.createFromOptions(files, {
+    baseOptions: { modelAssetPath: new URL('hand_landmarker.task', vendor).href, delegate: 'CPU' },
+    runningMode: 'VIDEO', numHands: 1, minHandDetectionConfidence: .55,
+    minHandPresenceConfidence: .55, minTrackingConfidence: .55
+  });
+}
+
 export class HandFrameClock {
   reset() { this.next = undefined; }
 

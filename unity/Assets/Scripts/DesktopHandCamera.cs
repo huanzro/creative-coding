@@ -59,10 +59,11 @@ namespace Echoes
                 Stopwatch.GetTimestamp() - sample.At > PoseTimeoutSeconds * Stopwatch.Frequency;
             private static bool IsPose(string state) => state == "open" || state == "closed";
 
-            public StarTip ReadIndexTip()
+            public StarTip ReadIndexTip(out double capture)
             {
                 Sample sample = latest;
-                return Stopwatch.GetTimestamp() - sample.At <= .30 * Stopwatch.Frequency ? sample.Tip : default;
+                capture = sample.At / (double)Stopwatch.Frequency;
+                return Clock - capture <= .30 ? sample.Tip : default;
             }
 
             private void Receive(string state, StarTip tip = default)
@@ -190,6 +191,7 @@ namespace Echoes
                     case "index.html": kind = "text/html; charset=utf-8"; root = pageRoot; break;
                     case "camera.mjs": kind = "text/javascript; charset=utf-8"; root = pageRoot; break;
                     case "index-tip.mjs": kind = "text/javascript; charset=utf-8"; root = pageRoot; break;
+                    case "hand-worker.js": kind = "text/javascript; charset=utf-8"; root = pageRoot; break;
                     case "core.js":
                     case "vendor/vision_bundle.mjs":
                     case "vendor/wasm/vision_wasm_internal.js":
@@ -241,13 +243,18 @@ namespace Echoes
         private string error = "摄像头已关闭";
         public bool Active => session != null;
         public Hand ReadGesture(bool enabled) => session?.ReadGesture(enabled) ?? Hand.Missing;
-        public StarTip ReadIndexTip() => session?.ReadIndexTip() ?? default;
+        public static double Clock => Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
+        public StarTip ReadIndexTip(out double capture)
+        {
+            capture = 0;
+            return session == null ? default : session.ReadIndexTip(out capture);
+        }
         public string Status
         {
             get
             {
                 if (!Active) return error;
-                if (ReadIndexTip().Valid) return "摄像头已启用，识别到食指坐标";
+                if (ReadIndexTip(out _).Valid) return "摄像头已启用，识别到食指坐标";
                 switch (session.State)
                 {
                     case "open": return "摄像头已启用，识别到张手";

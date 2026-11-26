@@ -17,6 +17,9 @@ namespace Echoes
         private static readonly string[] CastNames = { "三维精灵", "绿金长裙精灵", "兜帽旅人", "星纹术士", "红色小鸟", "黑天鹅" };
         private Hand liveHand;
         private StarTip liveIndexTip;
+        private double liveIndexTipAt;
+        private StarBrush starBrush;
+        private int brushPaper = -1;
         private float liveVoice, lastHandAt, lastAudioAt;
 #if UNITY_WEBGL && !UNITY_EDITOR
         private float publishAt;
@@ -40,6 +43,7 @@ namespace Echoes
         private const string RuinLowerReachKey = "EchoesUnity.Ruins.LowerReach";
         private const string JumpHeightKey = "EchoesUnity.Flight.JumpHeight";
         private const string DoorJumpHeightKey = "EchoesUnity.Flight.DoorJumpHeight";
+        private const string StarCruiseSpeedKey = "EchoesUnity.Stars.CruiseSpeed";
         private const string BrightnessKey = "EchoesUnity.Projection.Brightness";
         private const string BackgroundBrightnessKey = "EchoesUnity.Projection.BackgroundBrightness";
         private const string SpiderBrightnessKey = "EchoesUnity.Projection.ForestSpiderBrightness";
@@ -128,6 +132,7 @@ namespace Echoes
             journey.RuinLowerReach = PlayerPrefs.GetFloat(RuinLowerReachKey, 1);
             journey.JumpHeightScale = PlayerPrefs.GetFloat(JumpHeightKey, Journey.DefaultJumpHeightScale);
             journey.ForestDoorJumpHeightScale = PlayerPrefs.GetFloat(DoorJumpHeightKey, Journey.DefaultForestDoorJumpHeightScale);
+            journey.StarCruiseSpeed = PlayerPrefs.GetFloat(StarCruiseSpeedKey, Journey.DefaultStarCruiseSpeed);
             savedRevision = journey.Revision;
             Application.targetFrameRate = 60;
 #if UNITY_EDITOR
@@ -168,7 +173,7 @@ namespace Echoes
             journey.RuinDirectPalmLook |= desktopCamera.Active;
 #endif
             UpdateHand(keyboard, !paused && (inputReady || journey.InStars));
-            if (journey.InStars) UpdateIndexTip(keyboard, !paused && !settings, now);
+            if (journey.InStars) UpdateIndexTip(keyboard, !paused && !settings);
             bool leftHeld = keyboard && Input.GetKey(KeyCode.A);
             bool rightHeld = keyboard && Input.GetKey(KeyCode.B);
             if (keyboard && Input.GetKeyDown(KeyCode.A) && (!journey.InForest || !rightHeld)) TrackTouch(0, true, false);
@@ -178,7 +183,9 @@ namespace Echoes
             {
                 bool advance = inputReady || journey.InStars;
                 bool hear = journey.InStars ? preview || audioReady && now - lastAudioAt < .5f : inputReady;
-                journey.Step(journey.IsOpening ? Time.unscaledDeltaTime : dt, hear ? voice : 0, advance);
+                float simulationStep = journey.IsOpening ? Time.unscaledDeltaTime :
+                    journey.InStars ? Mathf.Min(.12f, Time.unscaledDeltaTime) : dt;
+                journey.Step(simulationStep, hear ? voice : 0, advance);
             }
             UpdateMazeMap(keyboard);
             view.Advance(journey);
@@ -203,7 +210,7 @@ namespace Echoes
             {
                 checkpoint.starArtwork = JsonUtility.ToJson(view.StarArtwork);
                 savedStarInk = view.StarInkRevision;
-                nextInkSave = now + .85f;
+                nextInkSave = now + 5f;
             }
             savedRevision = journey.Revision;
             PlayerPrefs.SetString(SaveKey, JsonUtility.ToJson(checkpoint));
@@ -383,6 +390,14 @@ namespace Echoes
                 view.UseWorld = world;
                 PlayerPrefs.SetInt("EchoesUnity.World3D", world ? 1 : 0);
                 PlayerPrefs.Save();
+            }
+            if (journey.InStars)
+            {
+                GUI.Label(new Rect(20, 352, 285, 26), "星海飞行", label);
+                journey.StarCruiseSpeed = TuningSlider(389, "巡航速度", StarCruiseSpeedKey, journey.StarCruiseSpeed,
+                    Journey.MinimumStarCruiseSpeed, Journey.MaximumStarCruiseSpeed, label, " m/s");
+                GUI.Label(new Rect(20, 431, 478, 51), "安静时按这档速度向深处飞。发声会在这个速度上加速。", label);
+                return;
             }
             GUI.Label(new Rect(20, 352, 285, 26), "森林 · 速度与捕捉范围", label);
             if (GUI.Button(new Rect(293, 349, 116, 29), "遗迹入口范围", button)) ruinSettings = true;
@@ -578,6 +593,7 @@ namespace Echoes
             if (!StarTip.Decode(value, out string state, out liveIndexTip)) state = "missing";
             liveHand = state == "open" ? Hand.Open : state == "closed" ? Hand.Fist : Hand.Missing;
             lastHandAt = Time.unscaledTime;
+            liveIndexTipAt = IndexClock;
             if (liveHand == Hand.Missing && !preview)
             {
                 Array.Clear(browserTouch, 0, browserTouch.Length);

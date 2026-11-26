@@ -135,7 +135,7 @@ namespace Echoes
             bool changedCast = previous.cast != frame.cast;
             bool changedDoor = frame.forestDoor != previous.forestDoor;
             previous = frame;
-            float aimBlend = elapsed <= 0 || elapsed > .4f ? 1 : 1 - Mathf.Exp(-elapsed / .072f);
+            float aimBlend = elapsed <= 0 || elapsed > .4f ? 1 : 1 - Mathf.Exp(-elapsed / (frame.starPointing ? .024f : .072f));
             var aimTarget = frame.starPointing ? new Vector2(frame.starTipX, frame.starTipY) : new Vector2(.5f, .5f);
             starAim = Vector2.Lerp(starAim, aimTarget, aimBlend);
             pointing = Mathf.Lerp(pointing, frame.starPointing ? 1 : 0, aimBlend);

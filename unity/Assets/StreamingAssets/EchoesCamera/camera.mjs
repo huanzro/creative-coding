@@ -1,5 +1,5 @@
 import { handOpenness } from './core.js';
-import { HandFrameClock, IndexTipTracker, handSampleInterval, withIndexTip } from './index-tip.mjs';
+import { HandFrameClock, IndexTipTracker, handSampleInterval, loadHandDetector, withIndexTip } from './index-tip.mjs';
 
 const video = document.getElementById('preview');
 const previewFrame = document.getElementById('preview-frame');
@@ -16,6 +16,7 @@ const receivedPose = {
   missing: 'Unity 已连接。把一只手放进画面。'
 };
 let stream, detector, frameReader, timer, queuedState;
+let worker, pendingFrame, frameInWorker = false, readingPreview = false;
 let previewWindow, previewStatus;
 let generation = 0, sending = false, connected = true;
 let videoTime = -1, lastLandmarksAt = -Infinity;
@@ -118,6 +119,8 @@ function releaseCamera() {
   clearInterval(timer);
   void frameReader?.cancel().catch(() => {});
   frameReader = null;
+  clearWorker();
+  readingPreview = false;
   stream?.getTracks().forEach(track => track.stop());
   stream = null;
   video.srcObject = null;
@@ -139,19 +142,81 @@ function stop(message, state = 'off') {
   void report(state);
 }
 
-async function loadDetector() {
-  const { FilesetResolver, HandLandmarker } = await import('./vendor/vision_bundle.mjs');
-  const vendor = new URL('./vendor/', import.meta.url);
-  const files = await FilesetResolver.forVisionTasks(new URL('wasm', vendor).href);
-  return HandLandmarker.createFromOptions(files, {
-    baseOptions: { modelAssetPath: new URL('hand_landmarker.task', vendor).href, delegate: 'CPU' },
-    runningMode: 'VIDEO', numHands: 1, minHandDetectionConfidence: .55,
-    minHandPresenceConfidence: .55, minTrackingConfidence: .55
+function clearWorker() {
+  worker?.terminate();
+  pendingFrame?.frame.close();
+  worker = pendingFrame = null;
+  frameInWorker = false;
+}
+
+function recoverDetector(current) {
+  if (generation !== current || !worker) return;
+  clearWorker();
+  if (detector) return;
+  void loadHandDetector().then(next => {
+    if (generation === current) detector = next;
+    else next.close?.();
+  }).catch(() => {
+    if (generation === current) stop('手势识别中断，请重新开启摄像头。', 'model-error');
   });
 }
 
-function identify(source, aspect, now) {
-  const points = source ? detector.detectForVideo(source, now).landmarks[0] : null;
+async function useWorker(current) {
+  if (typeof Worker !== 'function' || typeof OffscreenCanvas !== 'function') return false;
+  let thread;
+  try {
+    thread = new Worker(new URL('./hand-worker.js', import.meta.url));
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Hand worker did not start')), 7500);
+      thread.onmessage = ({ data }) => {
+        clearTimeout(timeout);
+        if (data.ready) resolve();
+        else reject(new Error('Hand worker is unavailable'));
+      };
+      thread.onerror = event => {
+        event.preventDefault();
+        clearTimeout(timeout);
+        reject(new Error('Hand worker could not load'));
+      };
+    });
+    if (generation !== current) { thread.terminate(); return false; }
+    worker = thread;
+    thread.onerror = event => { event.preventDefault(); recoverDetector(current); };
+    thread.onmessage = ({ data }) => {
+      if (generation !== current || worker !== thread) return;
+      if (data.failed) { recoverDetector(current); return; }
+      frameInWorker = false;
+      receiveLandmarks(data.points, data.aspect, data.at);
+      submitLatest();
+    };
+    return true;
+  } catch {
+    thread?.terminate();
+    return false;
+  }
+}
+
+function submitLatest() {
+  if (!worker || frameInWorker || !pendingFrame) return;
+  const next = pendingFrame;
+  pendingFrame = null;
+  frameInWorker = true;
+  try {
+    worker.postMessage(next, [next.frame]);
+  } catch {
+    next.frame.close();
+    recoverDetector(generation);
+  }
+}
+
+function keepLatest(frame, at) {
+  // A slow inference consumes the most recent frame next, without replaying old hand motions.
+  pendingFrame?.frame.close();
+  pendingFrame = { frame, at };
+  submitLatest();
+}
+
+function receiveLandmarks(points, aspect, now) {
   const tip = indexTracker.update(points, aspect, now);
   const score = handOpenness(points?.map(point => ({ x: point.x * aspect, y: point.y, z: point.z * aspect })));
   if (now - lastLandmarksAt >= handLostAfter) {
@@ -166,10 +231,10 @@ function identify(source, aspect, now) {
   } else if (candidate && now - candidateAt >= confirmPoseAfter) {
     pose = candidate;
   }
+  void report(withIndexTip(pose, tip));
   placeTip(previewFrame, video, tip);
   const floating = previewWindow?.document.querySelector('.preview-frame');
   if (floating) placeTip(floating, floating.querySelector('video'), tip);
-  void report(withIndexTip(pose, tip));
 }
 
 async function trackFrames(reader, current) {
@@ -178,14 +243,21 @@ async function trackFrames(reader, current) {
     while (generation === current) {
       const { value: frame, done } = await reader.read();
       if (done) break;
+      let transferred = false;
       try {
         const now = performance.now();
         if (generation !== current || !clock.take(frame.timestamp == null ? now : frame.timestamp / 1000)) continue;
-        const bitmap = await createImageBitmap(frame);
-        try {
-          if (generation === current) identify(bitmap, bitmap.width / bitmap.height, now);
-        } finally { bitmap.close(); }
-      } finally { frame.close(); }
+        if (worker) {
+          keepLatest(frame, now);
+          transferred = true;
+        } else if (detector) {
+          const bitmap = await createImageBitmap(frame);
+          try {
+            if (generation === current) receiveLandmarks(detector.detectForVideo(bitmap, now).landmarks[0],
+              bitmap.width / bitmap.height, now);
+          } finally { bitmap.close(); }
+        }
+      } finally { if (!transferred) frame.close(); }
     }
     if (generation === current) stop('摄像头画面已断开，请重新开启。');
   } catch {
@@ -198,11 +270,20 @@ async function trackFrames(reader, current) {
 function trackPreview() {
   const now = performance.now();
   try {
-    if (video.readyState >= 2 && videoTime !== video.currentTime) {
+    if (video.readyState >= 2 && videoTime !== video.currentTime && !readingPreview) {
       videoTime = video.currentTime;
-      identify(video, video.videoWidth / video.videoHeight, now);
-    } else if (videoTime >= 0 && now - lastLandmarksAt >= handLostAfter) {
-      identify(null, 1, now);
+      if (worker) {
+        readingPreview = true;
+        const current = generation;
+        void createImageBitmap(video).then(bitmap => {
+          if (generation === current && worker) keepLatest(bitmap, now);
+          else bitmap.close();
+        }).catch(() => {}).finally(() => {
+          if (generation === current) readingPreview = false;
+        });
+      } else if (detector) {
+        receiveLandmarks(detector.detectForVideo(video, now).landmarks[0], video.videoWidth / video.videoHeight, now);
+      }
     }
   } catch {
     stop('手势识别中断，请重新开启摄像头。', 'model-error');
@@ -228,14 +309,16 @@ async function start() {
     void video.play().catch(() => {});
     previewButton.disabled = false;
     setStatus('载入手势识别模型…');
-    if (!detector) detector = await loadDetector();
+    if (!await useWorker(current) && generation === current && !detector) detector = await loadHandDetector();
     if (generation !== current) return;
     setStatus('等待摄像头画面…');
     if (typeof MediaStreamTrackProcessor === 'function') {
       // Read the camera directly so a hidden preview tab cannot slow gesture sampling.
-      frameReader = new MediaStreamTrackProcessor({ track, maxBufferSize: 1 }).readable.getReader();
-      void trackFrames(frameReader, current);
-    } else {
+      try { frameReader = new MediaStreamTrackProcessor({ track, maxBufferSize: 1 }).readable.getReader(); }
+      catch { frameReader = null; }
+    }
+    if (frameReader) void trackFrames(frameReader, current);
+    else {
       videoTime = -1;
       timer = setInterval(trackPreview, handSampleInterval);
     }

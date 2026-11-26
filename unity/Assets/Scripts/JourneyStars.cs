@@ -1,6 +1,6 @@
 /* ARTISTIC RATIONALE
- * A touch opens one of the machine's patterns. An index finger leaves the visitor's own line.
- * Their voice carries the brush into the sky, so both kinds of mark occupy the same space.
+ * The visitor steers a continuous line with their index finger. A touch grows a pattern from the line.
+ * The brush travels forward at its cruising speed and picks up speed with the visitor's voice.
  */
 using System;
 using System.Collections.Generic;
@@ -47,27 +47,29 @@ namespace Echoes
 
     public sealed partial class Journey
     {
-        public const float StarVoiceFloor = .075f, StarMaxSpeed = 1.36f;
-        private const float StarSpinPressure = .64f, StarSpinRearmPressure = .52f, StarSpinCooldown = 2.15f;
+        public const float MinimumStarCruiseSpeed = .25f, DefaultStarCruiseSpeed = .72f, MaximumStarCruiseSpeed = 1.65f;
+        private const float StarVoiceFloor = .075f, StarAudioBoost = 1.50f;
+        public const float StarMaxSpeed = MaximumStarCruiseSpeed + StarAudioBoost;
         private readonly Queue<int> starStamps = new Queue<int>(12);
         private readonly int[] lastStarMotif = { -1, -1 };
         private readonly float[] lastStampAt = new float[2];
-        private bool starVoiceBoosted, starSpinInterrupted;
+        private float starCruiseSpeed = DefaultStarCruiseSpeed;
 
         public bool InStars => Chapter == 2 && Lesson < 0;
         public int StarPaper { get; private set; }
         public StarTip StarPointer { get; private set; }
         public float StarSpeed { get; private set; }
+        public float StarCruiseSpeed
+        {
+            get => starCruiseSpeed;
+            set => starCruiseSpeed = TuningValue(value, MinimumStarCruiseSpeed, MaximumStarCruiseSpeed, DefaultStarCruiseSpeed);
+        }
         public int StarLastStamp { get; private set; }
         public string StarInstruction => StarPointer.Valid
-            ? "食指绘制中。发声向星海深处飞，收起食指即可提笔。"
-            : "只伸出食指指向镜头，移动指尖画光。A/B 可从精灵指尖放出图案。";
+            ? "指尖引导光迹，发声加快飞行。按 A/B 让图案沿光迹长出。"
+            : "光迹正飞向深处。只伸出食指，就能改变它的走向。";
 
-        public void SetStarPointer(StarTip pointer)
-        {
-            StarPointer = InStars ? pointer : default;
-            if (StarPointer.Valid) starSpinInterrupted = true;
-        }
+        public void SetStarPointer(StarTip pointer) => StarPointer = InStars ? pointer : default;
 
         internal bool TryTakeStarStamp(out int motif)
         {
@@ -78,10 +80,9 @@ namespace Echoes
         private void StartStar()
         {
             StarPaper++;
-            StarSpeed = 0;
+            StarSpeed = starCruiseSpeed;
             StarLastStamp = 0;
             StarPointer = default;
-            starVoiceBoosted = starSpinInterrupted = false;
             LastSpin = LastRelease = float.NegativeInfinity;
             starStamps.Clear();
             for (int i = 0; i < lastStarMotif.Length; i++)
@@ -110,19 +111,7 @@ namespace Echoes
         private void UpdateStars(float dt)
         {
             float pressure = Clamp((Voice - StarVoiceFloor) / (1 - StarVoiceFloor));
-            if (pressure < StarSpinRearmPressure) starVoiceBoosted = false;
-            else if (pressure >= StarSpinPressure && !starVoiceBoosted)
-            {
-                starVoiceBoosted = true;
-                if (!StarPointer.Valid && PoseTime - LastSpin >= StarSpinCooldown)
-                {
-                    starSpinInterrupted = false;
-                    LastSpin = LastRelease = PoseTime;
-                    ReleaseAltitude = Flight.Height;
-                    Light = 1;
-                }
-            }
-            float target = StarMaxSpeed * (float)Math.Pow(pressure, .80);
+            float target = starCruiseSpeed + StarAudioBoost * (float)Math.Pow(pressure, .80);
             float difference = target - StarSpeed;
             float step = dt * (difference >= 0 ? 4.8f : 7.6f);
             StarSpeed += Math.Max(-step, Math.Min(step, difference));

@@ -28,15 +28,36 @@ namespace Echoes
             journey.SetHand(gesture);
         }
 
-        private void UpdateIndexTip(bool keyboard, bool enabled, float now)
+        private static double IndexClock =>
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+            DesktopHandCamera.Clock;
+#else
+            Time.realtimeSinceStartupAsDouble;
+#endif
+
+        private void UpdateIndexTip(bool keyboard, bool enabled)
         {
+            if (brushPaper != journey.StarPaper)
+            {
+                brushPaper = journey.StarPaper;
+                starBrush = default;
+            }
+            double now = IndexClock, capture = now;
             StarTip tip = default;
             if (enabled)
             {
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
-                if (preview && desktopCamera.Active) tip = desktopCamera.ReadIndexTip();
+                if (preview && desktopCamera.Active)
+                {
+                    tip = desktopCamera.ReadIndexTip(out double sampledAt);
+                    if (tip.Valid) capture = sampledAt;
+                }
 #endif
-                if (!preview && cameraReady && now - lastHandAt < .30f) tip = liveIndexTip;
+                if (!preview && cameraReady && now - liveIndexTipAt < .30)
+                {
+                    tip = liveIndexTip;
+                    capture = liveIndexTipAt;
+                }
                 if (!tip.Valid && keyboard && Input.GetMouseButton(0))
                 {
                     Rect area = view.StageViewport;
@@ -46,7 +67,7 @@ namespace Echoes
                     tip = new StarTip((x - .5f) / .82f + .5f, (y - .5f) / .71f + .5f);
                 }
             }
-            journey.SetStarPointer(tip);
+            journey.SetStarPointer(starBrush.Follow(tip, capture, now, Mathf.Min(.12f, Time.unscaledDeltaTime)));
         }
 
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN

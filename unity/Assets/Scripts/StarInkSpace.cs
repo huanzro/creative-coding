@@ -12,6 +12,8 @@ namespace Echoes
         public float born;
         public Vector3 origin;
         public Vector2 portraitTip;
+        public bool continuous;
+        public int branchSide;
         public List<Vector3> points;
     }
 
@@ -25,22 +27,25 @@ namespace Echoes
         public bool pointing;
         public int penMark = -1;
         public Vector3 cursor, hand;
-        public Vector2 portraitHand;
+        public Vector2 portraitHand, eyeOffset;
+        public Vector3 Eye => new Vector3(eyeOffset.x, eyeOffset.y, depth);
     }
 
     internal sealed class StarInkSpace : IDisposable
     {
         public const float PerformerDepth = 5.8f, FieldOfView = 49f;
         public const float Aspect = 16f / 9;
-        private const int MaxMarks = 24, MaxSamples = 300;
+        private const int MaxMarks = 24, MaxSamples = 480;
+        private static readonly float HalfHeight = PerformerDepth * Mathf.Tan(FieldOfView * .5f * Mathf.Deg2Rad);
+        private static readonly float BrushWidth = 2 * HalfHeight * Aspect * .82f, BrushHeight = 2 * HalfHeight * .71f;
         private static int nextCanvasId;
         private readonly List<StarInkMark> marks = new List<StarInkMark>(MaxMarks);
         private readonly List<StarTrailGrowth> growth = new List<StarTrailGrowth>(32);
         private readonly System.Random growthRandom = new System.Random();
         private StarInkFrame frame = new StarInkFrame();
         private StarInkMark pen;
-        private StarBrush brush;
-        private Vector2 previousTip;
+        private Vector2 penScreen;
+        private bool reconnecting;
         private float prevTime, penTime;
         private float distanceToGrowth, lastGrowth = float.NegativeInfinity, flyCheckAt;
         private int fireflies;
@@ -67,87 +72,74 @@ namespace Echoes
             frame.tick++;
             frame.depth = journey.Distance;
             frame.time = journey.Time;
+            frame.eyeOffset = TravelOffset(frame.depth);
             Vector3 origin = camera.transform.InverseTransformPoint(atFinger);
-            origin.z += frame.depth;
-            frame.hand = origin;
+            frame.hand = origin + frame.Eye;
             frame.portraitHand = portraitTip;
-            bool changed = false;
+            StarTip input = journey.StarPointer;
+            float dt = Mathf.Clamp(frame.time - prevTime, 0, .12f);
+            bool changed = pen == null;
+            if (pen == null)
+            {
+                penScreen = input.Valid ? new Vector2(input.X, input.Y) : ScreenInSky(origin, origin.z);
+                frame.cursor = PointInSky(penScreen, frame.Eye);
+                pen = new StarInkMark { continuous = true, born = frame.time, origin = frame.cursor,
+                    points = new List<Vector3>(128) { frame.cursor } };
+                distanceToGrowth = .56f + (float)growthRandom.NextDouble() * .49f;
+                penTime = frame.time;
+                Add(pen);
+            }
+            else if (input.Valid && dt > 0)
+            {
+                Vector2 target = new Vector2(input.X, input.Y);
+                if (!frame.pointing && (target - penScreen).sqrMagnitude > .035f * .035f) reconnecting = true;
+                penScreen = reconnecting ? Vector2.Lerp(penScreen, target, 1 - Mathf.Exp(-37f * dt)) : target;
+                if ((target - penScreen).sqrMagnitude < .010f * .010f) reconnecting = false;
+            }
+            if (!input.Valid) reconnecting = false;
+            frame.pointing = input.Valid;
+            frame.cursor = PointInSky(penScreen, frame.Eye);
+            float moved = (pen.points[pen.points.Count - 1] - frame.cursor).sqrMagnitude;
+            if (moved >= .029f * .029f || moved >= .009f * .009f && frame.time - penTime >= .075f)
+                changed |= RecordCursor();
+
             while (journey.TryTakeStarStamp(out int motif))
             {
-                Add(new StarInkMark { motif = motif, born = frame.time, origin = origin, portraitTip = portraitTip });
+                RecordCursor();
+                int side = penScreen.x > .76f ? -1 : penScreen.x < .24f ? 1 : motif <= StarMotifs.PerGroup ? -1 : 1;
+                Add(new StarInkMark { motif = motif, branchSide = side, born = frame.time,
+                    origin = pen.points[pen.points.Count - 1] });
                 changed = true;
-            }
-
-            StarTip input = journey.StarPointer;
-            frame.pointing = input.Valid;
-            if (!input.Valid)
-            {
-                changed |= FinishStroke();
-            }
-            else
-            {
-                Vector2 sample = new Vector2(input.X, input.Y);
-                float dt = Mathf.Clamp(frame.time - prevTime, 0, .09f);
-                if (pen != null && (sample - previousTip).sqrMagnitude > .33f * .33f)
-                    changed |= FinishStroke();
-                if (pen == null)
-                {
-                    brush.Reset(sample, frame.time);
-                    Vector3 seed = PointInSky(sample, frame.depth);
-                    pen = new StarInkMark { born = frame.time, origin = seed, points = new List<Vector3>(96) { seed } };
-                    Add(pen);
-                    changed = true;
-                    penTime = frame.time;
-                    distanceToGrowth = .56f + (float)growthRandom.NextDouble() * .49f;
-                    frame.cursor = seed;
-                }
-                else if (dt > 0)
-                {
-                    Vector3 point = PointInSky(brush.Follow(sample, frame.time, dt), frame.depth);
-                    frame.cursor = point;
-                    Vector3 last = pen.points[pen.points.Count - 1];
-                    float distance = (point - last).sqrMagnitude;
-                    if (distance >= .026f * .026f || distance > .006f * .006f && frame.time - penTime > .09f)
-                    {
-                        AppendPoint(pen.points, point);
-                        GrowOnStroke(last, point);
-                        penTime = frame.time;
-                        changed = true;
-                    }
-                }
-                previousTip = sample;
             }
             prevTime = frame.time;
 
-            // Leave finished marks suspended in world space. Prune only work already behind the viewer.
+            // Retain the connected portion inside the viewing volume and its leading control point.
+            int passed = 0;
+            while (passed + 2 < pen.points.Count && pen.points[passed + 1].z < frame.depth + .35f) passed++;
+            if (passed > 0) pen.points.RemoveRange(0, passed);
+            bool dropped = false;
             for (int i = marks.Count - 1; i >= 0; i--)
             {
                 var mark = marks[i];
                 if (mark == pen || LastDepth(mark) >= frame.depth + .15f) continue;
-                if (mark.motif == 0 && mark.points.Count > 1) frame.historyVersion++;
-                marks.RemoveAt(i);
-                RefreshMarks();
-                changed = true;
+                RemoveAt(i);
+                dropped = true;
             }
+            if (dropped) RefreshMarks();
             frame.penMark = pen == null ? -1 : marks.IndexOf(pen);
             AgeFireflies();
-            if (changed) Revision++;
+            if (changed || dropped) Revision++;
         }
 
-        private bool FinishStroke()
+        private bool RecordCursor()
         {
-            if (pen == null) return false;
             var points = pen.points;
-            bool added = (frame.cursor - points[points.Count - 1]).sqrMagnitude > .0025f * .0025f;
-            if (added)
-            {
-                Vector3 last = points[points.Count - 1];
-                AppendPoint(points, frame.cursor);
-                GrowOnStroke(last, frame.cursor);
-            }
-            if (points.Count > 1) frame.historyVersion++;
-            pen = null;
-            return added;
+            Vector3 last = points[points.Count - 1];
+            if ((frame.cursor - last).sqrMagnitude < .0005f * .0005f) return false;
+            AppendPoint(points, frame.cursor);
+            GrowOnStroke(last, frame.cursor);
+            penTime = frame.time;
+            return true;
         }
 
         private void GrowOnStroke(Vector3 last, Vector3 next)
@@ -156,8 +148,7 @@ namespace Echoes
             if (distanceToGrowth > 0 || frame.time - lastGrowth < .19f) return;
             distanceToGrowth = .86f + (float)growthRandom.NextDouble() * .69f;
             lastGrowth = frame.time;
-            // Adjacent control-point midpoints lie on the same curve rendered in both windows.
-            Vector3 origin = (last + next) * .5f;
+            Vector3 origin = next;
             bool flower = growthRandom.NextDouble() < .48;
             if (flower)
                 for (int i = growth.Count - 1; i >= 0; i--)
@@ -181,39 +172,58 @@ namespace Echoes
             frame.growth = growth.ToArray();
         }
 
-        private static void AppendPoint(List<Vector3> points, Vector3 point)
+        private void AppendPoint(List<Vector3> points, Vector3 point)
         {
             if (points.Count == MaxSamples)
             {
-                // Keep the start and recent detail when a long stroke uses its sample budget.
+                // Keep branch junctions and recent detail if a long gesture fills the visible sample budget.
                 int early = MaxSamples / 2;
                 int kept = 0;
-                for (int i = 0; i < early; i += 2) points[kept++] = points[i];
+                for (int i = 0; i < early; i++)
+                    if ((i & 1) == 0 || HasBranchAt(points[i])) points[kept++] = points[i];
                 points.RemoveRange(kept, early - kept);
             }
             points.Add(point);
         }
 
-        private static Vector3 PointInSky(Vector2 screen, float depth)
+        private bool HasBranchAt(Vector3 point)
         {
-            float halfY = PerformerDepth * Mathf.Tan(FieldOfView * .5f * Mathf.Deg2Rad);
-            return new Vector3((screen.x - .5f) * (2 * halfY * Aspect * .82f),
-                (.5f - screen.y) * (2 * halfY * .71f), depth + PerformerDepth);
+            foreach (var mark in marks)
+                if (mark.branchSide != 0 && mark.origin == point) return true;
+            return false;
         }
 
-        private static float LastDepth(StarInkMark mark) => mark.motif != 0 ? mark.origin.z + 1.1f :
+        // A shallow serpentine flight reveals depth even when the tracked finger is stationary.
+        public static Vector2 TravelOffset(float depth) => new Vector2(.75f * Mathf.Sin(depth * .32f) + .18f * Mathf.Sin(depth * .81f),
+            .28f * (Mathf.Sin(.83f + depth * .34f) - Mathf.Sin(.83f)));
+
+        private static Vector3 PointInSky(Vector2 screen, Vector3 eye) => eye + new Vector3((screen.x - .5f) * BrushWidth,
+            (.5f - screen.y) * BrushHeight, PerformerDepth);
+
+        private static Vector2 ScreenInSky(Vector3 position, float eyeDepth)
+        {
+            float scale = PerformerDepth / Mathf.Max(.4f, eyeDepth);
+            return new Vector2(Mathf.Clamp01(.5f + position.x * scale / BrushWidth),
+                Mathf.Clamp01(.5f - position.y * scale / BrushHeight));
+        }
+
+        private static float LastDepth(StarInkMark mark) => mark.motif != 0 ? mark.origin.z + (mark.branchSide == 0 ? 1.1f : 1.9f) :
             mark.points[mark.points.Count - 1].z;
 
         private void Add(StarInkMark mark)
         {
             if (marks.Count == MaxMarks)
-            {
-                if (marks[0] == pen) pen = null;
-                else if (marks[0].motif == 0 && marks[0].points.Count > 1) frame.historyVersion++;
-                marks.RemoveAt(0);
-            }
+                RemoveAt(marks[0] == pen ? 1 : 0);
             marks.Add(mark);
+            if (mark.branchSide != 0) frame.historyVersion++;
             RefreshMarks();
+        }
+
+        private void RemoveAt(int index)
+        {
+            StarInkMark mark = marks[index];
+            if (mark.branchSide != 0 || mark.motif == 0 && mark.points.Count > 1) frame.historyVersion++;
+            marks.RemoveAt(index);
         }
 
         private void RefreshMarks() => frame.marks = marks.ToArray();
@@ -225,7 +235,8 @@ namespace Echoes
             growth.Clear();
             frame = new StarInkFrame { canvasId = ++nextCanvasId };
             pen = null;
-            prevTime = 0;
+            reconnecting = false;
+            prevTime = penTime = 0;
             lastGrowth = float.NegativeInfinity;
             fireflies = 0;
             flyCheckAt = 0;
@@ -236,6 +247,7 @@ namespace Echoes
             Clear(journey.StarPaper);
             frame.depth = journey.Distance;
             frame.time = journey.Time;
+            frame.eyeOffset = TravelOffset(frame.depth);
             if (checkpoint.version >= 11)
             {
                 string saved = checkpoint.starArtwork;
@@ -249,11 +261,23 @@ namespace Echoes
                     foreach (StarInkMark mark in old.marks)
                     {
                         if (mark == null || !SafePoint(mark.origin) || !(mark.born >= -3 && mark.born <= frame.time + .04f)) continue;
-                        if (StarMotifs.Valid(mark.motif) && Mathf.Abs(mark.portraitTip.x) < 1 && Mathf.Abs(mark.portraitTip.y) < 1 ||
+                        if (StarMotifs.Valid(mark.motif) && mark.branchSide >= -1 && mark.branchSide <= 1 &&
+                            Mathf.Abs(mark.portraitTip.x) < 1 && Mathf.Abs(mark.portraitTip.y) < 1 ||
                             mark.motif == 0 && mark.points != null && mark.points.Count > 0 && mark.points.Count <= MaxSamples &&
                             mark.points.TrueForAll(SafePoint))
+                        {
                             marks.Add(mark);
+                            if (mark.motif == 0 && mark.continuous) pen = mark;
+                        }
                     }
+                }
+                if (pen != null)
+                {
+                    frame.penMark = marks.IndexOf(pen);
+                    frame.cursor = pen.points[pen.points.Count - 1];
+                    penScreen = ScreenInSky(frame.cursor - (Vector3)TravelOffset(frame.cursor.z - PerformerDepth), PerformerDepth);
+                    prevTime = penTime = frame.time;
+                    distanceToGrowth = .96f;
                 }
                 if (old.growth != null)
                     foreach (StarTrailGrowth item in old.growth)
@@ -295,7 +319,7 @@ namespace Echoes
             if (!Prepare()) return;
             worldInk.Build(frame, null);
             Transform eye = camera.transform;
-            Vector3 origin = eye.position - eye.forward * frame.depth;
+            Vector3 origin = eye.position - eye.rotation * frame.Eye;
             var basis = Matrix4x4.TRS(origin, eye.rotation, Vector3.one);
             ribbons.Draw(frame, commands, basis, null);
             if (worldInk.Mesh.vertexCount > 0) commands.DrawMesh(worldInk.Mesh, basis, material, 0, worldPass);
@@ -411,9 +435,10 @@ namespace Echoes
                 return new Vector3(at.x, at.y, 0);
             }
 
-            public Vector3 Gesture(Vector3 point, float cameraDepth)
+            public Vector3 Gesture(Vector3 point, Vector3 eye)
             {
-                Vector2 at = actor + Rotate(new Vector2(point.x, -point.y)) * GrowthScale(point.z - cameraDepth);
+                Vector3 relative = point - eye;
+                Vector2 at = actor + Rotate(new Vector2(relative.x, -relative.y)) * GrowthScale(relative.z);
                 return new Vector3(at.x, at.y, 0);
             }
 
@@ -455,14 +480,15 @@ namespace Echoes
         {
             vertices.Clear(); colors.Clear(); uv.Clear(); triangles.Clear();
             bool screen = portrait != null;
-            Vector3 eye = Vector3.forward * frame.depth;
+            Vector3 eye = frame.Eye;
             float halo = screen ? portrait.Halo : .078f;
             if (frame.marks != null)
             {
-                int newest = Array.FindLastIndex(frame.marks, item => item.motif != 0);
+                int newest = Array.FindLastIndex(frame.marks, item => item.motif != 0 && item.branchSide == 0);
                 for (int i = 0; i < frame.marks.Length; i++)
                 {
                     StarInkMark mark = frame.marks[i];
+                    if (mark.branchSide != 0) continue;
                     var art = StarTrailArt.Find(mark.motif);
                     if (art != null) AddPattern(mark, art, frame, portrait, eye, halo, i == newest);
                 }
@@ -470,10 +496,10 @@ namespace Echoes
             if (frame.growth != null)
                 foreach (StarTrailGrowth item in frame.growth)
                     AddGrowth(item, frame, portrait);
-            if (frame.pointing)
+            if (frame.penMark >= 0)
             {
-                float shimmer = .72f + .11f * Mathf.Sin(frame.time * 6f);
-                Vector3 at = screen ? portrait.Gesture(frame.cursor, frame.depth) : frame.cursor;
+                float shimmer = (frame.pointing ? .83f : .48f) + .11f * Mathf.Sin(frame.time * 6f);
+                Vector3 at = screen ? portrait.Gesture(frame.cursor, eye) : frame.cursor;
                 AddSpark(at, halo * 1.45f, new Color(.61f, .94f, 1, shimmer));
             }
             if (Mesh.vertexCount == 0 && vertices.Count == 0) return;
@@ -554,15 +580,15 @@ namespace Echoes
                     (.16f + .23f * item.Variation) * drift);
             }
             float depth = position.z - frame.depth;
-            if (depth < .45f || depth > 50f || Mathf.Abs(position.x) > depth * .83f + .45f ||
-                Mathf.Abs(position.y) > depth * .49f + .45f) return;
+            if (depth < .45f || depth > 50f || Mathf.Abs(position.x - frame.eyeOffset.x) > depth * .83f + .45f ||
+                Mathf.Abs(position.y - frame.eyeOffset.y) > depth * .49f + .45f) return;
             float fade = NearFade(depth);
             float scale = Mathf.Lerp(.82f, 1.19f, item.Variation);
             Vector3 up = Vector3.up;
             Vector3 right = Vector3.right;
             if (portrait != null)
             {
-                position = portrait.Gesture(position, frame.depth);
+                position = portrait.Gesture(position, frame.Eye);
                 scale *= portrait.GrowthScale(depth);
                 up = portrait.GrowthDirection(Vector2.up);
                 right = portrait.GrowthDirection(Vector2.right);

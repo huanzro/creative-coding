@@ -271,7 +271,7 @@ Assert ($game.Touch(0) -and $game.StarLastStamp -in 1..4) 'A immediately places 
 $first = $game.StarLastStamp
 Assert ($game.Touch(1) -and $game.StarLastStamp -in 5..8) 'B works without waiting for A or a gesture.'
 Step $game 3.2 0
-Assert ($game.Distance -eq $initial -and $game.Phase -eq 'StarsCanvas') 'Stamp animation does not carry the player or complete the chapter.'
+Assert ([Math]::Abs($game.Distance - $initial - 3.2 * $game.StarCruiseSpeed) -lt .02 -and $game.Phase -eq 'StarsCanvas') 'Motifs extend while the player cruises at the ordinary forward speed.'
 Assert ($game.Touch(0) -and $game.StarLastStamp -in 1..4 -and $game.StarLastStamp -ne $first) 'Repeated A taps sample the same group without an immediate repeat.'
 $game.SetStarPointer([Echoes.StarTip]::new(.38,.62))
 Assert ($game.StarPointer.Valid -and $game.Gesture -eq 'Missing') 'The position of the index finger is independent from open-hand and fist tracking.'
@@ -280,13 +280,14 @@ $soft = $game.StarSpeed
 Step $game 1 .78
 Assert ($soft -gt 0 -and $game.StarSpeed -gt $soft -and $game.Distance -gt 1) 'Greater audio level drives deeper movement.'
 $game.SetStarPointer([Echoes.StarTip]::new(2,2))
-Assert (!$game.StarPointer.Valid) 'Dropping the pen is represented separately from forward movement.'
+Assert (!$game.StarPointer.Valid) 'The pen can lose steering input independently of forward movement.'
 Step $game .4 0
-$stopped = $game.Distance
+$beforeCruise = $game.Distance
 Step $game 1 0
-Assert ($game.Distance -eq $stopped -and $game.StarSpeed -eq 0) 'The camera comes to rest in silence.'
+$cruiseDepth = $game.Distance
+Assert ([Math]::Abs($cruiseDepth - $beforeCruise - $game.StarCruiseSpeed) -lt .015 -and $game.StarSpeed -eq $game.StarCruiseSpeed) 'Silence returns to continuous forward cruising.'
 $saved = [Echoes.Journey]::new()
-Assert ($saved.Restore($game.Checkpoint) -and $saved.Phase -eq 'StarsCanvas' -and $saved.Distance -eq $stopped -and
+Assert ($saved.Restore($game.Checkpoint) -and $saved.Phase -eq 'StarsCanvas' -and $saved.Distance -eq $cruiseDepth -and
     $saved.Plants -eq 2 -and $saved.RuinResult -eq 'Explored' -and $saved.RuinRetryOutcome -eq 'Traded') 'Restore the existing route and precise Star Sea depth.'
 Assert ($saved.Checkpoint.ruinFindsExtra -eq $choiceSave.ruinFindsExtra -and
     $saved.Checkpoint.ruinExhibitOrder -eq $choiceSave.ruinExhibitOrder) 'The Star Sea checkpoint preserves the Ruins exhibition history.'
@@ -831,23 +832,19 @@ foreach ($chapter in 0, 1) {
     Assert ($fastRelease.releaseAge -eq 0 -and $fastRelease.turnAge -eq 0) 'An accelerated jump starts the ring and spin together in the Forest and Ruins.'
 }
 
-$starDancer = [Echoes.Journey]::new(83)
-$starDancer.SelectChapter(2)
-$starDancer.SetStarPointer([Echoes.StarTip]::new(.32,.59))
-Step $starDancer .5 .7
-Assert ([Single]::IsNegativeInfinity($starDancer.LastSpin)) 'A voice boost leaves an active drawing steady.'
-$starDancer.SetStarPointer([Echoes.StarTip]::new(2,2))
-Step $starDancer 2.5 .7
-Assert ([Single]::IsNegativeInfinity($starDancer.LastSpin)) 'Lifting the pen during sustained audio does not create a new boost.'
-Step $starDancer .4 .3
-Step $starDancer .02 .7
-$starSpin = $starDancer.LastSpin
-Assert (([Echoes.SpiritFrame]::Read($starDancer)).turnAge -eq 0 -and $starDancer.LastRelease -eq $starSpin) 'A fresh Star Sea boost starts one spin and ring.'
-$starDancer.SetStarPointer([Echoes.StarTip]::new(.41,.51))
-$starDancer.SetStarPointer([Echoes.StarTip]::new(2,2))
-Assert (([Echoes.SpiritFrame]::Read($starDancer)).turnAge -lt 0) 'A new stroke ends the turn without resuming after pen-up.'
-Step $starDancer 2.5 .7
-Assert ($starDancer.LastSpin -eq $starSpin) 'Sustained strong voice does not repeatedly spin.'
+$starFlight = [Echoes.Journey]::new(83)
+$starFlight.StarCruiseSpeed = 1.2
+$starFlight.SelectChapter(2)
+$starFlight.SetStarPointer([Echoes.StarTip]::new(.32,.59))
+Step $starFlight 1 0
+Assert ([Math]::Abs($starFlight.Distance - 1.2) -lt .015) 'Cruise tuning applies immediately upon entering Star Sea.'
+$starFlight.SetStarPointer([Echoes.StarTip]::new(2,2))
+Step $starFlight .6 .8
+Assert ($starFlight.StarSpeed -gt $starFlight.StarCruiseSpeed -and ([Echoes.SpiritFrame]::Read($starFlight)).turnAge -lt 0 -and
+    [Single]::IsNegativeInfinity($starFlight.LastRelease)) 'Sound accelerates Star Sea flight without a spin or release ring.'
+$starFlight.StarCruiseSpeed = .1
+Step $starFlight .8 0
+Assert ($starFlight.StarSpeed -eq [Echoes.Journey]::MinimumStarCruiseSpeed) 'A live tuning change still preserves forward flight.'
 
 $touch = $enabled = 0
 Assert ([Echoes.ExhibitProtocol]::ReadInputs('EOL3 IN 3 7', [ref]$touch, [ref]$enabled)) 'The serial input still accepts both contacts.'

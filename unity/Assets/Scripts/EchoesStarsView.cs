@@ -25,7 +25,8 @@ namespace Echoes
             Paint(plate, new Color(.025f, .041f, .087f, .86f));
             Color color = GUI.contentColor;
             GUI.contentColor = j.StarPointer.Valid ? new Color(.70f, .97f, 1) : new Color(.80f, .83f, .98f);
-            GUI.Label(new Rect(931, 99, 273, 25), j.StarPointer.Valid ? "食指已识别 · 正在画光" : "伸出食指开始画光 · 发声向里飞", body);
+            string steering = j.StarPointer.Valid ? "食指引导" : "持续巡航";
+            GUI.Label(new Rect(931, 99, 273, 25), steering + "  ·  " + j.StarSpeed.ToString("0.00") + " m/s", body);
             GUI.contentColor = color;
         }
 

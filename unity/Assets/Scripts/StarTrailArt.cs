@@ -21,6 +21,7 @@ namespace Echoes
         private readonly Color start, middle, end;
         public readonly float Duration;
         public readonly int Segments;
+        public readonly float LateralBias;
 
         private StarTrailArt(Entry entry)
         {
@@ -30,6 +31,14 @@ namespace Echoes
             ColorUtility.TryParseHtmlString(entry.colors.end, out end);
             Duration = Mathf.Clamp(1.05f + entry.lengthPixels * .00065f, 1.7f, 2.9f);
             Segments = Mathf.Clamp(points.Length / 3, 96, 256);
+            float low = 0, high = 0;
+            foreach (Vector2 point in points)
+            {
+                float offset = point.x - points[0].x;
+                low = Mathf.Min(low, offset);
+                high = Mathf.Max(high, offset);
+            }
+            LateralBias = low + high < 0 ? -1 : 1;
         }
 
         public static StarTrailArt Find(int id)
