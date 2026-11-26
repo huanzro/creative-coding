@@ -38,6 +38,7 @@ namespace Echoes
         private float tracked, closed, voice;
         private float pointing;
         private Vector2 starAim = new Vector2(.5f, .5f);
+        private Vector2 starMotion;
         private SpiritFrame previous;
         private SpiritPose pose;
         private Color poseTint;
@@ -137,11 +138,15 @@ namespace Echoes
             previous = frame;
             float aimBlend = elapsed <= 0 || elapsed > .4f ? 1 : 1 - Mathf.Exp(-elapsed / (frame.starPointing ? .024f : .072f));
             var aimTarget = frame.starPointing ? new Vector2(frame.starTipX, frame.starTipY) : new Vector2(.5f, .5f);
+            Vector2 beforeAim = starAim;
             starAim = Vector2.Lerp(starAim, aimTarget, aimBlend);
+            Vector2 motion = frame.starPointing && elapsed > .001f && elapsed < .4f
+                ? Vector2.ClampMagnitude((starAim - beforeAim) / (elapsed * 1.75f), 1) : Vector2.zero;
+            starMotion = Vector2.Lerp(starMotion, motion, aimBlend);
             pointing = Mathf.Lerp(pointing, frame.starPointing ? 1 : 0, aimBlend);
             frame.starTipX = starAim.x;
             frame.starTipY = starAim.y;
-            pose = SpiritMotion.Sample(frame, tracked, closed, voice, dance, pointing);
+            pose = SpiritMotion.Sample(frame, tracked, closed, voice, dance, pointing, starMotion);
             guest = Guest(frame.cast);
             guest?.Pose(pose);
             if (frame.cast == RedBirdCast && redBird == null) redBird = new RedBirdSpirit(material);
@@ -246,6 +251,21 @@ namespace Echoes
                 * Matrix4x4.Translate(new Vector3(0,-1.16f,0))
                 * ForestPredatorShot.Read(previous).Prey(new Vector3(0,1.16f,0));
             RenderModel(transform,key,sceneAnchors,buffer,.20f,maskBackground);
+        }
+
+        public Vector3 PlaceStarWriter(Vector3 tip, Quaternion facing, float scale, Vector3 key,
+            CommandBuffer buffer, bool visible, bool maskBackground)
+        {
+            if (!rendered) return tip;
+            var pivot = new Vector3(0, 1.16f, 0);
+            Vector3 center = tip - facing * ((anchors[1] - pivot) * scale);
+            if (visible)
+            {
+                Matrix4x4 basis = Matrix4x4.TRS(center, facing, Vector3.one * scale) * Matrix4x4.Translate(-pivot);
+                RenderModel(basis, key, sceneAnchors, buffer, .20f, maskBackground);
+            }
+            else sceneAnchors[1] = tip;
+            return center;
         }
 
         private void UpdateTrails(float time, bool active)

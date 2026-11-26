@@ -5,9 +5,10 @@ namespace Echoes
     internal struct SpiritArm
     {
         public Vector3 upper, lower;
-        public float curl, light, wristFlex, point;
+        public float curl, light, wristFlex, point, wristRoll, fan;
 
-        public SpiritArm(Vector3 upper, Vector3 lower, float curl = 0, float light = 0, float wristFlex = 0, float point = 0)
+        public SpiritArm(Vector3 upper, Vector3 lower, float curl = 0, float light = 0, float wristFlex = 0, float point = 0,
+            float wristRoll = 0, float fan = 0)
         {
             this.upper = upper;
             this.lower = lower;
@@ -15,12 +16,15 @@ namespace Echoes
             this.light = light;
             this.wristFlex = wristFlex;
             this.point = point;
+            this.wristRoll = wristRoll;
+            this.fan = fan;
         }
 
         public static SpiritArm Blend(SpiritArm a, SpiritArm b, float weight) =>
             new SpiritArm(Vector3.Lerp(a.upper, b.upper, weight), Vector3.Lerp(a.lower, b.lower, weight),
                 Mathf.Lerp(a.curl, b.curl, weight), Mathf.Lerp(a.light, b.light, weight),
-                Mathf.Lerp(a.wristFlex, b.wristFlex, weight), Mathf.Lerp(a.point, b.point, weight));
+                Mathf.Lerp(a.wristFlex, b.wristFlex, weight), Mathf.Lerp(a.point, b.point, weight),
+                Mathf.Lerp(a.wristRoll, b.wristRoll, weight), Mathf.Lerp(a.fan, b.fan, weight));
     }
 
     internal struct SpiritPose
@@ -69,7 +73,8 @@ namespace Echoes
         private static readonly SpiritArm MawLowerPalm = new SpiritArm(new Vector3(.58f,-.43f,-.69f),
             new Vector3(.13f,-.27f,-.95f),.12f,.18f,20);
 
-        public static SpiritPose Sample(SpiritFrame frame, float tracked, float closed, float voice, float[] dance, float pointing = 0)
+        public static SpiritPose Sample(SpiritFrame frame, float tracked, float closed, float voice, float[] dance,
+            float pointing = 0, Vector2 writingSpeed = default)
         {
             if (frame.openingTime >= 0) return ActOpening(frame.openingTime);
             SpiritDance.Sample(frame.phase, dance);
@@ -114,7 +119,7 @@ namespace Echoes
                     ApplyTouch(ref pose, frame.touch, touch, Measure, Offer, -28, 33, 3);
                     break;
                 case 2:
-                    SampleStarWriting(ref pose, frame, touch, pointing);
+                    SampleStarWriting(ref pose, frame, touch, pointing, writingSpeed);
                     break;
                 default:
                     pose.left = SpiritArm.Blend(Rest, Reach, tracked);
@@ -195,21 +200,29 @@ namespace Echoes
             return pose;
         }
 
-        private static void SampleStarWriting(ref SpiritPose pose, SpiritFrame frame, float touch, float pointing)
+        private static void SampleStarWriting(ref SpiritPose pose, SpiritFrame frame, float touch, float pointing, Vector2 motion)
         {
             float aimX = (frame.starTipX - .5f) * 2 * pointing;
             float aimY = (.5f - frame.starTipY) * 2 * pointing;
-            float pen = Mathf.Lerp(.50f + touch * .20f, 1, pointing);
-            var writingHand = new SpiritArm(new Vector3(.63f + aimX*.29f, -.34f+aimY*.39f, -.70f),
-                new Vector3(.42f + aimX*.68f, .19f+aimY*.57f, -.76f), .76f, .15f+touch*.32f, 10*aimY, 1);
-            pose.right = SpiritArm.Blend(Rest, writingHand, pen);
-            pose.right.point = 1;
-            pose.left = SpiritArm.Blend(Rest, Wing, .24f + frame.starThrust * .54f);
-            pose.yaw += aimX * 22 - frame.starThrust * 13;
-            pose.lean -= aimX * pen * 11;
-            pose.look += aimX * 23;
-            pose.nod -= aimY * 17;
-            pose.pitch += frame.starThrust * 16;
+            float flow = Mathf.Clamp01(motion.magnitude);
+            Vector3 wrist = new Vector3(.21f + .155f * aimX + .047f * motion.x,
+                -.057f + .202f * aimY - .044f * motion.y + .014f * Mathf.Sin(pose.time * 2.2f), -.33f - .036f * flow);
+            Vector3 reach = Vector3.ClampMagnitude(wrist, .493f);
+            float length = reach.magnitude;
+            Vector3 axis = reach / length;
+            Vector3 bend = Vector3.ProjectOnPlane(new Vector3(.65f, -.92f, .11f), axis).normalized;
+            float upper = SpiritModel.UpperArmLength, lower = SpiritModel.ForearmLength;
+            float along = (upper * upper - lower * lower + length * length) / (2 * length);
+            Vector3 elbow = axis * along + bend * Mathf.Sqrt(Mathf.Max(0, upper * upper - along * along));
+            pose.right = new SpiritArm(elbow, reach - elbow, .68f + .15f * flow - .13f * touch, .13f + touch * .19f,
+                -6 + 18 * aimY - 21 * motion.y, 1, -14 + 31 * motion.x + 13 * aimX, .28f - .46f * flow + .22f * touch);
+            pose.left = SpiritArm.Blend(Rest, Wing, Mathf.Clamp01(.33f + frame.starThrust * .36f + flow * .13f));
+            pose.left.wristFlex = 9 * aimY + motion.y * 14;
+            pose.yaw -= 7 + aimX * 12 + frame.starThrust * 10;
+            pose.lean -= aimX * 7 + motion.x * 6;
+            pose.look -= 12 + aimX * 14 + motion.x * 6;
+            pose.nod += 8 - aimY * 16 + motion.y * 5;
+            pose.pitch += frame.starThrust * 17;
             pose.lift += frame.starThrust * .063f;
             pose.extension = frame.starThrust * .67f;
         }

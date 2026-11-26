@@ -102,16 +102,19 @@ namespace Echoes
             return Matrix4x4.TRS(translation, attitude, Vector3.one);
         }
 
+        internal const float UpperArmLength = .266f, ForearmLength = .247f;
+
         internal static void ArmGeometry(int side, SpiritArm arm, out Vector3 shoulder, out Vector3 elbow,
             out Vector3 wrist, out Vector3 spread, out Vector3 forward)
         {
             shoulder = new Vector3(side * .212f, 1.51f, -.019f);
-            elbow = shoulder + new Vector3(side * arm.upper.x, arm.upper.y, arm.upper.z).normalized * .266f;
-            wrist = elbow + new Vector3(side * arm.lower.x, arm.lower.y, arm.lower.z).normalized * .247f;
+            elbow = shoulder + new Vector3(side * arm.upper.x, arm.upper.y, arm.upper.z).normalized * UpperArmLength;
+            wrist = elbow + new Vector3(side * arm.lower.x, arm.lower.y, arm.lower.z).normalized * ForearmLength;
             Vector3 forearm = (wrist - elbow).normalized;
             spread = Vector3.Cross(forearm, Vector3.forward).normalized;
             if (spread.sqrMagnitude < .01f) spread = Vector3.right;
             forward = Quaternion.AngleAxis(arm.wristFlex, spread) * forearm;
+            if (arm.wristRoll != 0) spread = Quaternion.AngleAxis(arm.wristRoll, forward) * spread;
         }
 
         internal static Vector3 HandContact(Vector3 wrist, Vector3 spread, Vector3 forward, SpiritArm arm)
@@ -125,13 +128,13 @@ namespace Echoes
             out Vector3 start, out Vector3 bend, out Vector3 tip)
         {
             float offset = finger - 1.5f;
-            float curl = arm.curl * (finger == 0 ? 1 - arm.point : 1);
+            float curl = (arm.curl + offset * arm.fan * .15f) * (finger == 0 ? 1 - arm.point : 1);
             float length = .063f - Mathf.Abs(offset - .13f) * .006f;
             Vector3 knuckle = Vector3.Cross(spread, forward).normalized;
             start = hand + forward * .030f + spread * (.018f * offset);
             bend = start + forward * (length * .58f) + knuckle * (.022f * curl);
             tip = bend + forward * (length * Mathf.Lerp(.46f, .09f, curl)) +
-                knuckle * (.021f * curl) + spread * (.003f * offset);
+                knuckle * (.021f * curl) + spread * ((.003f + .011f * arm.fan) * offset);
         }
 
         private void DrawArm(int side, SpiritArm arm, Color accent, Vector3[] anchors, int index)

@@ -559,7 +559,13 @@ namespace Echoes
         }
 
 #if UNITY_EDITOR
-        public void SetEditorProjection(bool active) { editorProjection = active; }
+        public void SetEditorProjection(bool active, Vector2 size = default, bool sideways = true, float lightReach = 1.45f)
+        {
+            editorProjection = active;
+            if (view != null)
+                view.StarWindow = active && size.x > 1 && size.y > 1
+                    ? StarProjection.Window(size, sideways, lightReach) : StarProjection.DefaultWindow;
+        }
 
         public void DrawCharacterWindow(Rect viewport, bool mirrored, bool sideways, float characterScale, float lightReach)
         {

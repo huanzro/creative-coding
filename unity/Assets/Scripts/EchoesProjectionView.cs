@@ -31,7 +31,11 @@ namespace Echoes
             float extent = Mathf.Max(.20f, unit) * Mathf.Clamp(lightReach, .65f, 2.45f);
             var center = FrameProjectionPosition(frame, frame.altitude, area, bodySize, sideways);
             var source = FrameProjectionPosition(frame, frame.releaseAltitude, area, bodySize, sideways);
-            if (frame.openingTime >= 0)
+            if (frame.openingTime < 0 && frame.chapter == 2 && !frame.ruins && !frame.forest)
+            {
+                DrawStarProjection(frame, remoteInk ?? starInk.Frame, area, center, bodySize, mirror, sideways, extent);
+            }
+            else if (frame.openingTime >= 0)
             {
                 var shot = OpeningStoryboard.Sample(frame.openingTime);
                 Vector3 actor = shot.Actor;
@@ -103,7 +107,6 @@ namespace Echoes
                 DrawCharacter(frame, center, source, bodySize, mirror, sideways ? -90 : 0, extent, true, visibility,
                     predator.Visible ? 1 : visibility);
                 if (frame.forest) DrawForestSwarm(frame, center, bodySize, mirror, sideways ? -90 : 0, visibility, true);
-                else if (frame.chapter == 2) DrawPortraitStars(remoteInk, area, center, bodySize, mirror, sideways, extent);
                 else if (!frame.ruins) DrawLiveHandoff(frame, center, bodySize, mirror, sideways ? -90 : 0, extent, visibility);
             }
             GUI.EndGroup();

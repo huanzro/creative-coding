@@ -199,7 +199,7 @@ namespace Echoes
             else DrawLegacyBackground(journey, frame, color);
             if (journey.InStars)
             {
-                DrawStarStage(journey, frame, spatial, splitProjection);
+                DrawStarStage(journey, frame, spatial, splitProjection, previewWorld);
                 EndFrame(matrix);
                 return;
             }
@@ -342,7 +342,7 @@ namespace Echoes
                 color, (.20f + frame.charge * .26f) * effects);
             Matrix4x4 before = GUI.matrix;
             if (rotation != 0) GUI.matrix = RotateAbout(before, center, rotation);
-            if (spirit.Articulated && frame.openingTime < 0)
+            if (spirit.Articulated && frame.openingTime < 0 && frame.chapter != 2)
                 DrawGestureTrails(frame.motionTime, center, size, color, mirror, effects);
             if (showPortrait)
             {

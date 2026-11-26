@@ -54,7 +54,7 @@ namespace Echoes
                 source = next;
             }
             // Unity can restore the window's player reference after a script reload.
-            if (source != null) source.SetEditorProjection(true);
+            if (source != null) source.SetEditorProjection(true, position.size, sideways, lightReach);
             Repaint();
         }
 

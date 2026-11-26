@@ -30,7 +30,7 @@ namespace Echoes
             }
             world.Render(journey,frame,spirit,split,TimeOfDay,ScrollSpeed,amber,red,
                 ScreenBrightness,ProjectionFalloff,ProjectionGradient,BackgroundBrightness,
-                ForestSpiderBrightness,ForestMawBrightness,starInk);
+                ForestSpiderBrightness,ForestMawBrightness,starInk,StarWindow);
             if (frame.openingTime >= 0 && !world.Ready) UpdatePlates(frame.openingTime);
         }
 

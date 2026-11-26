@@ -8,15 +8,10 @@ namespace Echoes
     // The two cameras share the same centerline. The shader handles eye-facing width and projection.
     internal sealed class StarRibbonRenderer : IDisposable
     {
-        private static readonly int Eye = Shader.PropertyToID("_InkEye");
-        private static readonly int InkTime = Shader.PropertyToID("_InkTime");
-        private static readonly int Canvas = Shader.PropertyToID("_InkCanvas");
-        private static readonly int Axes = Shader.PropertyToID("_InkAxes");
         private static readonly Color Cool = new Color(.37f, .80f, 1, .84f);
         private static readonly Color Warm = new Color(1, .73f, .48f, .84f);
         private readonly Material material;
         private readonly int worldPass, portraitPass;
-        private readonly MaterialPropertyBlock properties = new MaterialPropertyBlock();
         private readonly Mesh history = NewMesh("Star Sea finished strokes");
         private readonly Mesh live = NewMesh("Star Sea current stroke");
         private readonly List<Vector3> samples = new List<Vector3>(1024);
@@ -39,7 +34,7 @@ namespace Echoes
         private static Mesh NewMesh(string name) =>
             new Mesh { name = name, hideFlags = HideFlags.HideAndDontSave, indexFormat = IndexFormat.UInt32 };
 
-        public void Draw(StarInkFrame frame, CommandBuffer commands, Matrix4x4 basis, StarInkSpace.PortraitProjection portrait)
+        public void Draw(StarInkFrame frame, CommandBuffer commands, Matrix4x4 basis, MaterialPropertyBlock properties, bool portrait)
         {
             if (frame.marks == null) return;
             if (canvasId != frame.canvasId || historyVersion != frame.historyVersion)
@@ -51,8 +46,8 @@ namespace Echoes
                 for (int i = 0; i < frame.marks.Length; i++)
                 {
                     StarInkMark mark = frame.marks[i];
-                    if (mark.branchSide != 0) AddBranch(mark);
-                    else if (i != frame.penMark && mark.motif == 0 && mark.points?.Count > 1) AddStroke(mark.points, null);
+                    if (mark.branchSide != 0) AddBranch(mark, frame.Eye);
+                    else if (i != frame.penMark && mark.motif == 0 && mark.points?.Count > 1) AddStroke(mark.points, null, frame.Eye);
                 }
                 Upload(history);
             }
@@ -61,17 +56,10 @@ namespace Echoes
                 tick = frame.tick;
                 Begin();
                 if ((uint)frame.penMark < (uint)frame.marks.Length)
-                    AddStroke(frame.marks[frame.penMark].points, frame.cursor);
+                    AddStroke(frame.marks[frame.penMark].points, frame.cursor, frame.Eye);
                 Upload(live);
             }
-            properties.SetVector(Eye, frame.Eye);
-            properties.SetFloat(InkTime, frame.time);
-            int pass = portrait == null ? worldPass : portraitPass;
-            if (portrait != null)
-            {
-                properties.SetVector(Canvas, portrait.RibbonCanvas);
-                properties.SetVector(Axes, portrait.RibbonAxes);
-            }
+            int pass = portrait ? portraitPass : worldPass;
             if (history.vertexCount != 0) commands.DrawMesh(history, basis, material, 0, pass, properties);
             if (live.vertexCount != 0) commands.DrawMesh(live, basis, material, 0, pass, properties);
         }
@@ -86,7 +74,7 @@ namespace Echoes
             indices.Clear();
         }
 
-        private void AddStroke(List<Vector3> points, Vector3? cursor)
+        private void AddStroke(List<Vector3> points, Vector3? cursor, Vector3 eye)
         {
             Vector3 end = points[points.Count - 1];
             bool extend = cursor.HasValue && (cursor.Value - end).sqrMagnitude > .0005f * .0005f;
@@ -102,7 +90,7 @@ namespace Echoes
                 AddCurve(points[Mathf.Max(0, i - 2)], points[i - 1], finish, i + 1 == count - 1 ? end : points[i + 1]);
             }
             AddCurve(points[Mathf.Max(0, count - 3)], points[count - 2], end, end);
-            AppendRibbon(end.z - StarInkSpace.PerformerDepth, null, null, 0);
+            AppendRibbon(eye, null, null, 0);
         }
 
         // The curve goes through every control point, so a pattern stays attached after the pen moves on.
@@ -132,7 +120,7 @@ namespace Echoes
             samples.Add(finish);
         }
 
-        private void AddBranch(StarInkMark mark)
+        private void AddBranch(StarInkMark mark, Vector3 eye)
         {
             StarTrailArt art = StarTrailArt.Find(mark.motif);
             if (art == null) return;
@@ -150,7 +138,7 @@ namespace Echoes
             }
             for (int i = 1; i <= art.Segments; i++)
                 samples.Add(mark.origin + stemEnd + BranchArm(art, side, i / (float)art.Segments));
-            AppendRibbon(mark.origin.z - StarInkSpace.PerformerDepth, mark, art, stem);
+            AppendRibbon(eye, mark, art, stem);
         }
 
         private static Vector3 BranchArm(StarTrailArt art, float side, float progress)
@@ -159,12 +147,10 @@ namespace Echoes
             return new Vector3(offset.x * side * art.LateralBias * 2.80f, offset.y * 2.67f, offset.z * 5.9f);
         }
 
-        private void AppendRibbon(float eyeDepth, StarInkMark branch, StarTrailArt art, int stem)
+        private void AppendRibbon(Vector3 eye, StarInkMark branch, StarTrailArt art, int stem)
         {
             if (samples.Count < 2) return;
             int start = vertices.Count;
-            Vector2 offset = StarInkSpace.TravelOffset(eyeDepth);
-            var eye = new Vector3(offset.x, offset.y, eyeDepth);
             Vector3 previousSide = Vector3.zero;
             for (int i = 0; i < samples.Count; i++)
             {

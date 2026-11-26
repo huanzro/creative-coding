@@ -101,11 +101,14 @@ namespace Echoes
 
         public void Render(Journey journey, SpiritFrame frame, SpiritRig spirit, bool split, int period, float speed,
             Vector2 amber, Vector2 scarlet, float brightness, float falloff, bool projectionGradient,
-            float backgroundBrightness = 1, float spiderBrightness = 1, float mawBrightness = 1, StarInkSpace starInk = null)
+            float backgroundBrightness = 1, float spiderBrightness = 1, float mawBrightness = 1, StarInkSpace starInk = null,
+            Rect starWindow = default)
         {
             if (set==null) return;
             bool opening=frame.openingTime>=0;
             bool stars=!opening && journey.InStars;
+            bool writing = stars && starInk != null;
+            if (writing) starInk.Update(journey, split ? (starWindow.width > 0 ? starWindow : StarProjection.DefaultWindow) : default);
             bool forest=!opening && journey.InForest;
             bool ruins=!opening && journey.InRuins;
             RuinRetryPhase ruinEnding=journey.RuinRetryState;
@@ -141,16 +144,16 @@ namespace Echoes
                     (ruins && lastRuinRoom!=journey.RuinRoomId && lastPhase!=Stage.RuinTransfer);
                 bool matchCut=closeShot!=0 && closeShot!=lastCloseShot;
                 lastCloseShot=closeShot;
-                if (cut)
+                if (cut || stars)
                 {
                     position=wanted; sight=focus;
                     velocity=sightVelocity=Vector3.zero;
-                    if (!frameworkMatch) sectionAge=0;
+                    if (cut && !frameworkMatch) sectionAge=0;
                 }
                 else
                 {
                     float track=ruinExit ? Mathf.Lerp(.11f,.023f,OpeningStoryboard.Ease(3.7f,4.84f,journey.Age)) :
-                        ruins || stars ? .11f : !forest ? .48f :
+                        ruins ? .11f : !forest ? .48f :
                         journey.Phase==Stage.ForestDoor || journey.ForestTrap==ForestTrapKind.Cable ? .095f :
                         frame.forestMaze ? .18f : .24f;
                     position=matchCut ? wanted : Vector3.SmoothDamp(position,wanted,ref velocity,track,90,dt);
@@ -178,8 +181,9 @@ namespace Echoes
             lastRuinRoom=ruins ? journey.RuinRoomId : -1;
             lastTravelTime=frame.time;
             lastDistance=journey.Distance;
-            camera.transform.SetPositionAndRotation(position,Quaternion.LookRotation(sight-position,
-                ruins && journey.Phase==Stage.RuinTransfer ? ruinViewUp : Vector3.up));
+            Quaternion rotation = Quaternion.LookRotation(sight-position, ruins && journey.Phase==Stage.RuinTransfer ? ruinViewUp : Vector3.up);
+            Vector3 eye = writing ? position + rotation * (Vector3)starInk.Frame.eyeOffset : position;
+            camera.transform.SetPositionAndRotation(eye, rotation);
             float time=opening?frame.openingTime:frame.motionTime;
             Vector3 key=LightScene(journey,frame,period,time,opening);
 
@@ -191,6 +195,7 @@ namespace Echoes
             set.ForestScenery(journey,forest,time,forestActor,frame.glide,split,spiderBrightness,mawBrightness);
             set.DrawRuinTunnel(journey,ruins && !detached,time,camera.transform.position);
             set.DrawRuinFramework(journey,time,detached,ruinActor,frame.cast);
+            set.DrawStarFlight(stars, journey.Distance);
             Vector3 shotActor = opening ? OpeningStoryboard.Sample(time).Actor :
                 new Vector3(.5f,SpiritFlight.ScreenY(frame.altitude),1);
             Vector2 screen = new Vector2(shotActor.x,shotActor.y);
@@ -216,9 +221,18 @@ namespace Echoes
                 body=modelScale*720*(5.6f*Mathf.Tan(15.25f*Mathf.Deg2Rad))/
                     (SpiritRig.HeightScale*depth*Mathf.Tan(camera.fieldOfView*.5f*Mathf.Deg2Rad));
             }
+            performer.Clear();
+            Vector3 actorAt=spatial ? spatialActor : camera.ViewportToWorldPoint(new Vector3(screen.x,1-screen.y,depth));
+            if (writing)
+            {
+                StarInkFrame artwork = starInk.Frame;
+                Vector3 tip = camera.transform.TransformPoint(artwork.cursor - artwork.Eye);
+                actorAt = spirit.PlaceStarWriter(tip, rotation, StarActorScale, key, performer, !split, lens != null);
+                var writer = camera.WorldToViewportPoint(actorAt);
+                screen = new Vector2(writer.x, 1 - writer.y);
+            }
             ActorScreen=screen;
             ActorBody=body;
-            Vector3 actorAt=spatial ? spatialActor : camera.ViewportToWorldPoint(new Vector3(screen.x,1-screen.y,depth));
             float floor=forest ? frame.forestMaze ? journey.ForestMazeY :
                 WorldSet.ForestPoint(journey,frame.forestLane,journey.Distance,journey.ForestFlightFloor).y-.54f :
                 framework ? ruinRoute.Position.y-.54f :
@@ -237,24 +251,15 @@ namespace Echoes
             }
             else set.Flies(Vector3.zero,0,Vector3.zero,0,time);
 
-            performer.Clear();
             float? facing=forest && (frame.forestMaze || journey.LeftMazeApproach ||
                 journey.Branch==ForestBranch.Right && journey.Distance<140) ? (float?)WorldSet.ForestHeading(journey) :
                 ruins ? (float?)(Mathf.Atan2(ruinRoute.Forward.x,ruinRoute.Forward.z)*Mathf.Rad2Deg) : null;
             if (ruinExit)
                 facing=Mathf.LerpAngle(facing.GetValueOrDefault(),camera.transform.eulerAngles.y-180,
                     OpeningStoryboard.Ease(4.35f,4.98f,journey.Age));
-            if (!split && actorVisible)
+            if (!writing && !split && actorVisible)
                 spirit.DrawInWorld(camera,screen,body,depth,key,performer,spatial,facing,lens!=null);
-            if (stars)
-            {
-                Vector2 portrait = spirit.Articulated ? spirit.Landmark(1) : new Vector2(.23f, -.07f);
-                Vector3 finger = !split && spirit.Articulated ? spirit.WorldFingertip :
-                    camera.ViewportToWorldPoint(new Vector3(screen.x + portrait.x * body / 1280,
-                        1 - screen.y - portrait.y * body / 720, depth));
-                starInk?.Update(journey, camera, finger, portrait);
-                starInk?.DrawWorld(camera, performer);
-            }
+            if (writing) starInk.DrawWorld(camera, performer);
 
             camera.Render();
             if (lens!=null)
@@ -823,8 +828,7 @@ namespace Echoes
             }
             else
             {
-                at=WorldSet.StarEntryCamera+Vector3.forward*(68*(1-Mathf.Exp(-travel/68)));
-                at+=Quaternion.LookRotation(WorldSet.StarEntrySight)*(Vector3)StarInkSpace.TravelOffset(j.Distance);
+                at=WorldSet.StarCameraAt(j.Distance);
                 focus=at+WorldSet.StarEntrySight;
             }
         }
