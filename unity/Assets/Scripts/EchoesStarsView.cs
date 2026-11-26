@@ -29,7 +29,7 @@ namespace Echoes
             Color color = GUI.contentColor;
             GUI.contentColor = j.StarPointer.Valid ? new Color(.70f, .97f, 1) : new Color(.80f, .83f, .98f);
             string steering = j.StarPointer.Valid ? "食指引导" : "持续巡航";
-            GUI.Label(new Rect(931, 99, 273, 25), steering + "  ·  " + j.StarSpeed.ToString("0.00") + " m/s", body);
+            LocaleGui.Label(new Rect(931, 99, 273, 25), steering + "  ·  " + j.StarSpeed.ToString("0.00") + " m/s", body);
             GUI.contentColor = color;
         }
 
@@ -46,19 +46,23 @@ namespace Echoes
         private void DrawStarProjection(SpiritFrame frame, StarInkFrame artwork, Rect area, Vector2 center,
             float size, bool mirror, bool sideways, float extent)
         {
+            if (artwork.finaleAge >= FinaleWorldEnd) return;
             float rotation = sideways ? -90 : 0;
+            Vector2 tip = default;
             if (artwork.penMark >= 0 && artwork.marks != null)
             {
-                Vector2 tip = StarProjection.PortraitPoint(artwork.cursor - artwork.Eye, artwork.window, area, mirror, sideways);
+                tip = StarProjection.PortraitPoint(artwork.cursor - artwork.Eye, artwork.window, area, mirror, sideways);
                 Vector2 hand = PortraitOffset(HandPosition, mirror, rotation);
                 var half = sideways ? new Vector2(SpiritRig.HeightScale, SpiritRig.WidthScale) * .5f
                     : new Vector2(SpiritRig.WidthScale, SpiritRig.HeightScale) * .5f;
                 size = StarProjection.FitWriter(size, hand, tip, area, half);
                 center = tip - hand * size;
             }
+            float opacity = 1 - OpeningStoryboard.Ease(1.75f, FinaleWorldEnd, artwork.finaleAge);
             Texture ink = starInk.DrawPortrait(artwork, area, mirror, sideways);
-            if (ink != null) Paint(area, Color.white, ink);
-            DrawCharacter(frame, center, center, size, mirror, rotation, extent, true, .72f);
+            if (ink != null) Paint(area, new Color(1,1,1,opacity), ink);
+            DrawCharacter(frame, center, center, size, mirror, rotation, extent, true, .72f * opacity, opacity);
+            if (artwork.penMark >= 0) DrawFinaleFingertip(tip, artwork.finaleAge, Mathf.Min(area.width, area.height) / 620f);
         }
     }
 }

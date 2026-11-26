@@ -44,6 +44,8 @@ namespace Echoes
         private const string JumpHeightKey = "EchoesUnity.Flight.JumpHeight";
         private const string DoorJumpHeightKey = "EchoesUnity.Flight.DoorJumpHeight";
         private const string StarCruiseSpeedKey = "EchoesUnity.Stars.CruiseSpeed";
+        private const string StarFinaleBrightnessKey = "EchoesUnity.Stars.FinaleBrightness";
+        private const string LanguageKey = "EchoesUnity.Language.English";
         private const string BrightnessKey = "EchoesUnity.Projection.Brightness";
         private const string BackgroundBrightnessKey = "EchoesUnity.Projection.BackgroundBrightness";
         private const string SpiderBrightnessKey = "EchoesUnity.Projection.ForestSpiderBrightness";
@@ -76,6 +78,8 @@ namespace Echoes
             public int chapter, lesson, choice, flock, quota;
             public float time, light, charge, voice, progress;
             public bool closed, waiting, complete, paused, preview;
+            public bool hasStageActor, english;
+            public Vector2 stageActor;
             public string title, message, left, right, phase;
             public SpiritFrame spirit = new SpiritFrame { releaseAge = -1, turnAge = -1, touchAge = -1, openingTime = -1 };
             public StarInkFrame starArtwork;
@@ -105,7 +109,12 @@ namespace Echoes
         {
             // Awake is not rerun when Unity reloads scripts during a Play Mode iteration.
             preview = Application.platform != RuntimePlatform.WebGLPlayer;
+            EchoesLocale.English = PlayerPrefs.GetInt(LanguageKey, 0) != 0;
             view = new EchoesView();
+            view.StarFinaleBrightness = PlayerPrefs.GetFloat(StarFinaleBrightnessKey, 1.12f);
+#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
+            ReadCompanionCommand();
+#endif
             journey.MeasureRuinPassage = MeasureRuinPassage;
             view.UseWorld = PlayerPrefs.GetInt("EchoesUnity.World3D", 1) != 0;
             view.ScreenBrightness = PlayerPrefs.GetFloat(BrightnessKey, ProjectionLighting.DefaultValue);
@@ -154,6 +163,9 @@ namespace Echoes
 
         private void Update()
         {
+#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
+            if (projection) TickCompanionClient();
+#endif
             if (projection) return;
             float now = Time.unscaledTime;
             float dt = Mathf.Min(.04f, Time.unscaledDeltaTime);
@@ -162,7 +174,7 @@ namespace Echoes
             if (preview && Input.GetKeyDown(KeyCode.F1)) ToggleSettings();
             if (keyboard && Input.GetKeyDown(KeyCode.R)) Retry("");
             if (keyboard && Input.GetKeyDown(KeyCode.Escape)) journey.FinishOpening();
-            float voice = preview ? (keyboard && Input.GetKey(KeyCode.X) ? .7f :
+            float voice = preview ? (keyboard && Input.GetKey(KeyCode.X) ? (journey.InStars ? 1f : .7f) :
                 keyboard && Input.GetKey(KeyCode.Z) ? .3f : 0) : liveVoice;
 #if !UNITY_WEBGL || UNITY_EDITOR
             microphone.Update(now, dt);
@@ -174,18 +186,28 @@ namespace Echoes
 #endif
             UpdateHand(keyboard, !paused && (inputReady || journey.InStars));
             if (journey.InStars) UpdateIndexTip(keyboard, !paused && !settings);
-            bool leftHeld = keyboard && Input.GetKey(KeyCode.A);
-            bool rightHeld = keyboard && Input.GetKey(KeyCode.B);
-            if (keyboard && Input.GetKeyDown(KeyCode.A) && (!journey.InForest || !rightHeld)) TrackTouch(0, true, false);
-            if (keyboard && Input.GetKeyDown(KeyCode.B) && (!journey.InForest || !leftHeld)) TrackTouch(1, true, false);
+            bool leftArrow = keyboard && journey.InRuins && Input.GetKey(KeyCode.LeftArrow);
+            bool rightArrow = keyboard && journey.InRuins && Input.GetKey(KeyCode.RightArrow);
+            bool leftHeld = keyboard && (Input.GetKey(KeyCode.A) || leftArrow);
+            bool rightHeld = keyboard && (Input.GetKey(KeyCode.B) || rightArrow);
+            bool leftPressed = keyboard && (Input.GetKeyDown(KeyCode.A) || leftArrow && Input.GetKeyDown(KeyCode.LeftArrow));
+            bool rightPressed = keyboard && (Input.GetKeyDown(KeyCode.B) || rightArrow && Input.GetKeyDown(KeyCode.RightArrow));
+            if (leftPressed && (!journey.InForest || !rightHeld)) TrackTouch(0, true, false);
+            if (rightPressed && (!journey.InForest || !leftHeld)) TrackTouch(1, true, false);
+            if (!rightPressed && keyboard && !settings && journey.InRuins && journey.RuinCanTake &&
+                journey.RuinSearchTarget?.Kind == RuinObjectKind.Chest && Input.GetMouseButtonDown(1)) TrackTouch(1, true, false);
             ResolveHeldSteering(leftHeld || view.ScreenTouchHeld(0), rightHeld || view.ScreenTouchHeld(1));
             if (!paused)
             {
                 bool advance = inputReady || journey.InStars;
                 bool hear = journey.InStars ? preview || audioReady && now - lastAudioAt < .5f : inputReady;
-                float simulationStep = journey.IsOpening ? Time.unscaledDeltaTime :
-                    journey.InStars ? Mathf.Min(.12f, Time.unscaledDeltaTime) : dt;
-                journey.Step(simulationStep, hear ? voice : 0, advance);
+                float simulationStep = Mathf.Min(.12f, Time.unscaledDeltaTime);
+                if (journey.IsOpening || journey.InStars) journey.Step(simulationStep, hear ? voice : 0, advance);
+                else
+                {
+                    int steps = Mathf.Max(1, Mathf.CeilToInt(simulationStep / .025f));
+                    for (int step = 0; step < steps; step++) journey.Step(simulationStep / steps, hear ? voice : 0, advance);
+                }
             }
             UpdateMazeMap(keyboard);
             view.Advance(journey);
@@ -231,7 +253,9 @@ namespace Echoes
 
         private Frame Snapshot(bool includeArtwork = false)
         {
-            string message = journey.InStars ? journey.StarInstruction : journey.Message;
+            Vector2? anchor = view.StageProjectionAnchor;
+            string message = journey.InStars ? journey.StarInstruction : journey.InRuins
+                ? EchoesView.RuinPlayerMessage(journey) : journey.Message;
             if (journey.ForestMazeWalkArea && journey.Phase == Stage.ForestExplore && string.IsNullOrEmpty(message))
                 message = Journey.MazeWalkHint;
             return new Frame {
@@ -241,14 +265,16 @@ namespace Echoes
                 time = journey.Time,
                 light = journey.Light, charge = journey.Charge, voice = journey.Voice, progress = journey.Progress,
                 closed = journey.Gesture == Hand.Fist, complete = journey.Phase == Stage.Complete,
+                english = EchoesLocale.English, hasStageActor = anchor.HasValue, stageActor = anchor.GetValueOrDefault(),
                 waiting = !journey.InStars && (!inputReady || !journey.Started && journey.Phase != Stage.RuinRetry),
                 paused = paused, preview = preview,
-                title = journey.IsOpening ? "序幕" : journey.Lesson >= 0 ? "回声庭院 · 试玩" : Titles[journey.Chapter],
+                title = EchoesLocale.Text(journey.IsOpening ? "序幕" : journey.Lesson >= 0 ? "回声庭院 · 试玩" : Titles[journey.Chapter]),
                 message = !journey.IsOpening && !journey.InStars && journey.Phase != Stage.RuinRetry &&
                     !paused && inputReady && journey.Gesture == Hand.Missing
-                    ? "请把手放回画面，张开手继续。 " + message : message,
-                left = journey.LeftLabel, right = journey.RightLabel, phase = journey.Phase.ToString(), spirit = LocalSpirit,
-                starArtwork = includeArtwork && journey.InStars ? view.StarArtwork : null
+                    ? EchoesLocale.Text("请把手放回画面，张开手继续。") + " " + EchoesLocale.Text(message) : EchoesLocale.Text(message),
+                left = EchoesLocale.Text(journey.LeftLabel), right = EchoesLocale.Text(journey.RightLabel),
+                phase = journey.Phase.ToString(), spirit = LocalSpirit,
+                starArtwork = includeArtwork && journey.InStars ? view.StarArtwork.ForProjection() : null
             };
         }
 
@@ -261,6 +287,8 @@ namespace Echoes
             {
 #if UNITY_EDITOR
                 return splitProjection || editorProjection;
+#elif UNITY_STANDALONE_WIN
+                return splitProjection || companionProcess != null;
 #else
                 return splitProjection;
 #endif
@@ -273,24 +301,38 @@ namespace Echoes
             SpiritFrame frame = projection ? remote.spirit : LocalSpirit;
             view.UpdateSpirit(frame);
             if (projection) return;
-            if (!characterOnly || ShowProjectionCalibration || journey.InStars)
-                view.UpdateWorld(journey, frame, StageSplit, ShowProjectionCalibration);
+            view.UpdateWorld(journey, frame, StageSplit, ShowProjectionCalibration);
             SaveProgress(Time.unscaledTime);
             Publish();
+#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
+            TickCompanionHost(Time.unscaledTime);
+#endif
         }
 
         private void OnGUI()
         {
             if (projection)
             {
-                view.DrawRemoteProjection(remote.spirit, mirror, remote.starArtwork);
+                view.DrawRemoteProjection(remote.spirit, mirror, remote.starArtwork,
+                    remote.hasStageActor ? remote.stageActor : (Vector2?)null,
+#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
+                    companionSideways
+#else
+                    true
+#endif
+                );
                 return;
             }
             if (Event.current.type == EventType.Repaint)
                 GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), Texture2D.blackTexture, ScaleMode.StretchToFill, false);
             SpiritFrame spirit = LocalSpirit;
-            if (characterOnly && !ShowProjectionCalibration) view.DrawProjection(spirit, mirror, true, view.StageViewport);
+            if (characterOnly && !ShowProjectionCalibration && !journey.StarFinaleActive) view.DrawProjection(spirit, mirror, true, view.StageViewport);
             else view.DrawStage(journey, spirit, StageSplit, ShowProjectionCalibration);
+            if (journey.StarFinaleActive)
+            {
+                if (settings) view.DrawFinaleSettings(DrawSettings, ToggleSettings);
+                return;
+            }
             if (!settings && !characterOnly && journey.ForestMazeActive)
                 DrawMazeMapControls();
             if (Application.platform == RuntimePlatform.WebGLPlayer) return;
@@ -323,85 +365,95 @@ namespace Echoes
             }
             if (ruinSettings)
             {
-                if (GUI.Button(new Rect(354, 12, 148, 31), "返回游戏设置", button)) ruinSettings = false;
+                if (LocaleGui.Button(new Rect(354, 12, 148, 31), "返回游戏设置", button)) ruinSettings = false;
                 else DrawRuinSettings(label, button);
                 return;
             }
             if (flightSettings)
             {
-                if (GUI.Button(new Rect(354, 12, 148, 31), "返回游戏设置", button)) flightSettings = false;
+                if (LocaleGui.Button(new Rect(354, 12, 148, 31), "返回游戏设置", button)) flightSettings = false;
                 else DrawFlightSettings(label, button);
                 return;
             }
             if (deviceSettings)
             {
-                if (GUI.Button(new Rect(354, 12, 148, 31), "返回游戏设置", button)) deviceSettings = false;
+                if (LocaleGui.Button(new Rect(354, 12, 148, 31), "返回游戏设置", button)) deviceSettings = false;
                 else DrawDeviceSettings(label, button);
                 return;
             }
-            if (GUI.Button(new Rect(354, 12, 148, 31), projectionSettings ? "返回游戏设置" : "投影校准", button))
+            if (LocaleGui.Button(new Rect(354, 12, 148, 31), projectionSettings ? "返回游戏设置" : "投影校准", button))
                 projectionSettings = !projectionSettings;
             if (projectionSettings)
             {
                 DrawProjectionSettings(label, button);
                 return;
             }
-            GUI.Label(new Rect(20, 14, 160, 28), "游戏设置", label);
-            if (GUI.Button(new Rect(184, 12, 156, 31), "摄像头 / Arduino", button))
+            LocaleGui.Label(new Rect(20, 14, 160, 28), "游戏设置", label);
+            if (LocaleGui.Button(new Rect(184, 12, 156, 31), "摄像头 / Arduino", button))
             {
                 deviceSettings = true;
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
                 RefreshSerialPorts();
 #endif
             }
-            GUI.Label(new Rect(20, 56, 85, 27), "背景时段", label);
-            view.TimeOfDay = GUI.SelectionGrid(new Rect(110, 54, 394, 31), view.TimeOfDay,
+            LocaleGui.Label(new Rect(20, 56, 85, 27), "背景时段", label);
+            view.TimeOfDay = LocaleGui.SelectionGrid(new Rect(110, 54, 394, 31), view.TimeOfDay,
                 new[] { "自动", "薄暮", "蓝调", "月夜", "破晓" }, 5, button);
-            GUI.Label(new Rect(20, 98, 160, 27), "背景速度 " + view.ScrollSpeed.ToString("0.00") + "×", label);
+            LocaleGui.Label(new Rect(20, 98, 160, 27), "背景速度 " + view.ScrollSpeed.ToString("0.00") + "×", label);
             view.ScrollSpeed = GUI.HorizontalSlider(new Rect(182, 109, 317, 21), view.ScrollSpeed, .25f, 2);
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
             bool enabled = GUI.enabled;
             GUI.enabled = enabled && !desktopCamera.Active;
 #endif
-            noHand = GUI.Toggle(new Rect(20, 139, 210, 27), noHand, "模拟手离开画面");
+            noHand = LocaleGui.Toggle(new Rect(20, 139, 210, 27), noHand, "模拟手离开画面");
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
             GUI.enabled = enabled;
 #endif
-            characterOnly = GUI.Toggle(new Rect(226, 139, 153, 27), characterOnly, "纯黑人物");
-            mirror = GUI.Toggle(new Rect(400, 139, 115, 27), mirror, "镜像");
+            characterOnly = LocaleGui.Toggle(new Rect(226, 139, 153, 27), characterOnly, "纯黑人物");
+            mirror = LocaleGui.Toggle(new Rect(400, 139, 115, 27), mirror, "镜像");
 #if UNITY_EDITOR
-            if (GUI.Button(new Rect(20, 186, 183, 30), "打开独立人物窗口", button)) CharacterWindowRequested?.Invoke();
-            if (editorProjection) GUI.Label(new Rect(367, 186, 143, 29), "已分屏", label);
+            if (LocaleGui.Button(new Rect(20, 186, 183, 30), "打开独立人物窗口", button)) CharacterWindowRequested?.Invoke();
+            if (editorProjection) LocaleGui.Label(new Rect(367, 186, 143, 29), "已分屏", label);
+#elif UNITY_STANDALONE_WIN
+            DrawCompanionSettings(label,button);
 #endif
-            if (GUI.Button(new Rect(218, 186, 138, 30), "预览片头", button)) PlayOpening();
-            GUI.Label(new Rect(20, 245, 100, 28), "出场角色", label);
-            int picked = GUI.SelectionGrid(new Rect(116, 231, 388, 62), cast, CastNames, 3, button);
+            if (LocaleGui.Button(new Rect(218, 186, 138, 30), "预览片头", button)) PlayOpening();
+            LocaleGui.Label(new Rect(20, 245, 100, 28), "出场角色", label);
+            int picked = LocaleGui.SelectionGrid(new Rect(116, 231, 388, 62), cast, CastNames, 3, button);
             if (picked != cast)
             {
                 cast = picked;
                 PlayerPrefs.SetInt("EchoesUnity.Cast", cast);
                 PlayerPrefs.Save();
             }
-            bool world = GUI.Toggle(new Rect(20, 305, 191, 27), view.UseWorld, "试玩使用三维背景");
-            if (GUI.Button(new Rect(219, 304, 133, 30), "森林调试断点", button)) forestDebugSettings = true;
-            if (GUI.Button(new Rect(363, 304, 139, 30), "遗迹撞墙断点", button)) StartRuinWallDebugPoint();
+            bool world = LocaleGui.Toggle(new Rect(20, 305, 191, 27), view.UseWorld, "试玩使用三维背景");
+            if (LocaleGui.Button(new Rect(219, 304, 133, 30), "森林调试断点", button)) forestDebugSettings = true;
+            if (LocaleGui.Button(new Rect(363, 304, 139, 30), "遗迹撞墙断点", button)) StartRuinWallDebugPoint();
             if (world != view.UseWorld)
             {
                 view.UseWorld = world;
                 PlayerPrefs.SetInt("EchoesUnity.World3D", world ? 1 : 0);
                 PlayerPrefs.Save();
             }
+            if (LocaleGui.Button(new Rect(20, 539, 183, 27), EchoesLocale.English ? "中文" : "English", button))
+            {
+                EchoesLocale.English = !EchoesLocale.English;
+                PlayerPrefs.SetInt(LanguageKey, EchoesLocale.English ? 1 : 0);
+                PlayerPrefs.Save();
+            }
             if (journey.InStars)
             {
-                GUI.Label(new Rect(20, 352, 285, 26), "星海飞行", label);
+                LocaleGui.Label(new Rect(20, 352, 285, 26), "星海飞行", label);
                 journey.StarCruiseSpeed = TuningSlider(389, "巡航速度", StarCruiseSpeedKey, journey.StarCruiseSpeed,
                     Journey.MinimumStarCruiseSpeed, Journey.MaximumStarCruiseSpeed, label, " m/s");
-                GUI.Label(new Rect(20, 431, 478, 51), "安静时按这档速度向深处飞。发声会在这个速度上加速。", label);
+                view.StarFinaleBrightness = TuningSlider(424, EchoesLocale.T("结尾亮度","Finale brightness"),StarFinaleBrightnessKey,
+                    view.StarFinaleBrightness, .68f,1.55f,label);
+                LocaleGui.Label(new Rect(20, 465, 478, 51), "安静时按这档速度向深处飞。发声会在这个速度上加速。", label);
                 return;
             }
-            GUI.Label(new Rect(20, 352, 285, 26), "森林 · 速度与捕捉范围", label);
-            if (GUI.Button(new Rect(293, 349, 116, 29), "遗迹入口范围", button)) ruinSettings = true;
-            if (GUI.Button(new Rect(416, 349, 86, 29), "跳跃高度", button)) flightSettings = true;
+            LocaleGui.Label(new Rect(20, 352, 285, 26), "森林 · 速度与捕捉范围", label);
+            if (LocaleGui.Button(new Rect(293, 349, 116, 29), "遗迹入口范围", button)) ruinSettings = true;
+            if (LocaleGui.Button(new Rect(416, 349, 86, 29), "跳跃高度", button)) flightSettings = true;
             journey.ForestLateralScale = TuningSlider(381, "左右移速", LateralKey, journey.ForestLateralScale,
                 Journey.MinForestLateralScale, Journey.MaxForestLateralScale, label);
             journey.MazeWalkScale = TuningSlider(414, "迷宫行走速度", MazeKey, journey.MazeWalkScale,
@@ -417,13 +469,13 @@ namespace Echoes
         private void DrawRuinSettings(GUIStyle label, GUIStyle button)
         {
             const float minimum = Journey.RuinMinimumReach, maximum = Journey.RuinMaximumReach;
-            GUI.Label(new Rect(20, 14, 315, 28), "遗迹入口范围", label);
-            GUI.Label(new Rect(20, 54, 480, 52), "倍率越大，越早能从附近转入对应的岔道。四个方向可以分别调节。", label);
+            LocaleGui.Label(new Rect(20, 14, 315, 28), "遗迹入口范围", label);
+            LocaleGui.Label(new Rect(20, 54, 480, 52), "倍率越大，越早能从附近转入对应的岔道。四个方向可以分别调节。", label);
             journey.RuinLeftReach = TuningSlider(112, "左侧 · 按 A", RuinLeftReachKey, journey.RuinLeftReach, minimum, maximum, label);
             journey.RuinRightReach = TuningSlider(153, "右侧 · 按 B", RuinRightReachKey, journey.RuinRightReach, minimum, maximum, label);
             journey.RuinUpperReach = TuningSlider(194, "上方 · 张手", RuinUpperReachKey, journey.RuinUpperReach, minimum, maximum, label);
             journey.RuinLowerReach = TuningSlider(235, "下方 · 下降", RuinLowerReachKey, journey.RuinLowerReach, minimum, maximum, label);
-            if (!GUI.Button(new Rect(20, 288, 141, 30), "恢复默认", button)) return;
+            if (!LocaleGui.Button(new Rect(20, 288, 141, 30), "恢复默认", button)) return;
             journey.RuinLeftReach = journey.RuinRightReach = journey.RuinUpperReach = journey.RuinLowerReach = 1;
             PlayerPrefs.DeleteKey(RuinLeftReachKey);
             PlayerPrefs.DeleteKey(RuinRightReachKey);
@@ -434,15 +486,15 @@ namespace Echoes
 
         private void DrawFlightSettings(GUIStyle label, GUIStyle button)
         {
-            GUI.Label(new Rect(20, 14, 315, 28), "跳跃高度", label);
+            LocaleGui.Label(new Rect(20, 14, 315, 28), "跳跃高度", label);
             journey.JumpHeightScale = TuningSlider(73, "常规单跳高度", JumpHeightKey, journey.JumpHeightScale,
                 Journey.MinJumpHeightScale, Journey.MaxJumpHeightScale, label);
-            GUI.Label(new Rect(20, 103, 484, 33), "每次握拳再张手触发一次起跳。", label);
+            LocaleGui.Label(new Rect(20, 103, 484, 33), "每次握拳再张手触发一次起跳。", label);
 
             journey.ForestDoorJumpHeightScale = TuningSlider(153, "右路门前单跳", DoorJumpHeightKey, journey.ForestDoorJumpHeightScale,
                 Journey.MinForestDoorJumpHeightScale, Journey.MaxForestDoorJumpHeightScale, label);
-            GUI.Label(new Rect(20, 183, 484, 53), "进入森林右路的机器门廊后，门前的所有入口共用这个高度。", label);
-            if (!GUI.Button(new Rect(20, 251, 141, 30), "恢复默认", button)) return;
+            LocaleGui.Label(new Rect(20, 183, 484, 53), "进入森林右路的机器门廊后，门前的所有入口共用这个高度。", label);
+            if (!LocaleGui.Button(new Rect(20, 251, 141, 30), "恢复默认", button)) return;
             journey.JumpHeightScale = Journey.DefaultJumpHeightScale;
             journey.ForestDoorJumpHeightScale = Journey.DefaultForestDoorJumpHeightScale;
             PlayerPrefs.DeleteKey(JumpHeightKey);
@@ -452,8 +504,8 @@ namespace Echoes
 
         private void DrawProjectionSettings(GUIStyle label, GUIStyle button)
         {
-            GUI.Label(new Rect(20, 14, 315, 28), "拟全息投影校准", label);
-            bool gradient = GUI.Toggle(new Rect(20, 55, 257, 28), view.ProjectionGradient, "启用人物周围渐亮");
+            LocaleGui.Label(new Rect(20, 14, 315, 28), "拟全息投影校准", label);
+            bool gradient = LocaleGui.Toggle(new Rect(20, 55, 257, 28), view.ProjectionGradient, "启用人物周围渐亮");
             if (gradient != view.ProjectionGradient)
             {
                 view.ProjectionGradient = gradient;
@@ -461,7 +513,7 @@ namespace Echoes
                 changedTuning = true;
             }
 #if UNITY_EDITOR
-            if (!editorProjection && GUI.Button(new Rect(309, 53, 193, 31), "打开独立人物窗口", button))
+            if (!editorProjection && LocaleGui.Button(new Rect(309, 53, 193, 31), "打开独立人物窗口", button))
                 CharacterWindowRequested?.Invoke();
 #endif
             view.ScreenBrightness = TuningSlider(90, "全屏亮度", BrightnessKey, view.ScreenBrightness,
@@ -478,10 +530,10 @@ namespace Echoes
                 ProjectionLighting.MinimumLayerBrightness, ProjectionLighting.MaximumLayerBrightness, label);
             view.StageScale = TuningSlider(472, "主画面大小", StageScaleKey, view.StageScale,
                 EchoesView.MinimumStageScale, 1, label, "%");
-            GUI.Label(new Rect(20, 500, 482, 27), view.BackgroundBrightness <= 0 ? "背景已设为纯黑。" :
+            LocaleGui.Label(new Rect(20, 500, 482, 27), view.BackgroundBrightness <= 0 ? "背景已设为纯黑。" :
                 !view.ProjectionGradient ? "渐亮已关闭，可在上方重新启用。" :
                 $"人物背后保留当前背景亮度的 {ProjectionLighting.CenterGain(view.ProjectionFalloff):0%}。", label);
-            if (!GUI.Button(new Rect(20, 533, 141, 30), "恢复默认", button)) return;
+            if (!LocaleGui.Button(new Rect(20, 533, 141, 30), "恢复默认", button)) return;
             view.ScreenBrightness = view.ProjectionFalloff = ProjectionLighting.DefaultValue;
             view.BackgroundBrightness = view.ForestSpiderBrightness = view.ForestMawBrightness = ProjectionLighting.DefaultValue;
             view.ProjectionGradient = true;
@@ -499,8 +551,8 @@ namespace Echoes
         private void DrawLightingCurve(float y, string vertical, string horizontal, bool radial, GUIStyle label)
         {
             var plot = new Rect(22, y, 478, 64);
-            GUI.Label(new Rect(plot.x, plot.y-26, 240, 25), vertical, label);
-            GUI.Label(new Rect(plot.xMax-116, plot.yMax+1, 118, 25), horizontal + " →", label);
+            LocaleGui.Label(new Rect(plot.x, plot.y-26, 240, 25), vertical, label);
+            LocaleGui.Label(new Rect(plot.xMax-116, plot.yMax+1, 118, 25), horizontal + " →", label);
             if (Event.current.type != EventType.Repaint) return;
             var previousColor = GUI.color;
             Texture2D pixel = Texture2D.whiteTexture;
@@ -536,7 +588,7 @@ namespace Echoes
         private float TuningSlider(float y,string title,string key,float value,float min,float max,GUIStyle label,string unit = "×")
         {
             string display = unit == "%" ? value.ToString("0%") : value.ToString("0.00") + unit;
-            GUI.Label(new Rect(20,y,223,24), title + "  " + display,label);
+            LocaleGui.Label(new Rect(20,y,223,24), title + "  " + display,label);
             float next=GUI.HorizontalSlider(new Rect(249,y+7,247,19),value,min,max);
             if (Mathf.Approximately(next,value)) return value;
             next=Mathf.Clamp(Mathf.Round(next*100)/100,min,max);
@@ -765,6 +817,9 @@ namespace Echoes
 
         private void OnDisable()
         {
+#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
+            CloseCompanion();
+#endif
             if (!projection && journey.InStars) SaveProgress(Time.unscaledTime, true);
             SaveTuning();
 #if UNITY_EDITOR

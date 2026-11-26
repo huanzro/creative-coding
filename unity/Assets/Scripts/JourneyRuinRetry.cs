@@ -18,16 +18,14 @@ namespace Echoes
     {
         private const float WallApproach = 1.65f;
         private const float WallStance = 1.06f;
-        private const float WallApproachDepth = 3.75f;
         private const float ImpactAt = .43f;
         private const float ImpactDuration = 1.31f;
         public const float RuinGateDuration = 3.2f;
         public const float RuinSurveyDuration = 10f;
         public const float RuinArrivalDuration = 3.8f;
-        public const float RuinValuationDuration = 4f;
-        public const float RuinExitDuration = 5f;
-        public const int RuinPhoneTokenRate = 2, RuinComputerTokenRate = 3;
-        private const int ArchiveToll = 48;
+        public const float RuinValuationFirstLineDuration = 8.6f, RuinValuationDuration = 13.6f;
+        public const float RuinExitDuration = 10f;
+        public const int RuinHeartCoinRate = 3, RuinBrainCoinRate = 4, RuinPhoneTokenRate = 5, RuinComputerTokenRate = 6;
 
         private int ruinRetryRooms, ruinRetryLastLane, ruinWallPassages;
         private bool ruinRetryWall, retryCollision;
@@ -36,6 +34,7 @@ namespace Echoes
         private float retryFromLane, retryFromHeight;
         private float lookYawVelocity, lookPitchVelocity;
         private bool surveySawClosedHand;
+        internal int RuinExitPortalRoom { get; private set; } = -1;
 
         public RuinRetryPhase RuinRetryState => Phase == Stage.RuinRetry ? retryPhase : RuinRetryPhase.Inactive;
         public RuinRetryRecordKind RuinRetryRecord => ruinRetryRecord;
@@ -49,14 +48,26 @@ namespace Echoes
         public float RuinLookYaw { get; private set; }
         public float RuinLookPitch { get; private set; }
         public bool RuinDirectPalmLook { get; set; } = true;
-        public int RuinTokenCost => ArchiveToll;
-        public int RuinOfferedTokens => RuinPhones * RuinPhoneTokenRate + RuinComputers * RuinComputerTokenRate;
-        public int RuinTradeQuote => RuinTokenCost - RuinOfferedTokens;
-        public int RuinTradePhones => (RuinTradeQuote % RuinComputerTokenRate) switch { 1 => 2, 2 => 1, _ => 0 };
-        public int RuinTradeComputers => (RuinTradeQuote - RuinTradePhones * RuinPhoneTokenRate) / RuinComputerTokenRate;
+        public static int RuinCoinValue(RuinObjectKind kind) => kind switch
+        {
+            RuinObjectKind.Heart => RuinHeartCoinRate,
+            RuinObjectKind.Brain => RuinBrainCoinRate,
+            RuinObjectKind.Phone => RuinPhoneTokenRate,
+            RuinObjectKind.Computer => RuinComputerTokenRate,
+            _ => 0
+        };
+        public int RuinCoins => RuinHearts * RuinHeartCoinRate + RuinBrains * RuinBrainCoinRate +
+            RuinPhones * RuinPhoneTokenRate + RuinComputers * RuinComputerTokenRate;
+        public RuinObjectKind? RuinRetainedKind => RuinHearts > 0 ? RuinObjectKind.Heart :
+            RuinBrains > 0 ? RuinObjectKind.Brain : (RuinObjectKind?)null;
+        public int RuinTokenCost => RuinCoins - (RuinRetainedKind.HasValue ? RuinCoinValue(RuinRetainedKind.Value) : 0);
+        public int RuinOfferedTokens => RuinCoins;
+        public int RuinTradeQuote => RuinTokenCost;
+        public int RuinTradePhones => RuinPhones;
+        public int RuinTradeComputers => RuinComputers;
         public bool RuinTradeCommitted => RuinRetryOutcome == RuinRetryResolution.Traded;
         public int RuinRevealedTokens => retryPhase == RuinRetryPhase.Valuation
-            ? (int)Math.Round(RuinOfferedTokens * EaseRetry(.8f, 2.55f, Age))
+            ? (int)Math.Round(RuinOfferedTokens * EaseRetry(.8f, RuinValuationFirstLineDuration, Age))
             : retryPhase == RuinRetryPhase.Accepted && Age >= 2.55f ? RuinTokenCost : RuinOfferedTokens;
 
         public string RuinRetryLeftLabel => retryPhase == RuinRetryPhase.Survey ? "A · 向左看" :
@@ -76,6 +87,7 @@ namespace Echoes
         private void ResetRuinRetry()
         {
             ruinRetryRooms = ruinRetryLastLane = ruinWallPassages = RuinRetryAttempts = 0;
+            RuinExitPortalRoom = -1;
             ruinRetryWall = retryCollision = false;
             ruinRetryRecord = RuinRetryRecordKind.None;
             retryPhase = RuinRetryPhase.Inactive;
@@ -86,6 +98,7 @@ namespace Echoes
 
         private void RestoreRuinRetry(JourneyCheckpoint checkpoint)
         {
+            RuinExitPortalRoom = -1;
             ruinRetryRooms = checkpoint.ruinRetryRooms & 65534;
             ruinWallPassages = Math.Min(RuinWallPassagesRequired, Math.Max(checkpoint.ruinWallPassages, RuinRetryVisited));
             ruinRetryRecord = (uint)checkpoint.ruinRetryRecord <= (uint)RuinRetryRecordKind.BrainPutDown
@@ -141,6 +154,16 @@ namespace Echoes
             if (ruinRetryLastLane == 0) ruinRetryLastLane = portal.Direction == RuinDirection.Upper ? -1 : 1;
         }
 
+        private void ArrangeRuinExitRoutes()
+        {
+            if (ruinRoomId == RuinAtlas.ExitRoom || ruinWallPassages != RuinWallPassagesRequired - 1 ||
+                RuinExitPortalRoom == ruinRoomId) return;
+            // The selected entrance extends seamlessly into the full-length terminal gallery.
+            foreach (RuinPortal portal in CurrentRuinRoom.Portals)
+                portal.TargetRoom = RuinAtlas.ExitRoom;
+            RuinExitPortalRoom = ruinRoomId;
+        }
+
         private void RememberRuinDiscard(RuinObjectKind kind)
         {
             if (kind == RuinObjectKind.Heart) ruinRetryRecord = RuinRetryRecordKind.HeartPutDown;
@@ -149,8 +172,9 @@ namespace Echoes
 
         private bool TryStartRuinRetry()
         {
-            if (ruinRetryWall || !RuinWallReady || Distance < WallApproachDepth || RuinForwardSpeed <= 0) return false;
-            StartRuinWallImpact();
+            if (ruinRetryWall || !RuinWallReady || ruinRoomId != RuinAtlas.ExitRoom ||
+                Distance < RuinRoomLength - WallApproach || RuinForwardSpeed <= 0) return false;
+            StartRuinWallImpact(RuinRoomLength);
             return true;
         }
 
@@ -158,13 +182,15 @@ namespace Echoes
         {
             SelectChapter(1);
             SetHand(Hand.Open);
-            Distance = WallApproachDepth;
-            StartRuinWallImpact();
+            ruinWallPassages = RuinWallPassagesRequired;
+            EnterRuinRoom(RuinAtlas.ExitRoom, false);
+            Distance = RuinRoomLength - WallApproach;
+            StartRuinWallImpact(RuinRoomLength);
         }
 
-        private void StartRuinWallImpact()
+        private void StartRuinWallImpact(float wallDepth)
         {
-            RuinRetryWallDepth = Distance + WallApproach;
+            RuinRetryWallDepth = wallDepth;
             ruinRetryWall = true;
             retryCollision = false;
             RuinApproach = null;
@@ -248,17 +274,17 @@ namespace Echoes
                     Progress = Clamp(Age / RuinArrivalDuration);
                     if (Progress >= 1)
                     {
-                        SetRuinRetryPhase(RuinRetryPhase.Valuation, "手机和电脑可以换成 token。付清，就能离开。");
+                        SetRuinRetryPhase(RuinRetryPhase.Valuation, "我会把每一件藏品换算成金币。先看看你一路带来了什么。");
                         Notify(JourneyCue.RuinValuation);
                     }
                     break;
                 case RuinRetryPhase.Valuation:
                     Progress = Clamp(Age / RuinValuationDuration);
-                    if (Age >= 2.55f)
-                        Message = $"设备可换 {RuinOfferedTokens} token。出口需要 {RuinTokenCost}。";
+                    if (Age >= RuinValuationFirstLineDuration)
+                        Message = $"你有 {RuinCoins} 枚金币。离开需要 {RuinTokenCost} 枚金币。";
                     if (Progress >= 1)
                     {
-                        SetRuinRetryPhase(RuinRetryPhase.Bargain, "要用你自己的心脏和大脑，换手机和电脑吗？");
+                        SetRuinRetryPhase(RuinRetryPhase.Bargain, "我可以放你过去。你愿意把自己的心脏和大脑也交给我吗？");
                         Notify(JourneyCue.RuinOffer);
                     }
                     break;
@@ -308,10 +334,10 @@ namespace Echoes
         {
             Progress = Clamp(Age / RuinExitDuration);
             if (retryPhase == RuinRetryPhase.Declined)
-                Message = Age < 1.82f ? "你的大脑和我比不过是玩具" :
-                    Age < 3.64f ? "你的心脏终有停跳的那一天" : "何必如此执着呢";
+                Message = Age < 2.15f ? "你的大脑和我比不过是玩具" :
+                    Age < 4.12f ? "你的心脏终有停跳的那一天" : Age < 6f ? "何必如此执着呢" : "";
             else if (Age >= 2.55f)
-                Message = "余额已补足。出口开放。";
+                Message = Age < 5.2f ? "金币已付清。出口开放。" : "";
 
             if (Age + .0001f < RuinExitDuration) return;
             RuinResult = RuinPath.Explored;

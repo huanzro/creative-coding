@@ -13,16 +13,16 @@ namespace Echoes
             if (j.Phase == Stage.ForestTransition || j.Phase == Stage.ForestDoor || j.Phase == Stage.ForestFalling) return;
             PrepareInterface();
             Paint(new Rect(997, 79, 254, 130), InkGlass);
-            GUI.Label(new Rect(1013, 88, 220, 26), $"随行萤火  {j.ForestLights}", body);
+            LocaleGui.Label(new Rect(1013, 88, 220, 26), $"随行萤火  {j.ForestLights}", body);
             if (j.Phase == Stage.ForestPlanting)
-                GUI.Label(new Rect(1013, 118, 220, 26), $"种下根光  {j.Plants}/{j.ForestPlantsRequired}", body);
+                LocaleGui.Label(new Rect(1013, 118, 220, 26), $"种下根光  {j.Plants}/{j.ForestPlantsRequired}", body);
             if (!j.ForestMazeWalkArea)
             {
                 float x = Mathf.Lerp(1025, 1222, (j.ForestLane + 1) * .5f);
                 Paint(new Rect(1025,160,197,3),new Color(.33f,.49f,.44f,.75f));
                 Orb(x,162,15,Amber,.83f);
-                GUI.Label(new Rect(1017,172,86,24), "← 按住 A", body);
-                GUI.Label(new Rect(1153,172,86,24), "按住 B →", body);
+                LocaleGui.Label(new Rect(1017,172,86,24), "← 按住 A", body);
+                LocaleGui.Label(new Rect(1153,172,86,24), "按住 B →", body);
             }
             if (j.ForestPlantCharge > 0)
                 Paint(new Rect(1014, 198, 218 * Mathf.Clamp01(j.ForestPlantCharge), 3), Amber);
@@ -108,8 +108,8 @@ namespace Echoes
             {
                 DrawHandEcho(new Vector2(385,345),true,Mint);
                 DrawHandEcho(new Vector2(895,345),false,Scarlet);
-                GUI.Label(new Rect(310,419,180,32),"你做的 · 张手",body);
-                GUI.Label(new Rect(820,419,206,32),"门记成 · 握拳",body);
+                LocaleGui.Label(new Rect(310,419,180,32),"你做的 · 张手",body);
+                LocaleGui.Label(new Rect(820,419,206,32),"门记成 · 握拳",body);
                 if (j.Phase==Stage.RuinRepair)
                     Meter(new Rect(480,592,320,6),j.Progress,Mint,"安静片刻");
                 return;
@@ -157,7 +157,7 @@ namespace Echoes
             Rect bar=new Rect(423,578,434,6);
             Paint(outer,InkGlass);
             string caption=j.Phase==Stage.RuinVoice?"琥珀音窗亮起时发声":j.Phase==Stage.RuinSide?"光碰到缺口时张手":"回声抵达亮区时张手";
-            GUI.Label(new Rect(422,553,422,27),caption,body);
+            LocaleGui.Label(new Rect(422,553,422,27),caption,body);
             Paint(bar,new Color(.70f,.88f,.90f,.23f));
             float low=Mathf.Clamp01((beat-room)/duration);
             float high=Mathf.Clamp01((beat+room)/duration);
@@ -187,7 +187,7 @@ namespace Echoes
             Paint(new Rect(bar.x-10,bar.y-28,bar.width+20,bar.height+38),InkGlass);
             Paint(bar,new Color(.71f,.88f,.90f,.22f));
             Paint(new Rect(bar.x,bar.y,bar.width*Mathf.Clamp01(fill),bar.height),Opacity(tint,.88f));
-            GUI.Label(new Rect(bar.x,bar.y-25,bar.width,24),label,body);
+            LocaleGui.Label(new Rect(bar.x,bar.y-25,bar.width,24),label,body);
         }
     }
 }

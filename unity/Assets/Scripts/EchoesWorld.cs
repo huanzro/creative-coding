@@ -144,7 +144,7 @@ namespace Echoes
                     (ruins && lastRuinRoom!=journey.RuinRoomId && lastPhase!=Stage.RuinTransfer);
                 bool matchCut=closeShot!=0 && closeShot!=lastCloseShot;
                 lastCloseShot=closeShot;
-                if (cut || stars)
+                if (cut || stars || ruinExit)
                 {
                     position=wanted; sight=focus;
                     velocity=sightVelocity=Vector3.zero;
@@ -152,8 +152,7 @@ namespace Echoes
                 }
                 else
                 {
-                    float track=ruinExit ? Mathf.Lerp(.11f,.023f,OpeningStoryboard.Ease(3.7f,4.84f,journey.Age)) :
-                        ruins ? .11f : !forest ? .48f :
+                    float track=ruins ? .11f : !forest ? .48f :
                         journey.Phase==Stage.ForestDoor || journey.ForestTrap==ForestTrapKind.Cable ? .095f :
                         frame.forestMaze ? .18f : .24f;
                     position=matchCut ? wanted : Vector3.SmoothDamp(position,wanted,ref velocity,track,90,dt);
@@ -164,12 +163,12 @@ namespace Echoes
                 if (ruins && ruinEnding == RuinRetryPhase.Impact)
                     fov = 55 - 7 * OpeningStoryboard.Window(journey.Age,.19f,.40f,.45f,1.16f);
                 if (framework)
-                    fov = ruinExit ? Mathf.Lerp(60,StarInkSpace.FieldOfView,OpeningStoryboard.Ease(3.67f,4.93f,journey.Age)) :
+                    fov = ruinExit ? Mathf.Lerp(60,StarInkSpace.FieldOfView,OpeningStoryboard.Ease(7.18f,9.80f,journey.Age)) :
                         ruinEnding == RuinRetryPhase.Gate ? Mathf.Lerp(51,67,OpeningStoryboard.Ease(1.41f,3.06f,journey.Age)) :
                         ruinEnding == RuinRetryPhase.Survey ? 67 : 60;
                 if (forest && journey.Section==ForestSection.Vestibule && journey.Phase!=Stage.ForestDoor) fov=54f;
                 if (forest && journey.Phase==Stage.ForestTrapped) fov=45f;
-                camera.fieldOfView=stars ? StarInkSpace.FieldOfView : ruinExit && journey.Age>=4.57f
+                camera.fieldOfView=stars ? StarInkSpace.FieldOfView : ruinExit && journey.Age>=9.46f
                     ? fov : Mathf.Lerp(camera.fieldOfView,fov,dt*4);
             }
             sectionAge+=dt;
@@ -195,6 +194,7 @@ namespace Echoes
             set.ForestScenery(journey,forest,time,forestActor,frame.glide,split,spiderBrightness,mawBrightness);
             set.DrawRuinTunnel(journey,ruins && !detached,time,camera.transform.position);
             set.DrawRuinFramework(journey,time,detached,ruinActor,frame.cast);
+            set.DrawFilmScenery(opening, ruinExit, journey.Age);
             set.DrawStarFlight(stars, journey.Distance);
             Vector3 shotActor = opening ? OpeningStoryboard.Sample(time).Actor :
                 new Vector3(.5f,SpiritFlight.ScreenY(frame.altitude),1);
@@ -256,7 +256,7 @@ namespace Echoes
                 ruins ? (float?)(Mathf.Atan2(ruinRoute.Forward.x,ruinRoute.Forward.z)*Mathf.Rad2Deg) : null;
             if (ruinExit)
                 facing=Mathf.LerpAngle(facing.GetValueOrDefault(),camera.transform.eulerAngles.y-180,
-                    OpeningStoryboard.Ease(4.35f,4.98f,journey.Age));
+                    OpeningStoryboard.Ease(8.80f,9.96f,journey.Age));
             if (!writing && !split && actorVisible)
                 spirit.DrawInWorld(camera,screen,body,depth,key,performer,spatial,facing,lens!=null);
             if (writing) starInk.DrawWorld(camera, performer);
@@ -296,7 +296,7 @@ namespace Echoes
                 Vector3 end=WorldSet.RuinStarLanding+starOrientation*
                     new Vector3(0,(.5f-StarActorViewport.y)*2*depth*
                         Mathf.Tan(StarInkSpace.FieldOfView*.5f*Mathf.Deg2Rad),depth);
-                local=Vector3.Lerp(local,end,OpeningStoryboard.Ease(4.36f,4.98f,journey.Age));
+                local=Vector3.Lerp(local,end,OpeningStoryboard.Ease(8.62f,9.98f,journey.Age));
             }
             return new RuinRouteFrame(origin+rotation*local,rotation*Vector3.forward);
         }
@@ -343,12 +343,15 @@ namespace Echoes
                 Vector3 target=accepted ? new Vector3(.24f,1.21f,1.09f) : new Vector3(.75f,1.82f,4.10f);
                 atLocal=Vector3.Lerp(atLocal,near,dolly);
                 Vector3 midShot=Vector3.Lerp(new Vector3(1.03f,2.14f,5.1f),target,dolly)-atLocal;
-                float travel=OpeningStoryboard.Ease(accepted?3.05f:2.82f,4.97f,age);
-                Vector3 advance=accepted ? new Vector3(-.74f,2.95f,12.16f) : new Vector3(-4.39f,4.28f,13.7f);
-                Vector3 track=Vector3.Lerp(advance,WorldSet.RuinStarLanding,
-                    OpeningStoryboard.Ease(3.48f,4.98f,age));
+                float travel=OpeningStoryboard.Ease(accepted?3.05f:2.82f,5.38f,age);
+                Vector3 advance=accepted ? new Vector3(-.78f,2.65f,12.3f) : new Vector3(-3.04f,3.09f,12.6f);
+                float grove=Mathf.Clamp01((age-4.12f)/5.86f);
+                Vector3 track = Vector3.Lerp(advance, WorldSet.RuinStarLanding, grove)
+                    + new Vector3(.65f, .92f, 0) * Mathf.Sin(grove * Mathf.PI);
                 atLocal=Vector3.Lerp(atLocal,track,travel);
-                towards=Vector3.Slerp(midShot,WorldSet.StarEntrySight,travel);
+                Vector3 throughGrove = Vector3.Lerp(new Vector3(1.1f, .15f, 16), WorldSet.StarEntrySight,
+                    OpeningStoryboard.Ease(6.56f, 9.98f, age));
+                towards=Vector3.Slerp(midShot,throughGrove,travel);
             }
             at=origin+rotation*atLocal;
             focus=at+rotation*towards;
@@ -492,7 +495,7 @@ namespace Echoes
             {
                 float rising=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.12f,.68f,altitude));
                 bool nearChest=room==journey.RuinRoomId &&
-                    (journey.RuinLootOpen || journey.RuinSearchTarget?.Kind==RuinObjectKind.Chest);
+                    (journey.RuinLootOpen || journey.RuinChestOpening || journey.RuinSearchTarget?.Kind==RuinObjectKind.Chest);
                 // At ground level step back to show both the vault and the objects on the road.
                 float pullback=(1-rising)*mouthFraming*(nearChest ? 2.25f : 1.65f);
                 behind=RuinTrack.Frame(room,length,depth-RuinTrack.DepthForMetres(room,length,4.9f+pullback));
@@ -756,7 +759,9 @@ namespace Echoes
                 if (WorldSet.IsRuinFramework(retry))
                 {
                     float reveal=retry==RuinRetryPhase.Gate ? OpeningStoryboard.Ease(.66f,2.64f,journey.Age) : 1;
-                    float sunward=WorldSet.IsRuinExit(retry) ? OpeningStoryboard.Ease(3.49f,4.99f,journey.Age) : 0;
+                    float sunward=WorldSet.IsRuinExit(retry) ? OpeningStoryboard.Ease(7.42f,9.98f,journey.Age) : 0;
+                    float grove=WorldSet.IsRuinExit(retry)
+                        ? OpeningStoryboard.Window(journey.Age, 3.77f, 5.51f, 7.27f, 9.70f) : 0;
                     Color chamberAir=retry==RuinRetryPhase.Declined
                         ? new Color(.053f,.052f,.097f) : new Color(.017f,.038f,.082f);
                     air=Color.Lerp(Color.Lerp(air,chamberAir,reveal),starAir,sunward);
@@ -765,6 +770,11 @@ namespace Echoes
                     key=Vector3.Slerp(Vector3.Slerp(key,new Vector3(-.48f,.78f,-.41f).normalized,reveal),starKey,sunward);
                     lit=Mathf.Lerp(Mathf.Lerp(lit,.50f,reveal),starLit,sunward);
                     mist=Mathf.Lerp(Mathf.Lerp(mist,.0071f,reveal),starMist,sunward);
+                    air=Color.Lerp(air,new Color(.105f,.201f,.153f),grove*.81f);
+                    dome=Color.Lerp(dome,new Color(.045f,.108f,.079f),grove*.65f);
+                    fill=Color.Lerp(fill,new Color(.71f,.75f,.46f),grove*.63f);
+                    lit=Mathf.Lerp(lit,.69f,grove*.46f);
+                    mist+=grove*.017f;
                     heaven=WorldSet.IsRuinDetached(journey) ? 1 : heaven;
                 }
             }

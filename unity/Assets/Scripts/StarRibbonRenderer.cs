@@ -76,25 +76,31 @@ namespace Echoes
 
         private void AddStroke(List<Vector3> points, Vector3? cursor, Vector3 eye)
         {
+            SampleStroke(points, cursor, samples);
+            AppendRibbon(eye, null, null, 0);
+        }
+
+        internal static void SampleStroke(List<Vector3> points, Vector3? cursor, List<Vector3> samples)
+        {
+            samples.Clear();
+            if (points.Count == 0) return;
             Vector3 end = points[points.Count - 1];
             bool extend = cursor.HasValue && (cursor.Value - end).sqrMagnitude > .0005f * .0005f;
             if (extend) end = cursor.Value;
             int count = points.Count + (extend ? 1 : 0);
             if (count < 2) return;
 
-            samples.Clear();
             samples.Add(points[0]);
             for (int i = 1; i < count - 1; i++)
             {
                 Vector3 finish = points[i];
-                AddCurve(points[Mathf.Max(0, i - 2)], points[i - 1], finish, i + 1 == count - 1 ? end : points[i + 1]);
+                AddCurve(samples, points[Mathf.Max(0, i - 2)], points[i - 1], finish, i + 1 == count - 1 ? end : points[i + 1]);
             }
-            AddCurve(points[Mathf.Max(0, count - 3)], points[count - 2], end, end);
-            AppendRibbon(eye, null, null, 0);
+            AddCurve(samples, points[Mathf.Max(0, count - 3)], points[count - 2], end, end);
         }
 
         // The curve goes through every control point, so a pattern stays attached after the pen moves on.
-        private void AddCurve(Vector3 previous, Vector3 start, Vector3 finish, Vector3 following)
+        private static void AddCurve(List<Vector3> samples, Vector3 previous, Vector3 start, Vector3 finish, Vector3 following)
         {
             Vector3 chord = finish - start;
             float length = chord.magnitude;
@@ -124,21 +130,33 @@ namespace Echoes
         {
             StarTrailArt art = StarTrailArt.Find(mark.motif);
             if (art == null) return;
-            const int stem = 9;
+            SampleBranch(mark, art, samples, art.Segments);
+            AppendRibbon(eye, mark, art, BranchStem);
+        }
+
+        internal const int BranchStem = 9;
+
+        internal static void SampleBranch(StarInkMark mark, StarTrailArt art, List<Vector3> samples, int segments)
+        {
+            samples.Clear();
+            if (mark.branchSide == 0)
+            {
+                for (int i = 0; i <= segments; i++)
+                    samples.Add(mark.origin + art.Offset(i / (float)segments) * 4.7f);
+                return;
+            }
             float side = mark.branchSide;
             float lift = mark.origin.y > .40f ? -.24f : .24f;
             var stemEnd = new Vector3(side * .89f, lift, .59f);
             var bend = new Vector3(side * .28f, lift * .18f, .10f);
             Vector3 join = stemEnd - BranchArm(art, side, 2f / art.Segments).normalized * .26f;
-            samples.Clear();
-            for (int i = 0; i <= stem; i++)
+            for (int i = 0; i <= BranchStem; i++)
             {
-                float t = i / (float)stem, u = 1 - t;
+                float t = i / (float)BranchStem, u = 1 - t;
                 samples.Add(mark.origin + 3 * u * u * t * bend + 3 * u * t * t * join + t * t * t * stemEnd);
             }
-            for (int i = 1; i <= art.Segments; i++)
-                samples.Add(mark.origin + stemEnd + BranchArm(art, side, i / (float)art.Segments));
-            AppendRibbon(eye, mark, art, stem);
+            for (int i = 1; i <= segments; i++)
+                samples.Add(mark.origin + stemEnd + BranchArm(art, side, i / (float)segments));
         }
 
         private static Vector3 BranchArm(StarTrailArt art, float side, float progress)

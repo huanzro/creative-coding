@@ -358,7 +358,7 @@ namespace Echoes
                 token.localPosition=BrokerTokenSlot(i)+Vector3.up*((1-amount)*.26f)+Vector3.back*(.04f+.065f*(1-amount));
                 token.localScale=Vector3.one*amount;
                 token.localRotation=Quaternion.Euler(0,(1-amount)*160,0);
-                Light(brokerTokens[i],Color.white,.56f+.12f*Mathf.Sin(time*6.4f-i*.77f));
+                Light(brokerTokens[i],BrokerAmber,.67f+.12f*Mathf.Sin(time*6.4f-i*.77f));
             }
         }
 
@@ -434,7 +434,8 @@ namespace Echoes
                 mote.localScale=new Vector3(.014f,.048f+.08f*(1-descent),.014f);
                 Light(brokerParticles[i],i%4==0 ? BrokerAmber : BrokerCyan,.35f+(1-descent)*.31f);
             }
-            float sample=phase==RuinRetryPhase.Valuation ? OpeningStoryboard.Window(age,.18f,.76f,2.95f,3.65f) : 0;
+            float sample=phase==RuinRetryPhase.Valuation ?
+                OpeningStoryboard.Window(age,.55f,1.25f,Journey.RuinValuationFirstLineDuration-.40f,Journey.RuinValuationFirstLineDuration+.38f) : 0;
             bool validPhone=journey.RuinPhones>0 && sample>.001f, validComputer=journey.RuinComputers>0 && sample>.001f;
             Vector3 palm=brokerStage.InverseTransformPoint(brokerLeft.Hand.TransformPoint(new Vector3(0,.17f,.10f)));
             Vector3 reservoir=brokerBody.localPosition+new Vector3(-.42f,2.25f,-.48f);

@@ -25,6 +25,7 @@ namespace Echoes
         private int lastChapter = -1;
         private GUIStyle title, body, button;
         private Font interfaceFont;
+        private static bool projectionColors;
         public int TimeOfDay { get; set; }
         public float ScrollSpeed { get; set; } = 1;
         public const float MinimumStageScale = .50f;
@@ -118,6 +119,18 @@ namespace Echoes
         private static void Paint(Rect rect, Color color, Texture texture = null)
         {
             if (Event.current.type != EventType.Repaint) return;
+            if (projectionColors)
+            {
+                float maximum = Mathf.Max(color.r, Mathf.Max(color.g, color.b));
+                if (maximum > .10f)
+                {
+                    float middle = Vector3.Dot(new Vector3(color.r,color.g,color.b),new Vector3(.2126f,.7152f,.0722f));
+                    color.r = Mathf.Clamp01((middle + (color.r-middle)*1.27f)*1.32f);
+                    color.g = Mathf.Clamp01((middle + (color.g-middle)*1.27f)*1.32f);
+                    color.b = Mathf.Clamp01((middle + (color.b-middle)*1.27f)*1.32f);
+                    color.a = Mathf.Min(1,color.a*1.28f);
+                }
+            }
             GUI.color = color;
             GUI.DrawTexture(rect, texture == null ? Texture2D.whiteTexture : texture);
             GUI.color = Color.white;
@@ -184,12 +197,19 @@ namespace Echoes
 
         public void DrawStage(Journey journey, SpiritFrame frame, bool splitProjection, bool previewWorld = false)
         {
-            if (Event.current.type != EventType.Repaint) return;
+            if (Event.current.type != EventType.Repaint && !journey.StarFinaleActive) return;
             Matrix4x4 matrix = BeginFrame(StageViewport);
+            if (journey.StarFinaleActive)
+            {
+                DrawStarFinale(journey, splitProjection);
+                EndFrame(matrix);
+                return;
+            }
             if (journey.IsOpening)
             {
                 if (world != null && world.Ready) DrawSpatialOpening(frame, splitProjection);
                 else DrawOpening(frame, splitProjection);
+                DrawOpeningTitle(frame.openingTime);
                 EndFrame(matrix);
                 return;
             }
@@ -407,10 +427,10 @@ namespace Echoes
         {
             if (!continuous)
             {
-                if (GUI.Button(rect,text,button)) choose(option);
+                if (LocaleGui.Button(rect,text,button)) choose(option);
                 return;
             }
-            if (!GUI.RepeatButton(rect,text,button)) return;
+            if (!LocaleGui.RepeatButton(rect,text,button)) return;
             if (Time.frameCount - screenTouchFrame[option] > 1) choose(option);
             screenTouchFrame[option] = Time.frameCount;
         }
@@ -424,13 +444,13 @@ namespace Echoes
             PrepareInterface();
             Matrix4x4 matrix = BeginFrame(StageViewport);
             if (characterOnly && settings == null) { EndFrame(matrix); return; }
-            if (settings == null && GUI.Button(new Rect(1065, 27, 186, 36), "游戏设置 · F1", button))
+            if (settings == null && LocaleGui.Button(new Rect(1065, 27, 186, 36), "游戏设置 · F1", button))
                 toggleSettings();
             if (!ruinEnding)
             {
                 Paint(new Rect(26, 22, 689, 100), new Color(.02f, .05f, .09f, .85f));
-                GUI.Label(new Rect(44, 30, 630, 39), heading, title);
-                GUI.Label(new Rect(44, 74, 650, 41), message, body);
+                LocaleGui.Label(new Rect(44, 30, 630, 39), heading, title);
+                LocaleGui.Label(new Rect(44, 74, 650, 41), message, body);
             }
             Paint(new Rect(26, 650, 1228, 50), new Color(.02f, .05f, .09f, .86f));
             bool enabled = GUI.enabled;
@@ -444,21 +464,21 @@ namespace Echoes
             string hint = ruinEnding ? (ruinSurvey ? "松开空格仰视 · Z 发声俯视" : "") :
                 mazeWalking ? "A/B 转向 · 松开空格走 · 按住停" :
                 stars ? "按住鼠标引导光迹 · Z / X 加速" : "空格握拳 · 松开张手 · Z轻声 · X加速";
-            GUI.Label(new Rect(393, 651, 310, 25), hint, body);
+            LocaleGui.Label(new Rect(393, 651, 310, 25), hint, body);
             Paint(new Rect(396, 680, 270, 4), new Color(1, 1, 1, .2f));
             Paint(new Rect(396, 680, volume * 270, 4), new Color(.81f, .85f, 1));
-            if (GUI.Button(new Rect(687, 658, 76, 34), paused ? "继续" : "暂停", button)) pause();
-            if (GUI.Button(new Rect(770, 658, 76, 34), "重试", button)) retry();
-            if (GUI.Button(new Rect(853, 658, 76, 34), "恢复", button)) restore();
+            if (LocaleGui.Button(new Rect(687, 658, 76, 34), paused ? "继续" : "暂停", button)) pause();
+            if (LocaleGui.Button(new Rect(770, 658, 76, 34), "重试", button)) retry();
+            if (LocaleGui.Button(new Rect(853, 658, 76, 34), "恢复", button)) restore();
             string[] names = { "试玩", "森林", "遗迹", "星海" };
             for (int i = 0; i < names.Length; i++)
-                if (GUI.Button(new Rect(935 + i * 78, 658, 72, 34), names[i], button)) select((i - 1).ToString());
+                if (LocaleGui.Button(new Rect(935 + i * 78, 658, 72, 34), names[i], button)) select((i - 1).ToString());
             GUI.enabled = enabled;
             EndFrame(matrix);
             if (settings == null) return;
 
             matrix = BeginFrame(ScreenViewport);
-            if (GUI.Button(new Rect(1065, 27, 186, 36), "关闭设置 · F1", button)) toggleSettings();
+            if (LocaleGui.Button(new Rect(1065, 27, 186, 36), "关闭设置 · F1", button)) toggleSettings();
             var panel = new Rect(724, 72, 527, 568);
             Paint(panel, new Color(.02f, .05f, .09f, .96f));
             GUI.BeginGroup(panel);
@@ -476,12 +496,39 @@ namespace Echoes
             button = new GUIStyle(GUI.skin.button) { font = interfaceFont, fontSize = 16 };
         }
 
+        internal void DrawFinaleSettings(Action<GUIStyle, GUIStyle> settings, Action close)
+        {
+            PrepareInterface();
+            Matrix4x4 matrix = BeginFrame(ScreenViewport);
+            if (LocaleGui.Button(new Rect(1065,27,186,36),"关闭设置 · F1",button)) close();
+            var panel = new Rect(724,72,527,568);
+            Paint(panel,new Color(.02f,.05f,.09f,.97f));
+            GUI.BeginGroup(panel);
+            settings(body,button);
+            GUI.EndGroup();
+            EndFrame(matrix);
+        }
+
         public void DrawOpeningControls(float time, Action skip)
         {
             PrepareInterface();
             Matrix4x4 matrix = BeginFrame(StageViewport);
-            if (time > .75f && GUI.Button(new Rect(1100, 660, 140, 29), "跳过 · Esc", button)) skip();
+            if (time > .75f && LocaleGui.Button(new Rect(1100, 660, 140, 29), "跳过 · Esc", button)) skip();
             EndFrame(matrix);
+        }
+
+        private void DrawOpeningTitle(float time)
+        {
+            float opacity=OpeningStoryboard.Window(time, 35.58f, 37.14f, 38.70f, OpeningTiming.Duration);
+            if (opacity <= .001f) return;
+            PrepareInterface();
+            var style = new GUIStyle(title) { alignment = TextAnchor.MiddleCenter, fontSize = 53, fontStyle = FontStyle.Normal };
+            var label = new Rect(130, 81, Width - 260, 89);
+            Paint(new Rect(150, 55, Width-300, 137), new Color(.005f,.008f,.019f,.82f*opacity), glow);
+            Color previous=GUI.contentColor;
+            GUI.contentColor=new Color(1,.90f,.70f,opacity);
+            LocaleGui.Label(label, EchoesLocale.GameTitle, style);
+            GUI.contentColor=previous;
         }
 
         public void Dispose()
@@ -489,6 +536,7 @@ namespace Echoes
             spirit.Dispose();
             world?.Dispose();
             ReleasePlates();
+            DisposeStarFinale();
             starInk.Dispose();
             UnityEngine.Object.Destroy(glow);
             UnityEngine.Object.Destroy(ring);

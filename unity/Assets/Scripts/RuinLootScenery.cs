@@ -22,7 +22,7 @@ namespace Echoes
             var choices = journey.RuinLootChoices;
             int selected = journey.RuinLootSwap ? journey.RuinLootPendingSlot :
                 journey.RuinLootIndex < choices.Count ? choices[journey.RuinLootIndex].Slot : -1;
-            if (journey.RuinLootOpen)
+            if (journey.RuinLootOpen || journey.RuinChestOpening)
             {
                 var devices = journey.RuinLootDevices;
                 for (int slot = 0; slot < devices.Count; slot++)

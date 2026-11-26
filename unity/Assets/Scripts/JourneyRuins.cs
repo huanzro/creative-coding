@@ -18,7 +18,7 @@ namespace Echoes
 
     public sealed partial class Journey
     {
-        public const int RuinCapacity = 10;
+        public const int RuinCapacity = 15;
         public const string RuinPhoneName = "ipone18p";
         public const int RuinDisciplineCount = 9;
         public const float RuinHeightLimit = 1.65f;
@@ -32,7 +32,6 @@ namespace Echoes
         private const float EntryAltitude = .17f;
         private const float RuinVoiceDeadZone = .12f;
         private const float RuinFastSpeed = 4.2f;
-        private const float RuinSearchSpeed = .19f;
         private static readonly string[] RuinObjectLabels = { "心脏", "大脑", RuinPhoneName, "电脑", "宝箱" };
 
         private RuinRoom[] ruinRooms;
@@ -105,8 +104,8 @@ namespace Echoes
         public RuinObject RuinSearchTarget { get; private set; }
         public RuinObject RuinNearbyClue { get; private set; }
         public bool RuinCanTake => Phase == Stage.RuinExplore && !RuinLootOpen && RuinSearchTarget != null &&
-            RuinForwardSpeed <= RuinSearchSpeed && FindRuinPortal(RuinDirection.Right) == null;
-        public string RuinTakeLabel => RuinSearchTarget?.Kind == RuinObjectKind.Chest ? "B · 打开宝箱" : "B · 拾取藏品";
+            !RuinChestOpening && RuinSearchTarget.Kind == RuinObjectKind.Chest;
+        public string RuinTakeLabel => "B · 打开宝箱";
         public RuinPortal RuinApproach { get; private set; }
         public RuinPortal RuinUpperApproach => Phase == Stage.RuinExplore && !RuinWallReady ? FindRuinUpperPreview() : null;
         public RuinPortal RuinEntrance { get; private set; }
@@ -153,6 +152,9 @@ namespace Echoes
                 RestoreRuinMemories();
             }
             ruinHeartAt = float.NegativeInfinity;
+            if (ruinRoomId == RuinAtlas.ExitRoom && !ruinRetryWall) ruinWallPassages = RuinWallPassagesRequired;
+            else if (RuinWallReady && !ruinRetryWall)
+                ruinWallPassages = RuinWallPassagesRequired - 1;
             EnterRuinRoom(ruinRoomId, true);
             ResumeRuinRetry();
         }
@@ -161,6 +163,7 @@ namespace Echoes
         {
             ClearRuinLoot();
             ruinRoomId = room;
+            ArrangeRuinExitRoutes();
             // Room zero anchors the sequence when upgrading an older checkpoint.
             AssignRuinDiscipline(0);
             AssignRuinDiscipline(room);
@@ -217,7 +220,8 @@ namespace Echoes
         {
             float reach = RuinReach(portal.Direction) * preview;
             float ahead = portal.Depth - Distance;
-            if (ahead < -RuinPortal.TailDepth * reach || ahead > RuinPortal.LeadDepth * reach) return false;
+            float depthReach = reach * RuinAtlas.LengthScale(ruinRoomId);
+            if (ahead < -RuinPortal.TailDepth * depthReach || ahead > RuinPortal.LeadDepth * depthReach) return false;
 
             float lateral = Math.Abs(RuinLane - portal.Lane);
             if (portal.Direction == RuinDirection.Upper)
@@ -271,9 +275,10 @@ namespace Echoes
 
             if (IsRuinSequence)
             {
-                if (Gesture != Hand.Missing) AdvanceRuinTransfer(dt);
+                AdvanceRuinTransfer(dt);
                 return;
             }
+            if (AdvanceAutomaticRuinChest(dt)) return;
             if (RuinLootOpen)
             {
                 if (RuinLootSource != null && RuinLootSource.OpenAge >= 0)
@@ -284,6 +289,7 @@ namespace Echoes
             UpdateRuinSteering(dt);
             RuinForwardSpeed = ApproachRuinSpeed(RuinForwardSpeed, RuinVoiceSpeed, 5.6f * dt, 18f * dt);
             Distance += RuinForwardSpeed * dt;
+            if (TryStartRuinRetry()) return;
             if (Distance >= RuinRoomLength)
             {
                 Distance %= RuinRoomLength;
@@ -292,7 +298,6 @@ namespace Echoes
                 Revision++;
             }
 
-            if (TryStartRuinRetry()) return;
             if (!RuinWallReady)
             {
                 RuinPortal route = ruinSteerHeld == 0 ? null :
@@ -307,8 +312,8 @@ namespace Echoes
                 }
             }
 
-            UpdateRuinSearch(dt);
             if (!RuinWallReady) UpdateRuinApproach();
+            UpdateRuinSearch(dt);
         }
 
         private void UpdateRuinApproach()
@@ -417,14 +422,18 @@ namespace Echoes
         {
             RefreshRuinLootContact();
             RuinSearchTarget = RuinNearbyClue = null;
-            float nearest = float.PositiveInfinity, nearestClue = 7.3f;
+            float depthScale = RuinAtlas.LengthScale(ruinRoomId);
+            float nearest = float.PositiveInfinity, nearestClue = 7.3f * depthScale;
+            float nearestPickup = float.PositiveInfinity;
+            RuinObject pickup = null;
             foreach (var item in CurrentRuinRoom.Objects)
             {
                 float depth = item.Depth - Distance;
                 float lateral = Math.Abs(RuinLane - item.Lane);
                 float vertical = Math.Abs(Flight.Height - item.Altitude);
                 bool chest = item.Kind == RuinObjectKind.Chest;
-                float proximity = Clamp((6.7f - Math.Abs(depth)) / 5.5f);
+                float along = Math.Abs(depth) / depthScale;
+                float proximity = Clamp((6.7f - along) / 5.5f);
                 float approach = Clamp((.86f - lateral) / .51f) * Clamp((.86f - vertical) / .55f);
                 float reveal = proximity * (chest ? .22f + .78f * approach : .13f + .87f * approach);
                 item.Reveal += (reveal - item.Reveal) * Follow(dt, 8.5f);
@@ -439,7 +448,7 @@ namespace Echoes
                     RuinNearbyClue = item;
                     nearestClue = clue;
                 }
-                if (item.Kind == RuinObjectKind.Heart && !ruinHeartSeen && Math.Abs(depth) < 2.05f &&
+                if (item.Kind == RuinObjectKind.Heart && !ruinHeartSeen && along < 2.05f &&
                     lateral < .48f && vertical < .43f)
                 {
                     ruinHeartAt = PoseTime;
@@ -447,13 +456,21 @@ namespace Echoes
                     Notify(JourneyCue.RuinHeartbeat);
                     Revision++;
                 }
-                if (item == ruinLootClearedSource || Math.Abs(depth) > (chest ? 1.25f : 1.85f) ||
-                    lateral > .44f || vertical > (chest ? .40f : .53f)) continue;
+                if (ruinDeferredLoot.Contains(item) || along > (chest ? 1.25f : 1.12f) ||
+                    lateral > (chest ? .58f : .49f) || vertical > (chest ? .54f : .58f)) continue;
                 float score = Math.Abs(depth) + lateral + vertical;
+                if (!chest)
+                {
+                    if (score >= nearestPickup) continue;
+                    pickup = item;
+                    nearestPickup = score;
+                    continue;
+                }
                 if (score >= nearest) continue;
                 RuinSearchTarget = item;
                 nearest = score;
             }
+            if (pickup != null) TakeRuinCache(pickup);
         }
 
         private void TakeRuinCache(RuinObject item)
@@ -469,14 +486,13 @@ namespace Echoes
                 else
                 {
                     Message = $"收藏已满，{RuinCapacity} 件。藏品留在原处。";
-                    ruinLootClearedSource = item;
+                    ruinDeferredLoot.Add(item);
                 }
                 RuinSearchTarget = null;
                 return;
             }
             RecordRuinPickup(item);
-            RuinSearchTarget = null;
-            if (RuinHeartAge < 0 || item.Kind != RuinObjectKind.Heart) Notify(JourneyCue.RuinCollect);
+            Notify(JourneyCue.RuinCollect);
             Message = "已收集" + RuinObjectLabels[(int)item.Kind] + "。";
             Revision++;
         }

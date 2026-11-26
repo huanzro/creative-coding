@@ -4,6 +4,7 @@ Shader "Hidden/Echoes/Spirit3D"
     {
         _Tint ("Material color and emission", Vector) = (1,1,1,0)
         _SceneLight ("Surrounding light", Vector) = (1,.82,.55,.2)
+        _PortraitGrade ("Projection grade", Float) = 0
         _ContactLight ("Fingertip light and strength", Vector) = (0,0,0,0)
         _Fabric ("Embroidered silk", Float) = 0
         _Face ("Face detail mask", Float) = 0
@@ -25,6 +26,7 @@ Shader "Hidden/Echoes/Spirit3D"
 
             float4 _Tint;
             float4 _SceneLight;
+            float _PortraitGrade;
             float4 _ContactLight;
             float _Fabric, _Face;
             float4 _Expression;
@@ -154,6 +156,10 @@ Shader "Hidden/Echoes/Spirit3D"
                 float flyFalloff = rcp(1 + dot(toFly, toFly) * 17);
                 float bounce = .40 + .60 * saturate(dot(normal, normalize(toFly + .0001)));
                 color += _SceneLight.rgb * (flyFalloff * bounce * _ContactLight.w * .42);
+                float luminance = dot(color, float3(.2126,.7152,.0722));
+                float3 display = luminance + (color-luminance)*1.33;
+                display = 1-pow(1-saturate(display),1.56);
+                color = lerp(color,display,_PortraitGrade);
                 return float4(saturate(color), _StageCoverage);
             }
             ENDCG

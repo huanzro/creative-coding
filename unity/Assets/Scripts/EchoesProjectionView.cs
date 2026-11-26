@@ -6,21 +6,24 @@ namespace Echoes
     {
         private static readonly Color Amber = new Color(1f, .68f, .26f);
         private static readonly Color Scarlet = new Color(1f, .24f, .22f);
+        internal Vector2? StageProjectionAnchor => world != null && world.Ready ? world.ActorScreen : (Vector2?)null;
 
         public void DrawProjection(SpiritFrame frame, bool mirror, bool sideways, Rect? bounds = null,
             float characterScale = 1, float lightReach = 1) =>
-            DrawProjection(frame, mirror, sideways, bounds, characterScale, lightReach, null);
+            DrawProjection(frame, mirror, sideways, bounds, characterScale, lightReach, null, StageProjectionAnchor);
 
-        internal void DrawRemoteProjection(SpiritFrame frame, bool mirror, StarInkFrame artwork) =>
-            DrawProjection(frame, mirror, true, null, 1, 1, artwork);
+        internal void DrawRemoteProjection(SpiritFrame frame, bool mirror, StarInkFrame artwork,
+            Vector2? stageAnchor = null, bool sideways = true, float scale = 1, float reach = 1) =>
+            DrawProjection(frame, mirror, sideways, null, scale, reach, artwork, stageAnchor);
 
         private void DrawProjection(SpiritFrame frame, bool mirror, bool sideways, Rect? bounds,
-            float characterScale, float lightReach, StarInkFrame remoteInk)
+            float characterScale, float lightReach, StarInkFrame remoteInk, Vector2? stageAnchor)
         {
             if (Event.current.type != EventType.Repaint) return;
             Rect viewport = bounds ?? ScreenViewport;
             Paint(viewport, Color.black);
             GUI.BeginGroup(viewport);
+            projectionColors = true;
             var area = new Rect(0, 0, viewport.width, viewport.height);
             float characterSize = (sideways ? Mathf.Min(area.width * .50f, area.height * .92f)
                                            : Mathf.Min(area.height * .67f, area.width * .93f))
@@ -31,6 +34,9 @@ namespace Echoes
             float extent = Mathf.Max(.20f, unit) * Mathf.Clamp(lightReach, .65f, 2.45f);
             var center = FrameProjectionPosition(frame, frame.altitude, area, bodySize, sideways);
             var source = FrameProjectionPosition(frame, frame.releaseAltitude, area, bodySize, sideways);
+            bool synced = stageAnchor.HasValue;
+            Vector2 anchor = synced ? MapStageAnchor(stageAnchor.Value, area, mirror, sideways) : center;
+            if (synced) center = source = anchor;
             if (frame.openingTime < 0 && frame.chapter == 2 && !frame.ruins && !frame.forest)
             {
                 DrawStarProjection(frame, remoteInk ?? starInk.Frame, area, center, bodySize, mirror, sideways, extent);
@@ -42,18 +48,19 @@ namespace Echoes
                 float shotSize = bodySize * Mathf.Lerp(.86f, 1.13f, Mathf.InverseLerp(1, 1.8f, actor.z));
                 center = ProjectionPosition(actor.y, area, shotSize, sideways);
                 Vector2 crossAxis = sideways ? Vector2.up * area.height : Vector2.right * area.width;
-                center += crossAxis * (actor.x - .5f) * (mirror ? -.42f : .42f);
+                center = synced ? anchor : center + crossAxis * (actor.x - .5f) * (mirror ? -.42f : .42f);
                 DrawCharacter(frame, center, center, shotSize, mirror, sideways ? -90 : 0, extent, true, .78f);
                 DrawOpeningFireflies(frame.openingTime, shot, center, shotSize, mirror, sideways ? -90 : 0,
                     true, false, extent);
             }
             else if (frame.forest && frame.forestDoorAge >= 0)
             {
-                DrawDoorProjection(frame, area, center, bodySize, mirror, sideways, extent);
+                DrawDoorProjection(frame, area, center, bodySize, mirror, sideways, extent, synced);
             }
             else if (frame.ruinRetryPhase == RuinRetryPhase.Accepted || frame.ruinRetryPhase == RuinRetryPhase.Declined)
             {
-                DrawRuinExitProjection(frame, area, center, bodySize, Mathf.Min(characterSize, sizeLimit), mirror, sideways, extent);
+                DrawRuinExitProjection(frame, area, center, bodySize, Mathf.Min(characterSize, sizeLimit),
+                    mirror, sideways, extent, synced);
             }
             else
             {
@@ -100,8 +107,9 @@ namespace Echoes
                     source += lane;
                     if (frame.ruinTransfer >= 0)
                         visibility -= .40f * Mathf.Sin(Mathf.Clamp01(frame.ruinTransfer) * Mathf.PI);
-                    DrawRuinFinds(frame, center, bodySize, mirror, sideways);
+                    DrawRuinFinds(frame, synced ? anchor : center, bodySize, mirror, sideways);
                 }
+                if (synced) center = source = anchor;
                 if (frame.chapter != 2 && (!frame.forest || frame.forestDescent < 0))
                     DrawFlightTrail(frame, palette[Mathf.Clamp(frame.chapter, 0, 2)], 1, extent, area, bodySize, sideways);
                 DrawCharacter(frame, center, source, bodySize, mirror, sideways ? -90 : 0, extent, true, visibility,
@@ -109,11 +117,20 @@ namespace Echoes
                 if (frame.forest) DrawForestSwarm(frame, center, bodySize, mirror, sideways ? -90 : 0, visibility, true);
                 else if (!frame.ruins) DrawLiveHandoff(frame, center, bodySize, mirror, sideways ? -90 : 0, extent, visibility);
             }
+            projectionColors = false;
             GUI.EndGroup();
         }
 
+        internal static Vector2 MapStageAnchor(Vector2 stage, Rect area, bool mirror, bool sideways)
+        {
+            Vector2 local = stage - Vector2.one * .5f;
+            if (mirror) local.x = -local.x;
+            if (sideways) local = new Vector2(local.y, -local.x);
+            return area.center + Vector2.Scale(local, area.size);
+        }
+
         private void DrawRuinExitProjection(SpiritFrame frame, Rect area, Vector2 center, float size, float starSize,
-            bool mirror, bool sideways, float extent)
+            bool mirror, bool sideways, float extent, bool synced)
         {
             bool accepted = frame.ruinRetryPhase == RuinRetryPhase.Accepted;
             float age = frame.ruinRetryAge;
@@ -122,7 +139,7 @@ namespace Echoes
             if (mirror) across *= -1;
             float lift = OpeningStoryboard.Ease(accepted ? 3.52f : 3.16f, Journey.RuinExitDuration, age);
             float lane = accepted ? 0 : OpeningStoryboard.Window(age, 2.40f, 3.28f, 3.48f, Journey.RuinExitDuration);
-            center = Vector2.Lerp(center, StarProjectionCenter(area, sideways), lift) - across * size * .19f * lane;
+            if (!synced) center = Vector2.Lerp(center, StarProjectionCenter(area, sideways), lift) - across * size * .19f * lane;
             size = Mathf.Lerp(size, starSize, lift);
             float effects = accepted ? Mathf.Lerp(.53f, .20f, OpeningStoryboard.Ease(1.08f, 2.65f, age)) : .52f;
             DrawCharacter(frame, center, center, size, mirror, sideways ? -90 : 0, extent, true, effects);
@@ -179,13 +196,16 @@ namespace Echoes
         }
 
         private void DrawDoorProjection(SpiritFrame frame, Rect area, Vector2 center, float size,
-            bool mirror, bool sideways, float extent)
+            bool mirror, bool sideways, float extent, bool synced)
         {
             float progress = frame.forestDoorAge / Journey.ForestDoorDuration;
             float framing = OpeningStoryboard.Ease(.01f, .22f, progress);
             Vector2 lateral = sideways ? Vector2.down * area.height : Vector2.right * area.width;
-            center += lateral * frame.forestLane * (mirror ? -.063f : .063f);
-            center = Vector2.Lerp(center, area.center, framing);
+            if (!synced)
+            {
+                center += lateral * frame.forestLane * (mirror ? -.063f : .063f);
+                center = Vector2.Lerp(center, area.center, framing);
+            }
 
             float maxWidth = area.width / (sideways ? SpiritRig.HeightScale : SpiritRig.WidthScale);
             float maxHeight = area.height / (sideways ? SpiritRig.WidthScale : SpiritRig.HeightScale);

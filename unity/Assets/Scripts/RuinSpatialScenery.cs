@@ -41,6 +41,7 @@ namespace Echoes
         private readonly Dictionary<int,RuinEnvelope> ruinEnvelopes = new Dictionary<int,RuinEnvelope>();
         private readonly List<Mesh> ruinSpatialMeshes = new List<Mesh>();
         private RuinPortal ruinLayoutIdentity;
+        private int lastRuinExitPortalRoom = -1;
         private float ruinVisualDistance, ruinVisualMouth, ruinVisualArrival;
 
         internal void SetRuinTransitionDistances(float distance,float mouth,float arrival)
@@ -77,10 +78,11 @@ namespace Echoes
         {
             var first=j.RuinPortalsFor(0);
             RuinPortal identity=first.Count>0 ? first[0] : null;
-            if (identity!=ruinLayoutIdentity)
+            if (identity!=ruinLayoutIdentity || lastRuinExitPortalRoom!=j.RuinExitPortalRoom)
             {
                 DisposeRuinEnvelopes();
                 ruinLayoutIdentity=identity;
+                lastRuinExitPortalRoom=j.RuinExitPortalRoom;
             }
             int current=j.RuinRoomId;
             int next=j.Phase==Stage.RuinTransfer && j.RuinEntrance!=null ? j.RuinEntrance.TargetRoom : -1;

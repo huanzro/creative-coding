@@ -17,6 +17,7 @@ namespace Echoes
         private static readonly int ContactLight = Shader.PropertyToID("_ContactLight");
         private static readonly int StageKey = Shader.PropertyToID("_StageKey");
         private static readonly int StageCoverage = Shader.PropertyToID("_StageCoverage");
+        private static readonly int PortraitGrade = Shader.PropertyToID("_PortraitGrade");
         private readonly Texture2D fallback;
         private readonly Material material;
         private readonly RenderTexture target;
@@ -189,7 +190,7 @@ namespace Echoes
                 portraitPose = Matrix4x4.Translate(center) * Matrix4x4.Rotate(Quaternion.Euler(0, angle, 0)) *
                     Matrix4x4.Translate(-center) * portraitPose;
             }
-            RenderModel(portraitPose, Vector3.zero, anchors, commands, opening ? .31f : .17f);
+            RenderModel(portraitPose, Vector3.zero, anchors, commands, .47f, portrait: true);
             if (inDoor)
             {
                 if (machineDoor == null) machineDoor = new MachineDoorPortrait();
@@ -211,11 +212,13 @@ namespace Echoes
                 UpdateTrails(time, frame.glide > .10f || frame.turnAge >= 0 || frame.touchAge >= 0 || frame.releaseAge >= 0);
         }
 
-        private void RenderModel(Matrix4x4 basis, Vector3 key, Vector3[] joints, CommandBuffer buffer, float ambient, bool maskBackground = false)
+        private void RenderModel(Matrix4x4 basis, Vector3 key, Vector3[] joints, CommandBuffer buffer, float ambient,
+            bool maskBackground = false, bool portrait = false)
         {
             material.SetVector(StageKey, new Vector4(key.x,key.y,key.z,key.sqrMagnitude>.1f?1:0));
             material.SetVector(SceneLight, new Vector4(poseTint.r,poseTint.g,poseTint.b,ambient));
             material.SetFloat(StageCoverage,maskBackground ? 0 : 1);
+            material.SetFloat(PortraitGrade,portrait ? 1 : 0);
             if (guest != null) guest.Draw(pose, joints, basis, buffer, material);
             else if (previous.cast == RedBirdCast) redBird.Draw(pose, poseTint, joints, basis, buffer);
             else if (previous.cast == BlackSwanCast) blackSwan.Draw(pose, poseTint, joints, basis, buffer);

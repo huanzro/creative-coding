@@ -67,7 +67,7 @@ namespace Echoes
     public struct RuinFindView
     {
         public RuinObjectKind kind;
-        public float lane, height, depth, visibility;
+        public float lane, height, depth, visibility, open;
     }
 
     [Serializable]
@@ -203,14 +203,20 @@ namespace Echoes
             List<RuinFindView> nearby = null;
             foreach (RuinObject item in journey.RuinObjects)
             {
-                if (item.Collected || item.Reveal <= .30f) continue;
+                bool chest = item.Kind == RuinObjectKind.Chest;
+                bool showing = chest && item == journey.RuinLootDisplaySource;
+                if (item.Collected && !showing && (!chest || journey.RuinChestRemaining(item) == 0 && item.OpenAge > 1.92f)) continue;
+                if (!showing && item.Reveal <= (chest ? .16f : .30f)) continue;
                 float depth = item.Depth - journey.Distance;
                 float lane = item.Lane - journey.RuinLane;
                 float height = item.Altitude - journey.Flight.Height;
-                float visible = item.Reveal * ForestFlyView.Approach(depth, lane, height, 5.2f);
+                float visible = showing ? 1 : (chest ? Math.Min(1, item.Reveal * 1.78f) : item.Reveal) *
+                    ForestFlyView.Approach(depth, lane, height, 5.2f);
                 if (visible <= .025f) continue;
                 if (nearby == null) nearby = new List<RuinFindView>(3);
-                nearby.Add(new RuinFindView { kind = item.Kind, lane = lane, height = height, depth = depth, visibility = visible });
+                float open = chest && (showing || item.Collected && journey.RuinChestRemaining(item) == 0)
+                    ? Math.Max(0, Math.Min(1, item.OpenAge / .64f)) : 0;
+                nearby.Add(new RuinFindView { kind = item.Kind, lane = lane, height = height, depth = depth, visibility = visible, open = open });
             }
             return nearby?.ToArray();
         }

@@ -30,9 +30,9 @@ namespace Echoes
 
         private sealed class Element
         {
-            public Transform Root, Lid;
+            public Transform Root, Lid, GoldSeal;
             public MeshFilter BodyFilter, LidFilter;
-            public MeshRenderer BodyRenderer, LidRenderer;
+            public MeshRenderer BodyRenderer, LidRenderer, SealRenderer;
             public int Design = -1;
             public float Open;
         }
@@ -46,6 +46,7 @@ namespace Echoes
         private readonly Model[] artifactModels = new Model[4], chestModels = new Model[Journey.RuinChestCount];
         private readonly Model[,] lootModels = new Model[2, 10];
         private readonly Material artifactMaterial, chestMaterial;
+        private Mesh chestSeal;
         private readonly MaterialPropertyBlock state = new MaterialPropertyBlock();
 
         public RuinArtifacts(Transform parent, int layer)
@@ -90,9 +91,37 @@ namespace Echoes
             item.Open = Mathf.MoveTowards(item.Open, opened ? 1 : 0, Time.unscaledDeltaTime*1.75f);
             item.Lid.localRotation = Quaternion.Euler(68 * Ease(item.Open), 0, 0);
             float sparkle = .12f + .10f*Mathf.Sin(time*1.85f+design*1.57f);
-            float light = stocked ? .52f + sparkle + .29f*Ease(proximity) + (opened ? .15f : 0) : .04f;
+            float light = stocked ? .84f + sparkle + .48f*Ease(proximity) + (opened ? .25f : 0) : opened ? .46f : .08f;
             SetSurface(item.BodyRenderer, 1, light);
             SetSurface(item.LidRenderer, 1, light);
+            if (item.GoldSeal == null)
+            {
+                item.GoldSeal = Node("Suspended gold filigree", item.Root);
+                item.SealRenderer = Renderer(item.GoldSeal, chestMaterial, out var filter);
+                filter.sharedMesh = chestSeal ?? (chestSeal = BuildChestSeal());
+            }
+            item.GoldSeal.gameObject.SetActive(stocked || opened && item.Open < .99f);
+            item.GoldSeal.localPosition = new Vector3(0, model.Hinge.y + .29f + .12f * Ease(item.Open) + .042f * Mathf.Sin(time * 2.5f), -.16f);
+            item.GoldSeal.localRotation = Quaternion.Euler(14 + Mathf.Sin(time * 1.25f) * 7, time * 35 + design * 17, 0);
+            item.GoldSeal.localScale = Vector3.one * (.55f + .43f * Ease(proximity) + .47f * Ease(item.Open));
+            SetSurface(item.SealRenderer, 1, 1.32f + proximity * .44f + sparkle);
+        }
+
+        private Mesh BuildChestSeal()
+        {
+            var mesh = new WorldMesh(meshes);
+            Color gold = Gem(new Color(1f,.78f,.20f), .99f);
+            Color cream = Gem(new Color(1f,.94f,.59f), .99f);
+            const float radius = .202f;
+            for (int arm = 0; arm < 4; arm++)
+            {
+                var turn = Quaternion.Euler(0, 0, arm * 90);
+                mesh.Tube(new[] { turn * P(0,radius,0), turn * P(.076f,.094f,0), turn * P(.139f,.047f,0),
+                    turn * P(radius,0,0) }, new[] { .008f,.012f,.012f,.008f }, 6, gold);
+                mesh.Rock(turn * P(0,radius+.037f,0), P(.018f,.039f,.014f), cream, arm, 4, 6, .07f);
+            }
+            mesh.Rock(Vector3.zero, P(.058f,.11f,.045f), cream, .76f, 5, 8, .10f);
+            return mesh.Finish("Rotating gold chest seal");
         }
 
         public void HideFrom(int artifactCount, int chestCount)
@@ -510,6 +539,8 @@ namespace Echoes
             for(int s=-1;s<=1;s+=2)
             {
                 body.Box(P(s*.651f,-.034f,0),P(.022f,.039f,depth*.61f),Upright,amber);
+                for (int gem = 0; gem < 3; gem++)
+                    Lens(body,P(s*(.22f+gem*.103f),-.091f,front+.007f),.025f,.012f,amber,true);
                 if(discovery) Lens(body,P(s*.40f,height*.54f,front),.049f,.022f,amber,true);
             }
         }

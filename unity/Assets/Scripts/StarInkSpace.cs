@@ -21,8 +21,11 @@ namespace Echoes
     internal sealed class StarInkFrame
     {
         public float time, depth;
+        public float finaleAge = -1;
         public int canvasId, historyVersion, tick;
         public StarInkMark[] marks;
+        public List<Vector3> archive;
+        public List<StarInkMark> archiveMarks;
         public StarTrailGrowth[] growth;
         public bool pointing;
         public int penMark = -1;
@@ -30,6 +33,14 @@ namespace Echoes
         public Vector2 eyeOffset;
         public Rect window;
         public Vector3 Eye => new Vector3(eyeOffset.x, eyeOffset.y, depth);
+
+        public StarInkFrame ForProjection()
+        {
+            var live = (StarInkFrame)MemberwiseClone();
+            live.archive = null;
+            live.archiveMarks = null;
+            return live;
+        }
     }
 
     internal sealed class StarInkSpace : IDisposable
@@ -37,6 +48,7 @@ namespace Echoes
         public const float PerformerDepth = 5.8f, FieldOfView = 49f;
         public const float Aspect = 16f / 9;
         private const int MaxMarks = 24, MaxSamples = 480;
+        private const int MaxArchivePoints = 13500, MaxArchiveMarks = 6800;
         private static readonly float HalfHeight = PerformerDepth * Mathf.Tan(FieldOfView * .5f * Mathf.Deg2Rad);
         private static readonly float BrushWidth = 2 * HalfHeight * Aspect * .82f, BrushHeight = 2 * HalfHeight * .71f;
         private static int nextCanvasId;
@@ -52,6 +64,7 @@ namespace Echoes
         private StarInkMark pen;
         private Vector2 penScreen;
         private bool reconnecting;
+        private bool finaleCaptured;
         private float prevTime, penTime;
         private float distanceToGrowth, lastGrowth = float.NegativeInfinity, flyCheckAt;
         private int fireflies;
@@ -77,6 +90,12 @@ namespace Echoes
         public void Update(Journey journey, Rect window)
         {
             if (paper != journey.StarPaper) Clear(journey.StarPaper);
+            if (journey.StarFinaleActive && finaleCaptured)
+            {
+                frame.window = window;
+                frame.eyeOffset = StarProjection.EyeOffset(frame.cursor, penScreen, window);
+                return;
+            }
             frame.tick++;
             frame.depth = journey.Distance;
             frame.time = journey.Time;
@@ -84,6 +103,8 @@ namespace Echoes
             StarTip input = journey.StarPointer;
             float dt = Mathf.Clamp(frame.time - prevTime, 0, .12f);
             bool changed = pen == null;
+            frame.archive ??= new List<Vector3>(1024);
+            frame.archiveMarks ??= new List<StarInkMark>(64);
             if (pen == null)
                 penScreen = input.Valid ? new Vector2(input.X, input.Y) : new Vector2(.53f, .49f);
             else if (input.Valid && dt > 0)
@@ -102,6 +123,7 @@ namespace Echoes
             {
                 pen = new StarInkMark { continuous = true, born = frame.time, origin = frame.cursor,
                     points = new List<Vector3>(128) { frame.cursor } };
+                frame.archive.Add(frame.cursor);
                 distanceToGrowth = .56f + (float)growthRandom.NextDouble() * .49f;
                 penTime = frame.time;
                 Add(pen);
@@ -116,6 +138,13 @@ namespace Echoes
                 int side = penScreen.x > .76f ? -1 : penScreen.x < .24f ? 1 : motif <= StarMotifs.PerGroup ? -1 : 1;
                 Add(new StarInkMark { motif = motif, branchSide = side, born = frame.time,
                     origin = pen.points[pen.points.Count - 1] });
+                changed = true;
+            }
+            if (journey.StarFinaleActive)
+            {
+                RecordCursor();
+                frame.pointing = false;
+                finaleCaptured = true;
                 changed = true;
             }
             prevTime = frame.time;
@@ -144,9 +173,21 @@ namespace Echoes
             Vector3 last = points[points.Count - 1];
             if ((frame.cursor - last).sqrMagnitude < .0005f * .0005f) return false;
             AppendPoint(points, frame.cursor);
+            if (frame.archive.Count >= MaxArchivePoints) SimplifyArchive(frame.archive);
+            frame.archive.Add(frame.cursor);
             GrowOnStroke(last, frame.cursor);
             penTime = frame.time;
             return true;
+        }
+
+        private static void SimplifyArchive(List<Vector3> points)
+        {
+            // Retain the whole journey, with slightly less sampling density near its beginning.
+            int decimate = points.Count / 3;
+            int kept = 1;
+            for (int i = 2; i < decimate; i += 2)
+                points[kept++] = points[i];
+            points.RemoveRange(kept, decimate - kept);
         }
 
         private void GrowOnStroke(Vector3 last, Vector3 next)
@@ -222,6 +263,8 @@ namespace Echoes
             if (marks.Count == MaxMarks)
                 RemoveAt(marks[0] == pen ? 1 : 0);
             marks.Add(mark);
+            if (mark.motif > 0 && frame.archiveMarks != null && frame.archiveMarks.Count < MaxArchiveMarks)
+                frame.archiveMarks.Add(mark);
             if (mark.branchSide != 0) frame.historyVersion++;
             RefreshMarks();
         }
@@ -243,6 +286,7 @@ namespace Echoes
             frame = new StarInkFrame { canvasId = ++nextCanvasId };
             pen = null;
             reconnecting = false;
+            finaleCaptured = false;
             prevTime = penTime = 0;
             lastGrowth = float.NegativeInfinity;
             fireflies = 0;
@@ -258,11 +302,19 @@ namespace Echoes
             if (checkpoint.version >= 11)
             {
                 string saved = checkpoint.starArtwork;
-                if (string.IsNullOrEmpty(saved) || saved.Length > 2000000) return;
+                if (string.IsNullOrEmpty(saved) || saved.Length > 4000000) return;
                 StarInkFrame old;
                 try { old = JsonUtility.FromJson<StarInkFrame>(saved); }
                 catch (ArgumentException) { return; }
                 if (old == null) return;
+                if (old.archive != null && old.archive.Count <= MaxArchivePoints && old.archive.TrueForAll(SafePoint))
+                    frame.archive = old.archive;
+                if (old.archiveMarks != null && old.archiveMarks.Count <= MaxArchiveMarks)
+                {
+                    frame.archiveMarks = new List<StarInkMark>(old.archiveMarks.Count);
+                    foreach (StarInkMark item in old.archiveMarks)
+                        if (ValidArchiveMark(item, frame.time)) frame.archiveMarks.Add(item);
+                }
                 if (old.marks != null && old.marks.Length <= MaxMarks)
                 {
                     foreach (StarInkMark mark in old.marks)
@@ -285,7 +337,9 @@ namespace Echoes
                     penScreen = ScreenInSky(frame.cursor - (Vector3)TravelOffset(frame.cursor.z - PerformerDepth), PerformerDepth);
                     prevTime = penTime = frame.time;
                     distanceToGrowth = .96f;
+                    frame.archive ??= new List<Vector3>(pen.points);
                 }
+                frame.archiveMarks ??= marks.FindAll(mark => ValidArchiveMark(mark, frame.time));
                 if (old.growth != null)
                     foreach (StarTrailGrowth item in old.growth)
                         if (item.flower && item.born >= 0 && item.born <= frame.time && SafePoint(item.origin))
@@ -294,6 +348,7 @@ namespace Echoes
                 RefreshMarks();
                 return;
             }
+            frame.archiveMarks = new List<StarInkMark>(3);
             for (int i = 0; i < 3 && ((checkpoint.starPaths >> (i * 2)) & 3) != 0; i++)
             {
                 int motif = (checkpoint.starMotifs >> (i * 4)) & 15;
@@ -302,6 +357,10 @@ namespace Echoes
                     portraitTip = new Vector2(-.29f + i * .20f, -.20f + i * .16f) });
             }
         }
+
+        private static bool ValidArchiveMark(StarInkMark mark, float time) =>
+            mark != null && StarMotifs.Valid(mark.motif) && mark.branchSide >= -1 && mark.branchSide <= 1 &&
+            SafePoint(mark.origin) && mark.born >= -3 && mark.born <= time + .04f;
 
         private static bool SafePoint(Vector3 p) => Mathf.Abs(p.x) < 30 && Mathf.Abs(p.y) < 30 && p.z >= 0 && p.z <= 1000020;
 

@@ -1,0 +1,238 @@
+三维精灵|Sylph
+绿金长裙精灵|Gold Gown
+兜帽旅人|Hooded Wanderer
+星纹术士|Star Mage
+红色小鸟|Red Bird
+黑天鹅|Black Swan
+*沉睡森林|Sleeping Forest
+*回声遗迹|Echo Archive
+*星海回响|Star Sea
+序幕|Prologue
+回声庭院 · 试玩|Echo Court · Practice
+*调试 · |Debug ·
+遗迹撞墙|Archive wall
+游戏设置 · F1|Settings · F1
+关闭设置 · F1|Close settings · F1
+返回游戏设置|Back to settings
+投影校准|Projection setup
+游戏设置|Settings
+摄像头 / Arduino|Camera / Arduino
+背景时段|Light cycle
+自动|Auto
+薄暮|Twilight
+蓝调|Blue hour
+月夜|Moonlight
+破晓|Dawn
+*背景速度 |Scenery speed
+模拟手离开画面|Simulate hand loss
+纯黑人物|Character only
+镜像|Mirror
+打开独立人物窗口|Open character window
+已分屏|Split active
+预览片头|Preview prologue
+出场角色|Character
+试玩使用三维背景|3D practice scene
+森林调试断点|Forest checkpoints
+遗迹撞墙断点|Archive wall test
+星海飞行|Star Sea flight
+*巡航速度|Cruise speed
+安静时按这档速度向深处飞。发声会在这个速度上加速。|Cruise sets your quiet speed. Make a sound to accelerate.
+森林 · 速度与捕捉范围|Forest speed and traps
+遗迹入口范围|Archive entrance range
+跳跃高度|Jump height
+*左右移速|Lateral speed
+*迷宫行走速度|Maze walking speed
+*蛛网捕捉范围|Web capture range
+*食人花捕捉范围|Flower capture range
+*萤火接触范围|Firefly contact range
+倍率越大，越早能从附近转入对应的岔道。四个方向可以分别调节。|Larger values let you enter the branch earlier. Adjust each direction separately.
+*左侧 · 按 A|Left · A
+*右侧 · 按 B|Right · B
+*上方 · 张手|Up · open palm
+*下方 · 下降|Down · descend
+恢复默认|Reset defaults
+*常规单跳高度|Normal jump
+每次握拳再张手触发一次起跳。|Make a fist and open your hand to jump.
+*右路门前单跳|Machine entrance jump
+进入森林右路的机器门廊后，门前的所有入口共用这个高度。|All entrances in the machine hall share this jump height.
+拟全息投影校准|Projection calibration
+启用人物周围渐亮|Enable character falloff
+*全屏亮度|Screen brightness
+*输出亮度|Output brightness
+*原画亮度|Source brightness
+*渐亮速率|Falloff rate
+*背景亮度倍率|Background multiplier
+到人物的距离|Distance from character
+*背景亮度|Background brightness
+*蜘蛛动画亮度|Spider brightness
+*食人花动画亮度|Flower brightness
+*主画面大小|Stage scale
+背景已设为纯黑。|The background is set to black.
+渐亮已关闭，可在上方重新启用。|Falloff is off. Use the checkbox above to re-enable it.
+*人物背后保留当前背景亮度的 |Brightness behind the character
+*Arduino 串口|Arduino port
+未检测到|Nothing detected
+刷新端口|Refresh ports
+断开 Arduino|Disconnect Arduino
+连接 Arduino|Connect Arduino
+Windows 未发现串口。用 USB 数据线连接，再点「刷新端口」。|Windows found no ports. Connect a USB data cable and refresh the list.
+ · 低亮度模式| · Low-brightness mode
+启用双灯|Enable lamps
+启用风扇|Enable fan
+关闭实体输出|Stop physical output
+测试双灯|Test lamps
+摄像头、麦克风与 Arduino|Camera, microphone and Arduino
+关闭摄像头|Stop camera
+开启摄像头|Start camera
+重新打开识别页|Reopen tracking
+游戏已暂停，点「继续」后可用手势。|The game is paused. Resume to use gestures.
+序幕播放中，进入关卡后可控制精灵。|Controls become active after the prologue.
+仅伸出食指指向镜头。识别页亮点会跟随指尖。|Point your index finger at the camera. The dot tracks the fingertip.
+在识别页点「打开独立预览」。握拳再张手即可起飞。|Open the tracking preview. Make a fist and open your palm to fly.
+麦克风|Microphone
+关闭麦克风|Stop microphone
+开启麦克风|Start microphone
+重新校准|Recalibrate
+食人花|Snapping flower
+蜘蛛|Spider
+迷宫终点|Maze destination
+右路一号入口 · 齿轮|Right route 1 · Gears
+右路二号入口 · 机器人|Right route 2 · Robots
+右路三号入口 · 预测池|Right route 3 · Prediction pool
+右路心脏|Machine heart
+点击立即跳转。按 R 重跑本断点，点「恢复」读取正常存档。|Go directly to a checkpoint. R repeats it. Restore loads your normal save.
+食指引导|Finger tracking
+持续巡航|Cruising
+松开空格仰视 · Z 发声俯视|Release Space to look up · Z to look down
+A/B 转向 · 松开空格走 · 按住停|A/B turn · Release Space to walk · Hold to stop
+按住鼠标引导光迹 · Z / X 加速|Drag to draw · Z / X accelerates
+空格握拳 · 松开张手 · Z轻声 · X加速|Hold Space to make a fist · Z soft · X loud
+继续|Resume
+暂停|Pause
+重试|Retry
+恢复|Restore
+试玩|Practice
+森林|Forest
+遗迹|Archive
+星海|Star Sea
+跳过 · Esc|Skip · Esc
+请把手放回画面，张开手继续。|Bring your hand back into frame and open your palm to continue.
+根光照亮了两处停歇点。触摸 A 或 B，沿光进遗迹。|Two roots are lit. Touch A or B to follow the light into the archive.
+你找到了离开遗迹的通道。触摸 A 或 B，去星海。|You found the way out. Touch A or B to reach the Star Sea.
+A · 流线|A · Flow
+A · 下一章|A · Next chapter
+A · 切换|A · Switch
+A · 左转|A · Turn left
+A · 向左|A · Left
+A · 看落点|A · See landing
+A · 看一眼|A · Inspect
+B · 星纹|B · Star pattern
+B · 下一章|B · Next chapter
+B · 确认|B · Confirm
+B · 右转|B · Turn right
+B · 向右|B · Right
+B · 借一步|B · Cross
+看精灵捧光。先张手让系统看见你，再握拳半秒并张开，跟它一起放光。|Watch the sylph hold a light. Open your palm, hold a fist for half a second, then reopen to release it.
+张手轻声点亮近灯，再用舒适音量点亮远灯。键盘可按 Z 和 X。|With an open palm, sound softly to light the near lamp, then louder for the far lamp. Try Z and X on the keyboard.
+按 A 看下一处落点，按 B 让精灵借一步跨过石阶。|Press A to preview the landing, then B to cross the stones.
+石阶上的亮点是系统建议的落点。按 B 试着跨过去。|The lit step shows the suggested landing. Press B to cross.
+路线已亮。再按一次 B 授权跨过石阶。|The route is lit. Press B again to authorize the step.
+第三枚印记点亮了。跟着石阶上的绿芽往下走。|The third seal is lit. Follow the seedlings down the steps.
+握拳后张手起飞。A 左、B 右，发声加速。带着三只黄萤飞向森林深处。|Make a fist and open your palm to take off. A left, B right. Sound accelerates. Fly into the forest with three golden fireflies.
+林路前方分成两道。|The forest path forks ahead.
+光脉在前方逐段亮起。|The lights ahead are coming on in sequence.
+靠近光位，张手发出稳定的声音。|Approach the seed bed with an open palm and a steady voice.
+让上、下两处根杯都接到光。靠近后张手，持续发声。|Light both root cups. Approach each with an open palm and hold a steady sound.
+停在种光台上，张手，持续发声。|Stop at the seed bed, open your palm and hold a note.
+高处的根杯亮了。滑降到下方的裂石根盆。|The high root cup is lit. Glide down to the basin in the cracked stone.
+下方的根盆亮了。飞到另一侧的横枝根杯。|The lower basin is lit. Fly across to the cup in the branch.
+A/B 转向，张手走、握拳停。声音加速，岔口沿朝向进入通道。|Turn with A/B, open your palm to walk and close it to stop. Sound speeds you up. Face the passage you want at each junction.
+转向想走的入口，张手沿最接近朝向的隧道前进。|Face the passage you want and open your palm to move ahead.
+指尖引导光迹，发声加快飞行。按 A/B 让图案沿光迹长出。|Guide the ribbon with your fingertip. Sound accelerates flight. A/B grows patterns along the path.
+光迹正飞向深处。只伸出食指，就能改变它的走向。|Your ribbon is traveling onward. Point your index finger to shape its path.
+一层|Level 1
+二层|Level 2
+三层|Level 3
+去|Show
+去终点|Finish
+收起地图|Close map
+迷宫地图|Maze map
+根渠迷宫|Rootwork maze
+隐藏路线|Hide route
+指路到出口|Show route to exit
+青色箭头是你 · 虚线是上下层坡道|The cyan arrow is you. Dashed lines are ramps.
+* · 当前| · Current
+入口|Entrance
+出口|Exit
+已到古根空地。找两处高低不同的光位，靠近后张手持续发声，让两处都亮起来。|You reached the root clearing. Find the two seed beds at different heights and hold a tone with an open palm at each one.
+出口在三层古根空地。到达后，请给上下两处种光。|The exit is in the top level's root clearing. Light both seed beds there.
+*沿当前朝向前进|Continue straight
+*向左转约 |Turn left about
+*向右转约 |Turn right about
+*沿金线前往出口 · 约 |Follow the gold route · About
+* 米| m
+*，朝向标出的通道。| toward the marked passage.
+*随行萤火|Fireflies
+*种下根光|Root lights
+← 按住 A|← Hold A
+按住 B →|Hold B →
+把光种在根边|Seed light beside the roots
+穿过光桥|Cross the light bridge
+风廊|Wind gallery
+你做的 · 张手|You · Open palm
+门记成 · 握拳|Door reads · Fist
+安静片刻|Stay quiet
+把光握稳|Hold the light steady
+石板正在对齐|The stones are aligning
+琥珀音窗亮起时发声|Sound when the amber band lights up
+光碰到缺口时张手|Open your palm when the light reaches the gap
+回声抵达亮区时张手|Open your palm as the echo reaches the lit area
+选择一个|Choose one
+摄像头已关闭|Camera is off
+摄像头已启用，识别到食指坐标|Camera on · Tracking index finger
+摄像头已启用，识别到张手|Camera on · Open palm
+摄像头已启用，识别到握拳|Camera on · Fist
+摄像头已启用，请把一只手放入画面|Camera on · Show one hand
+等待摄像头权限或正在载入识别模型|Waiting for camera access or the tracking model
+浏览器未获摄像头权限，请在识别页允许后重试|Allow camera access in the tracking page, then retry
+摄像头被占用或不可读，关闭其他占用程序后重试|Camera unavailable. Close other apps using it and retry.
+未检测到摄像头，请检查插线和系统权限|No camera found. Check the cable and system permissions.
+识别页已关闭摄像头，点「重新打开识别页」恢复|Tracking page closed the camera. Reopen tracking to resume.
+识别模型未启动，请查看识别页提示|Tracking model did not start. Check the tracking page.
+摄像头信号中断，请检查识别页是否仍在运行|Camera signal lost. Check that the tracking page is still running.
+本机连接已结束，请关闭后重新开启摄像头|Local session ended. Stop and restart the camera.
+识别页已启动，请在弹出的浏览器中允许摄像头|Tracking opened. Allow the camera in your browser.
+摄像头资源不完整，请从仓库运行或重新构建 Windows 版|Camera assets missing. Run from the repository or rebuild Windows.
+无法启动本机摄像头连接，请重试|Unable to start local camera tracking. Retry.
+未启用|Disabled
+未找到麦克风|No microphone found
+麦克风无法开启|Microphone could not start
+安静 2 秒|Quiet for 2 seconds
+麦克风信号中断|Microphone signal lost
+*安静 |Quiet for
+* 秒| s
+*舒适哼声 |Hum softly for
+*实时音量 |Current volume
+未测出明显音量变化，请重试|Volume barely changed. Retry calibration.
+左侧黄灯 · D6|Left yellow lamp · D6
+右侧黄灯 · D7|Right yellow lamp · D7
+双侧青灯|Both lamps cyan
+双侧熄灭|Both lamps off
+串口未连接|Serial disconnected
+请先选择 Windows 检测到的 Arduino 串口|Choose a detected Arduino port first
+* 已打开，等待 EOL3| opened. Waiting for EOL3.
+* 已不在系统中。重新插好数据线后刷新端口。| is gone. Reconnect the cable and refresh the list.
+* 无法独占。关闭 Arduino 串口监视器或其他占用程序后重试。| is busy. Close the serial monitor or other apps and retry.
+* 连接失败（Windows 错误 | could not connect (Windows error
+EOL3 心跳中断，输出已停止|EOL3 connection lost. Outputs stopped.
+* 已打开，未收到 EOL3。请确认已烧录项目固件。| opened, but EOL3 did not respond. Check the firmware.
+* 串口读写中断（Windows 错误 | disconnected (Windows error
+*）。请重新连接。|). Reconnect the port.
+EOL3 已连接 · B 未启用|EOL3 connected · B disabled
+EOL3 已连接|EOL3 connected
+Arduino 已确认 4/4。请核对两侧实际亮灯。|Arduino confirmed 4/4. Check both lamps on the exhibit.
+*Arduino 已确认 |Arduino confirmed
+*/4。请检查固件和串口。|/4. Check firmware and port.
+双灯测试已停止。|Lamp test stopped.
+人物大小|Character size
+光效延展|Light extent

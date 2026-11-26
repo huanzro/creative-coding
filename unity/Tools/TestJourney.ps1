@@ -143,7 +143,7 @@ Step $game 1.5 0
 Assert ($game.Phase -eq 'Prologue' -and !$game.Touch(0)) 'The stone stair should lead into the opening.'
 $game.Step(.5, .7, $false)
 Assert ($game.OpeningTime -gt 0) 'The opening should advance independently of a missing sensor.'
-Step $game 38 0
+for ($frame = 0; $frame -lt 2500 -and $game.IsOpening; $frame++) { $game.Step(.02, 0) }
 Assert ($game.Phase -eq 'ForestExplore' -and $game.EnteredFromOpening) 'The opening should land in the first chapter.'
 Pose $game Open .36 .7
 Assert ($game.ForestLights -eq 3) 'The forest begins with three companion lights.'
@@ -175,35 +175,38 @@ PlantRoot $game -1 .055
 Assert ($game.Plants -eq 2 -and $game.ForestTrap -eq 'Maw') 'Planting the low root second selects the flower ending.'
 $plantedLeft = [Echoes.Journey]::new(25)
 Assert ($plantedLeft.Restore($game.Checkpoint) -and $plantedLeft.ForestTrap -eq 'Maw' -and $plantedLeft.ForestLane -eq -1) 'The completed meadow checkpoint replays its last root and ending.'
-Step $game 5.3 0
+Step $game 10.3 0
 Assert ($game.Chapter -eq 1 -and $game.Phase -eq 'RuinExplore') 'Both roots lead into the flight-based ruins.'
 Assert ($game.RuinDiscipline -eq 0 -and $game.RuinDisciplinesSeen -eq 1) 'The entrance opens on physics.'
 $galleryOrder = @{}
 $galleryOrder[0] = 0
 $crossed = 0
 foreach ($nextRoom in 1,11,12,3,13,14,5,8,10) {
-    $through = $game.RuinPortals | Where-Object TargetRoom -eq $nextRoom | Select-Object -First 1
+    $expectRoom = if ($game.RuinWallPassages -eq $game.RuinWallPassagesRequired - 1) { 9 } else { $nextRoom }
+    $through = $game.RuinPortals | Where-Object TargetRoom -eq $expectRoom | Sort-Object Depth | Select-Object -First 1
     FollowRuin $game $through -AllowWall
     $crossed++
-    Assert ($game.RuinRoomId -eq $nextRoom) 'The branch opens its own tunnel.'
+    Assert ($game.RuinRoomId -eq $expectRoom) 'Ordinary branches reach their own room; the last branch reaches the terminal tunnel.'
     if ($galleryOrder.Count -lt 9) {
         Assert ($game.RuinDiscipline -eq $galleryOrder.Count) 'New galleries advance the exhibit topics in order.'
-        $galleryOrder[$nextRoom] = $game.RuinDiscipline
+        $galleryOrder[$expectRoom] = $game.RuinDiscipline
     }
     Assert ($game.RuinWallPassages -eq $crossed) 'A finished transfer counts once.'
     if ($game.RuinWallPassages -eq $game.RuinWallPassagesRequired) { break }
 }
 Assert ($game.RuinWallPassagesRequired -in 6..9 -and $game.RuinWallPassages -eq $game.RuinWallPassagesRequired -and
-    $game.Phase -eq 'RuinExplore') 'The seed chooses a sixth through ninth passage, and arriving alone does not skip the wall.'
+    $game.Phase -eq 'RuinExplore' -and $game.RuinRoomId -eq 9 -and $game.RuinRoomLength -eq 51) 'The sixth through ninth transfer reaches the original-length terminal tunnel without skipping to its end.'
 $queued = [Echoes.Journey]::new(13)
 Assert ($queued.Restore($game.Checkpoint) -and $queued.RuinWallPassages -eq $queued.RuinWallPassagesRequired) 'The queued wall survives a checkpoint.'
 FlyRuin $queued 7 .05 0
-Assert ($queued.RuinRetryState -eq 'Impact') 'Continuing from the restored entrance reaches the wall.'
-FlyRuin $game 7 .6 0
-Assert ($game.RuinRetryState -eq 'Impact') 'The wall interrupts forward flight before another branch wins the trigger.'
+Assert ($queued.RuinRetryState -eq 'Inactive') 'The wall does not trigger near the final tunnel entrance.'
+FlyRuin $queued 51 .05 0
+Assert ($queued.RuinRetryState -eq 'Impact' -and $queued.RuinRetryWallDepth -eq 51) 'Continuing to the final tunnel end triggers the restored wall.'
+FlyRuin $game 51 .6 0
+Assert ($game.RuinRetryState -eq 'Impact' -and $game.RuinRetryWallDepth -eq 51) 'The final wall catches the player at its terminal end.'
 $debugWall = [Echoes.Journey]::new(29)
 $debugWall.JumpToRuinWallDebugPoint()
-Assert ($debugWall.RuinRetryState -eq 'Impact' -and $debugWall.Age -eq 0 -and $debugWall.RuinWallPassages -eq 0) 'The debug point starts the actual collision without a route prerequisite.'
+Assert ($debugWall.RuinRetryState -eq 'Impact' -and $debugWall.Age -eq 0 -and $debugWall.RuinRetryWallDepth -eq 51) 'The debug point starts the actual final-tunnel collision.'
 Step $debugWall .46 0
 Assert ($debugWall.Cue -eq 'RuinWall') 'The debug point plays the same wall impact cue.'
 Step $game 1.60 0
@@ -238,11 +241,11 @@ Step $game ([Echoes.Journey]::RuinSurveyDuration - $beforeEnd - .08) 0
 Assert ($game.RuinRetryState -eq 'Survey') 'The player keeps camera controls through the ten-second window.'
 Step $game .18 0
 Assert ($game.RuinRetryState -eq 'Arrival') 'Only after the survey does the broker descend.'
-Step $game 8 0
-Assert ($game.RuinRetryState -eq 'Bargain' -and $game.RuinTokenCost -gt
-    [Echoes.Journey]::RuinCapacity * [Echoes.Journey]::RuinComputerTokenRate -and $game.RuinTradeQuote -gt 0) 'A full device inventory cannot pay the toll.'
-Assert (($game.RuinTradePhones * [Echoes.Journey]::RuinPhoneTokenRate + $game.RuinTradeComputers *
-    [Echoes.Journey]::RuinComputerTokenRate) -eq $game.RuinTradeQuote) 'The offered devices cover exactly the remaining token balance.'
+Step $game ([Echoes.Journey]::RuinArrivalDuration - $game.Age + [Echoes.Journey]::RuinValuationFirstLineDuration - .4) 0
+Assert ($game.RuinRetryState -eq 'Valuation' -and $game.Message.StartsWith('我会把')) 'The broker holds the first line for the full spoken introduction.'
+Step $game ([Echoes.Journey]::RuinValuationDuration - $game.Age + .2) 0
+$retainedCoins = if ($null -eq $game.RuinRetainedKind) { 0 } else { [Echoes.Journey]::RuinCoinValue($game.RuinRetainedKind) }
+Assert ($game.RuinRetryState -eq 'Bargain' -and $game.RuinTokenCost -eq $game.RuinCoins - $retainedCoins) 'The exact toll reserves at most one organic artifact.'
 Assert ($game.Touch(0) -and $game.RuinRetryState -eq 'Accepted' -and $game.RuinTradeCommitted -and !$game.Touch(1)) 'Consent commits once and starts the extraction scene.'
 $acceptedSave = $game.Checkpoint
 $acceptedReload = [Echoes.Journey]::new(92)
@@ -250,18 +253,18 @@ Assert ($acceptedReload.Restore($acceptedSave) -and $acceptedReload.RuinRetrySta
     !$acceptedReload.Touch(0)) 'Loading an accepted trade resumes the exit without requesting consent again.'
 Step $game 2.72 0
 Assert ($game.RuinRevealedTokens -eq $game.RuinTokenCost -and $game.RuinRetryState -eq 'Accepted') 'Replacing the organs with device tokens settles the gap.'
-Step $game 2.16 0
-Assert ($game.RuinRetryState -eq 'Accepted') 'The accepted cinematic runs for five seconds.'
-Step $game .16 0
+Step $game 6.96 0
+Assert ($game.RuinRetryState -eq 'Accepted') 'The accepted cinematic remains active for ten seconds.'
+Step $game .42 0
 Assert ($game.InStars -and $game.RuinRetryOutcome -eq 'Traded' -and $game.RuinResult -eq 'Explored') 'Accepting opens Star Sea automatically.'
-Step $refused 21.1 0
+Step $refused ([Echoes.Journey]::RuinSurveyDuration + [Echoes.Journey]::RuinArrivalDuration + [Echoes.Journey]::RuinValuationDuration + .2) 0
 Assert ($refused.RuinRetryState -eq 'Bargain' -and $refused.Touch(1) -and !$refused.RuinTradeCommitted) 'Refusal is available even if the hand is out of frame.'
 Assert ($refused.Message -eq '你的大脑和我比不过是玩具') 'Refusal begins with the broker addressing the player.'
-Step $refused 2 0
+Step $refused 2.2 0
 Assert ($refused.Message -eq '你的心脏终有停跳的那一天') 'Refusal preserves the second line.'
-Step $refused 2.86 0
-Assert ($refused.RuinRetryState -eq 'Declined' -and $refused.Message -eq '何必如此执着呢') 'The refusal holds the last line before the five-second handoff.'
-Step $refused .16 0
+Step $refused 2.66 0
+Assert ($refused.RuinRetryState -eq 'Declined' -and $refused.Message -eq '何必如此执着呢') 'The refusal holds the slower last line before the forest handoff.'
+Step $refused 5.3 0
 Assert ($refused.InStars -and $refused.RuinRetryOutcome -eq 'Kept' -and !$refused.RuinTradeCommitted) 'Refusing waives the toll and reaches Star Sea.'
 Pose $game Open .1 0
 Assert ($game.Phase -eq 'StarsCanvas' -and $game.Started) 'Ruins lead directly into the open Star Sea.'
@@ -498,8 +501,8 @@ $mawSave.forestSites=3
 $mawSave.forestRoute=1
 $mawSave.forestReserve=0
 Assert ($mawEnding.Restore($mawSave) -and $mawEnding.ForestTrap -eq 'Maw' -and $mawEnding.Phase -eq 'ForestTransition') 'A lower-root save restores the flower swallow.'
-Step $mawEnding 3.85 0
-Assert ($mawEnding.Chapter -eq 1) 'The abbreviated flower swallow also carries the character into the ruins.'
+Step $mawEnding ($mawEnding.ForestTransitionTime + .2) 0
+Assert ($mawEnding.Chapter -eq 1) 'The extended flower descent carries the character into the ruins.'
 
 $jumpTuning = [Echoes.Journey]::new(100)
 $jumpTuning.SelectChapter(0)
@@ -559,7 +562,7 @@ Assert ($machine.Section -eq 'Heart' -and $machine.Flight.Height -lt .1 -and $ma
 PlantRoot $machine 0 .05
 Assert ($machine.Phase -eq 'ForestTransition' -and $machine.ForestTrap -eq 'Cable' -and $machine.Plants -eq 1 -and
     $machine.ForestCableAnchor -in 0,1,2) 'The machine heart accepts one light and activates an authored cable port.'
-Step $machine 8.9 0
+Step $machine ($machine.ForestTransitionTime + .2) 0
 Assert ($machine.Chapter -eq 1) 'The right branch also enters the existing ruins.'
 
 $ruins=[Echoes.Journey]::new(92)
@@ -726,19 +729,13 @@ Step $heartbeat .75 0
 Assert ($heartbeat.Cue -eq 'RuinHeartbeat' -and $heartbeat.RuinHeartAge -ge 0 -and !$heart.Collected -and $heart.Reveal -gt .3) 'The first heart reveals and startles before contact.'
 $heartSave=$heartbeat.Checkpoint
 FlyRuin $heartbeat $heart.Depth $heart.Altitude $heart.Lane
-Assert (!$heart.Collected -and $heartbeat.RuinHearts -eq 0) 'Passing right through a nearby cache cannot collect it.'
-Step $heartbeat .28 0
-Assert ($heartbeat.RuinCanTake -and $heartbeat.RuinSearchTarget -eq $heart) 'Stopping beside the revealed alcove makes a collect action available.'
-[void]$heartbeat.Touch(1)
-Assert ($heartbeat.RuinHearts -eq 1 -and $heart.Collected) 'The heart is taken only when explicitly picked up.'
+Assert ($heartbeat.RuinHearts -eq 1 -and $heart.Collected -and $heartbeat.Cue -eq 'RuinCollect') 'Approaching the alcove collects the heart without a button.'
 Assert ($heartbeat.Restore($heartSave)) 'The pre-pickup heart checkpoint restores.'
-$heardCue=$heartbeat.CueId
 $heart = $heartbeat.RuinObjects | Where-Object Kind -eq Heart | Select-Object -First 1
-FlyRuin $heartbeat ($heart.Depth - 1.3) $heart.Altitude $heart.Lane
-Assert ($heartbeat.RuinHeartAge -lt 0 -and $heartbeat.CueId -eq $heardCue) 'The scare stays consumed after a checkpoint restore.'
+FlyRuin $heartbeat ($heart.Depth - 1.36) $heart.Altitude $heart.Lane
+Assert ($heartbeat.RuinHeartAge -lt 0 -and $heartbeat.Cue -ne 'RuinHeartbeat' -and !$heart.Collected) 'The scare stays consumed after a checkpoint restore.'
 FlyRuin $heartbeat $heart.Depth $heart.Altitude $heart.Lane
 Step $heartbeat .28 0
-[void]$heartbeat.Touch(1)
 Assert ($heartbeat.RuinHearts -eq 1 -and $heartbeat.Cue -eq 'RuinCollect') 'A previously heard heart remains collectible without a second scare.'
 
 $atlas = [Echoes.Journey]::new(77)
@@ -749,9 +746,12 @@ $directions = [System.Collections.Generic.HashSet[string]]::new()
 $styles = [System.Collections.Generic.HashSet[int]]::new()
 $depths = [System.Collections.Generic.HashSet[int]]::new()
 $kinds = @{ Phone=0; Computer=0; Heart=0; Brain=0 }
+$originalLengths = @(48,40,44,46,50,43,42,49,45,51,40,27,30,29,31,32)
 for ($room=0; $room -lt 16; $room++) {
     $atlasSave.ruinRoom = $room
     Assert ($atlas.Restore($atlasSave)) 'Each authored room is valid as a saved starting threshold.'
+    $scale = if ($room -in 0,9) { 1 } else { .5 }
+    Assert ($atlas.RuinRoomLength -eq $originalLengths[$room] * $scale) 'The entrance and final gallery keep their lengths and ordinary galleries are halved.'
     [void]$depths.Add($atlas.RuinLayer)
     foreach ($portal in $atlas.RuinPortals) { [void]$directions.Add($portal.Direction.ToString()) }
     $passages[$room] = [int[]]@($atlas.RuinPortals | ForEach-Object { $_.TargetRoom })
@@ -775,8 +775,9 @@ foreach ($start in 0..15) {
         if (!$reached.Add($found)) { continue }
         foreach ($next in $passages[$found]) { $pending.Enqueue($next) }
     }
-    Assert ($reached.Contains(0)) 'Every room can return to the entrance hall through optional branches.'
-    if ($start -eq 0) { Assert ($reached.Count -eq 16) 'Every layer and secret room is reachable from the entry.' }
+    if ($start -ne 9) { Assert ($reached.Contains(0)) 'Every ordinary room can return to the entrance hall through optional branches.' }
+    else { Assert ($reached.Count -eq 1) 'The terminal room is a route to the wall with no divergent portals.' }
+    if ($start -eq 0) { Assert ($reached.Count -eq 15 -and !$reached.Contains(9)) 'All ordinary galleries remain reachable and the terminal gallery waits for the last transfer.' }
 }
 
 $atlasSave.ruinRoom = 11
@@ -786,7 +787,9 @@ FlyRuin $atlas $chest.Depth $chest.Altitude $chest.Lane
 Step $atlas .28 0
 Assert ($atlas.RuinCanTake -and !$atlas.RuinLootOpen -and $atlas.RuinChests -eq 0) 'Stopping next to a chest leaves it closed until the player chooses.'
 [void]$atlas.Touch(1)
-Assert ($atlas.RuinLootSource -eq $chest -and $atlas.RuinChests -eq 1) 'B opens the chest and its choice panel.'
+Assert ($atlas.RuinLootDisplaySource -eq $chest -and $atlas.RuinChests -eq 1 -and $atlas.RuinChestOpening -and !$atlas.RuinLootOpen) 'B opens the chest and starts automatic pickup.'
+Step $atlas 2.1 0
+Assert ($atlas.RuinChestRemaining($chest) -eq 0 -and !$atlas.RuinLootOpen) 'A chest with capacity clears automatically without a choice panel.'
 
 $atlasSave.ruinFinds = -1
 $atlasSave.ruinRoom = 15
@@ -795,9 +798,7 @@ Assert ($atlas.Restore($atlasSave) -and $atlas.RuinInventory -eq [Echoes.Journey
 $overflow = $atlas.RuinObjects | Where-Object { !$_.Collected -and $_.Kind -ne 'Chest' } | Select-Object -First 1
 FlyRuin $atlas $overflow.Depth $overflow.Altitude $overflow.Lane
 Step $atlas .28 0
-Assert ($atlas.RuinCanTake) 'A full bag does not prevent inspecting the alcove.'
-[void]$atlas.Touch(1)
-Assert (!$overflow.Collected -and $atlas.RuinInventory -eq [Echoes.Journey]::RuinCapacity) 'A confirmed pickup cannot exceed the capacity.'
+Assert (!$overflow.Collected -and $atlas.RuinInventory -eq [Echoes.Journey]::RuinCapacity) 'Automatic pickup cannot exceed the capacity.'
 $flight=[Echoes.SpiritFlight]::new()
 $flight.Reset(.11)
 $flight.Release(.3)
@@ -845,6 +846,24 @@ Assert ($starFlight.StarSpeed -gt $starFlight.StarCruiseSpeed -and ([Echoes.Spir
 $starFlight.StarCruiseSpeed = .1
 Step $starFlight .8 0
 Assert ($starFlight.StarSpeed -eq [Echoes.Journey]::MinimumStarCruiseSpeed) 'A live tuning change still preserves forward flight.'
+
+$ending = [Echoes.Journey]::new(72)
+$ending.StarCruiseSpeed = [Echoes.Journey]::MaximumStarCruiseSpeed
+$ending.SelectChapter(2)
+Step $ending 29 1
+Assert (!$ending.StarFinaleActive -and $ending.Distance -lt [Echoes.Journey]::StarFinaleDistance) 'The finale waits for distance, including acceleration from cruise.'
+Step $ending 2 1
+Assert ($ending.StarFinaleActive -and [Math]::Abs($ending.Distance - 94.5) -lt .001 -and
+    $ending.StarSpeed -eq 0 -and !$ending.Touch(0) -and !$ending.Touch(1)) 'At 30 seconds of maximum-speed equivalent distance the pen stops and the finale begins.'
+$endingSave = $ending.Checkpoint
+$restoredEnding = [Echoes.Journey]::new(72)
+Assert ($restoredEnding.Restore($endingSave) -and $restoredEnding.StarFinaleActive -and
+    $restoredEnding.StarFinaleAge -eq 0) 'A reached finale restarts from its first shot after restoring progress.'
+Step $ending 18 0
+Assert ($ending.Distance -eq [Echoes.Journey]::StarFinaleDistance -and
+    $ending.StarFinaleAge -eq [Echoes.Journey]::StarFinaleDuration) 'The keepsake holds on screen until the player starts again.'
+$ending.Retry()
+Assert (!$ending.StarFinaleActive -and $ending.Distance -eq 0 -and $ending.Touch(1)) 'Retry opens a fresh Star Sea canvas.'
 
 $touch = $enabled = 0
 Assert ([Echoes.ExhibitProtocol]::ReadInputs('EOL3 IN 3 7', [ref]$touch, [ref]$enabled)) 'The serial input still accepts both contacts.'

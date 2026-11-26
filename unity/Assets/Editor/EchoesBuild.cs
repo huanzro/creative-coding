@@ -120,17 +120,35 @@ namespace Echoes
         }
 
         [MenuItem("Echoes of Light/Build Windows Preview")]
-        public static void Windows()
+        public static void Windows() => BuildWindows(false);
+
+        [MenuItem("Echoes of Light/Build Windows Debug")]
+        public static void WindowsDebug() => BuildWindows(true);
+
+        public static void WindowsRelease()
+        {
+            BuildWindows(false);
+            BuildWindows(true);
+        }
+
+        private static void BuildWindows(bool development)
         {
             Prepare(false);
             if (!BuildPipeline.IsBuildTargetSupported(BuildTargetGroup.Standalone, BuildTarget.StandaloneWindows64))
                 throw new InvalidOperationException("Install Windows Build Support for this Unity Editor.");
-            string output = Path.Combine(Project, "Builds", "Windows", "Echoes of Light.exe");
+            PlayerSettings.productName = "Echoes of Light";
+            PlayerSettings.companyName = "Creative Coding";
+            PlayerSettings.defaultScreenWidth = 1280;
+            PlayerSettings.defaultScreenHeight = 720;
+            PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
+            PlayerSettings.resizableWindow = true;
+            PlayerSettings.runInBackground = true;
+            string output = Path.Combine(Project, "Builds", development ? "WindowsDebug" : "Windows", "Echoes of Light.exe");
             var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions {
                 scenes = new[] { ScenePath },
                 locationPathName = output,
                 target = BuildTarget.StandaloneWindows64,
-                options = BuildOptions.None
+                options = development ? BuildOptions.Development | BuildOptions.AllowDebugging : BuildOptions.None
             });
             if (report.summary.result != BuildResult.Succeeded)
                 throw new InvalidOperationException("Unity Windows build failed: " + report.summary.result);

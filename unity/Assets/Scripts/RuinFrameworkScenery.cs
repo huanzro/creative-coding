@@ -58,13 +58,19 @@ namespace Echoes
                 case RuinRetryPhase.Gate:
                     return new Vector3(0,0,Mathf.Lerp(-7.48f,0,OpeningStoryboard.Ease(.81f,2.98f,age)));
                 case RuinRetryPhase.Accepted:
-                    return new Vector3(-.84f*OpeningStoryboard.Ease(3.05f,3.75f,age),
-                        1.23f*OpeningStoryboard.Ease(3.52f,4.61f,age), 26.2f*OpeningStoryboard.Ease(3.01f,5,age));
+                    return ExitGroveActor(age, true);
                 case RuinRetryPhase.Declined:
-                    return new Vector3(-3.3f*OpeningStoryboard.Ease(2.54f,3.61f,age),
-                        2.80f*OpeningStoryboard.Ease(3.31f,4.37f,age), 23.8f*OpeningStoryboard.Ease(2.88f,5,age));
+                    return ExitGroveActor(age, false);
                 default: return Vector3.zero;
             }
+        }
+
+        private static Vector3 ExitGroveActor(float age, bool accepted)
+        {
+            float stride=OpeningStoryboard.Ease(accepted ? 3.01f : 2.88f, 9.85f, age);
+            float turn=OpeningStoryboard.Window(age, 2.52f, 4.19f, 5.04f, 7.94f);
+            return new Vector3((accepted ? -.72f : -2.38f) * turn + .91f * stride,
+                2.28f * stride + .73f * Mathf.Sin(stride * Mathf.PI), 27.9f * stride);
         }
 
         private void BuildRuinFramework()

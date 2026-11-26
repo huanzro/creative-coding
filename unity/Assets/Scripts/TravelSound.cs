@@ -6,7 +6,7 @@ namespace Echoes
     internal sealed class TravelSound : IDisposable
     {
         private const int Rate = 24000;
-        private readonly AudioSource source, wind, machinery, dialogue;
+        private readonly AudioSource source, wind, machinery, dialogue, piano;
         private readonly AudioClip[] cues = new AudioClip[Enum.GetValues(typeof(JourneyCue)).Length];
         private readonly AudioClip[] machineScenes = new AudioClip[4];
         private readonly AudioClip[] rescues = new AudioClip[2];
@@ -15,6 +15,8 @@ namespace Echoes
         private int sceneStamp;
         private RuinRetryPhase dialoguePhase;
         private bool dialoguePaused;
+        private bool priceSpoken, finaleStarted, finalePaused, dialogueEnglish;
+        private AudioClip finalePiano, priceLine;
 
         public TravelSound(GameObject owner)
         {
@@ -32,6 +34,9 @@ namespace Echoes
             dialogue=owner.AddComponent<AudioSource>();
             dialogue.playOnAwake=false;
             dialogue.volume=.82f;
+            piano=owner.AddComponent<AudioSource>();
+            piano.playOnAwake=false;
+            piano.volume=.63f;
         }
 
         public void Follow(Journey journey, bool paused)
@@ -39,6 +44,13 @@ namespace Echoes
             FollowWind(journey, paused);
             FollowMachine(journey, paused);
             FollowDialogue(journey, paused);
+            FollowFinale(journey, paused);
+            if (journey.StarFinaleActive)
+            {
+                if (source.isPlaying) source.Stop();
+                heard=journey.CueId;
+                return;
+            }
             if (paused || journey.IsOpening)
             {
                 if(source.isPlaying) source.Stop();
@@ -126,18 +138,39 @@ namespace Echoes
         private void FollowDialogue(Journey journey, bool paused)
         {
             var phase = journey.RuinRetryState;
-            if (dialoguePhase != phase)
+            bool english = EchoesLocale.English;
+            string language=english ? "en_" : "zh_";
+            if (dialoguePhase != phase || dialogueEnglish != english)
             {
                 dialoguePhase = phase;
+                dialogueEnglish = english;
                 dialogue.Stop();
-                dialoguePaused = false;
-                string line = phase == RuinRetryPhase.Valuation ? "valuation" :
-                    phase == RuinRetryPhase.Bargain ? "offer" :
+                dialoguePaused = priceSpoken = false;
+                if (priceLine != null) UnityEngine.Object.Destroy(priceLine);
+                string line = phase == RuinRetryPhase.Valuation ? "intro" :
+                    phase == RuinRetryPhase.Bargain ? "ask" :
                     phase == RuinRetryPhase.Declined ? "refusal" : null;
-                dialogue.clip = line == null ? null : Resources.Load<AudioClip>("RuinBroker/" + line);
-                if (dialogue.clip != null && journey.Age < dialogue.clip.length)
+                dialogue.clip = line == null ? null : Resources.Load<AudioClip>("RuinBroker/" + language + line);
+                float limit = phase == RuinRetryPhase.Valuation ? Journey.RuinValuationFirstLineDuration - .16f :
+                    phase == RuinRetryPhase.Declined ? 4.88f : 7.5f;
+                dialogue.pitch = dialogue.clip != null ? Mathf.Max(1, dialogue.clip.length / limit) : 1;
+                if (dialogue.clip != null && journey.Age * dialogue.pitch < dialogue.clip.length)
                 {
-                    dialogue.time = journey.Age;
+                    dialogue.time = journey.Age * dialogue.pitch;
+                    dialogue.Play();
+                }
+            }
+            if (!paused && phase == RuinRetryPhase.Valuation && !priceSpoken &&
+                journey.Age >= Journey.RuinValuationFirstLineDuration)
+            {
+                priceSpoken = true;
+                priceLine = ComposePrice(language, journey.RuinTokenCost);
+                if (priceLine != null)
+                {
+                    dialogue.Stop();
+                    dialogue.clip = priceLine;
+                    dialogue.pitch = Mathf.Max(1,priceLine.length / (Journey.RuinValuationDuration -
+                        Journey.RuinValuationFirstLineDuration - .12f));
                     dialogue.Play();
                 }
             }
@@ -151,6 +184,87 @@ namespace Echoes
                 dialogue.UnPause();
                 dialoguePaused = false;
             }
+        }
+
+        private static AudioClip ComposePrice(string language, int coins)
+        {
+            string path="RuinBroker/"+language;
+            var bank=Resources.Load<AudioClip>(path+"numbers");
+            var map=Resources.Load<TextAsset>(path+"number_map");
+            var prefix=Resources.Load<AudioClip>(path+"prefix");
+            var suffix=Resources.Load<AudioClip>(path+"suffix");
+            if (bank==null || map==null || prefix==null || suffix==null) return null;
+            string[] records=map.text.Split('\n');
+            string[] pair=records[Mathf.Clamp(coins,0,90)].Split(',');
+            if (pair.Length!=2 || !int.TryParse(pair[0],out int from) || !int.TryParse(pair[1],out int length)) return null;
+            int gap=bank.frequency/18;
+            var head=new float[prefix.samples];
+            var number=new float[length];
+            var tail=new float[suffix.samples];
+            if (!prefix.GetData(head,0) || !bank.GetData(number,from) || !suffix.GetData(tail,0)) return null;
+            var data=new float[head.Length+number.Length+tail.Length+2*gap];
+            Array.Copy(head,data,head.Length);
+            Array.Copy(number,0,data,head.Length+gap,number.Length);
+            Array.Copy(tail,0,data,head.Length+number.Length+2*gap,tail.Length);
+            var clip=AudioClip.Create("Archive exit price",data.Length,1,bank.frequency,false);
+            clip.SetData(data,0);
+            return clip;
+        }
+
+        private void FollowFinale(Journey journey, bool paused)
+        {
+            if (!journey.StarFinaleActive)
+            {
+                if (finaleStarted) piano.Stop();
+                finaleStarted=finalePaused=false;
+                return;
+            }
+            if (!finaleStarted && !paused)
+            {
+                finaleStarted=true;
+                if (finalePiano==null) finalePiano=ComposeFinalePiano();
+                piano.clip=finalePiano;
+                if (journey.StarFinaleAge<finalePiano.length)
+                {
+                    piano.time=journey.StarFinaleAge;
+                    piano.Play();
+                }
+            }
+            if (paused && piano.isPlaying)
+            {
+                piano.Pause();
+                finalePaused=true;
+            }
+            else if (!paused && finalePaused)
+            {
+                piano.UnPause();
+                finalePaused=false;
+            }
+        }
+
+        private static AudioClip ComposeFinalePiano()
+        {
+            const float seconds=14.7f;
+            var notes=new[] { 48,55,60,64,67,52,59,64,71,57,64,69,72,53,60,65,69,48,55,60,64,67,72 };
+            var onsets=new[] { .40f,.74f,1.19f,1.77f,2.31f,3.18f,3.56f,4.13f,4.81f,5.65f,6.03f,6.61f,
+                7.11f,8.04f,8.38f,8.86f,9.39f,10.43f,10.79f,11.28f,11.80f,12.07f,12.49f };
+            var data=new float[(int)(Rate*seconds)];
+            for (int n=0;n<notes.Length;n++)
+            {
+                double hz=440*Math.Pow(2,(notes[n]-69)/12d);
+                float amplitude=notes[n]<58 ? .146f : .105f + .027f*(n%3)/2f;
+                int start=Mathf.RoundToInt(onsets[n]*Rate);
+                for (int i=start;i<Math.Min(data.Length,start+4*Rate);i++)
+                {
+                    double t=(i-start)/(double)Rate;
+                    double attack=Math.Min(1,t*158)*Math.Exp(-.98*t);
+                    double strings=Tone(t,hz)+.31*Tone(t,hz*2.002)*Math.Exp(-2.05*t)+.10*Tone(t,hz*3.011)*Math.Exp(-3.8*t);
+                    data[i]+=(float)(amplitude*attack*strings);
+                }
+            }
+            for (int i=Rate/9;i<data.Length;i++)
+                data[i]=(data[i]+data[i-Rate/9]*.16f)*Mathf.Clamp01((data.Length-i)/(Rate*1.52f));
+            return MachineClip("Golden impression piano",data);
         }
 
         private static AudioClip ComposeMachineLoop()
@@ -180,7 +294,7 @@ namespace Echoes
 
         private static AudioClip ComposeMachineScene(int scene)
         {
-            float duration=scene==3 ? 8.8f : Journey.ForestDoorDuration;
+            float duration=scene==3 ? Journey.ForestCableTransitionDuration : Journey.ForestDoorDuration;
             var samples=new float[(int)(Rate*duration)];
             var grain=new System.Random(220+scene);
             double noise=0;
@@ -373,7 +487,7 @@ namespace Echoes
                 double fundamental = arrival ? 43 : reveal ? 73.4 : accepted ? 98 : 65.4;
                 double bed = .08 * Tone(t, fundamental) + .052 * Tone(t, fundamental * 1.5) + .07 * breath;
                 double bloom = arrival ? Math.Sin(Math.PI * t / seconds) :
-                    reveal ? .8 * Math.Exp(-t * .83) : Math.Max(0, (t - 2.6) / 2.4);
+                    reveal ? .8 * Math.Exp(-t * .83) : .73 * Math.Sin(Math.PI * Math.Max(0, t - 2.6) / Math.Max(.1, seconds-2.6));
                 double shimmer = .064 * Tone(t, accepted ? 784 : 659.25) + .038 * Tone(t, accepted ? 1174 : 987.8);
                 double arrivalLatch = arrival ? Decay(t, 3.05, 6.1) * .12 * Tone(t, 142) : 0;
                 samples[i] = (float)(edge * (bed * (arrival ? .9 : .48) + bloom * shimmer + arrivalLatch));
@@ -419,6 +533,10 @@ namespace Echoes
 
         public void Dispose()
         {
+            if (piano!=null) UnityEngine.Object.Destroy(piano);
+            if (dialogue!=null) UnityEngine.Object.Destroy(dialogue);
+            if (finalePiano!=null) UnityEngine.Object.Destroy(finalePiano);
+            if (priceLine!=null) UnityEngine.Object.Destroy(priceLine);
             if(source!=null) UnityEngine.Object.Destroy(source);
             if(wind!=null)
             {

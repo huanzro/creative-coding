@@ -342,7 +342,7 @@ namespace Echoes
             var previous = Gesture;
             Gesture = next;
             if (next == Hand.Open) Started = true;
-            if (!InStars && previous == Hand.Fist && next == Hand.Open && (cameraGesture || Held >= .13f) && Phase != Stage.Complete &&
+            if (!InStars && previous == Hand.Fist && next == Hand.Open && (cameraGesture || Held >= (Lesson >= 0 ? .13f : .065f)) && Phase != Stage.Complete &&
                 !IsForestSequence && !IsRuinSequence)
                 Release();
             Held = Charge = 0;
@@ -350,7 +350,7 @@ namespace Echoes
 
         private void Release()
         {
-            if (InRuins && (Phase == Stage.RuinRetry || RuinLootOpen)) return;
+            if (InRuins && (Phase == Stage.RuinRetry || RuinLootOpen || RuinChestOpening)) return;
             LastRelease = PoseTime;
             ReleaseAltitude = Flight.Height;
             Light = 1;
@@ -408,7 +408,7 @@ namespace Echoes
                 UpdateForest(dt);
                 return;
             }
-            if (IsRuinSequence)
+            if (IsRuinSequence || InRuins && RuinChestOpening)
             {
                 Time += dt;
                 Age += dt;

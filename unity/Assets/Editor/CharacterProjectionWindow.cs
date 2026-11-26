@@ -91,8 +91,8 @@ namespace Echoes
             }
             using (var changes = new EditorGUI.ChangeCheckScope())
             {
-                characterScale = EditorGUILayout.Slider("人物大小", characterScale, .35f, 1.40f);
-                lightReach = EditorGUILayout.Slider("光效延展", lightReach, .65f, 2.45f);
+                characterScale = EditorGUILayout.Slider(EchoesLocale.T("人物大小", "Character size"), characterScale, .35f, 1.40f);
+                lightReach = EditorGUILayout.Slider(EchoesLocale.T("光效延展", "Light extent"), lightReach, .65f, 2.45f);
                 if (changes.changed)
                 {
                     EditorPrefs.SetFloat(ScaleKey, characterScale);

@@ -78,9 +78,27 @@ namespace Echoes
                 heading = Quaternion.Euler(0,Heading[room],0);
                 gradePhase = room * 1.13f;
                 Vector2[] plan = Plans[room % Plans.Length];
-                int count = plan.Length;
-                float scale = Mathf.Clamp(length*.378f,16.3f,18.8f);
-                var corners = BuildCorners(plan,scale);
+                float roomScale = RuinAtlas.LengthScale(room);
+                float scale = Mathf.Clamp(length / roomScale * .378f, 16.3f, 18.8f);
+                var corners = BuildCorners(plan, scale, 10.9f);
+                if (roomScale < 1)
+                {
+                    // Refit short galleries instead of squeezing their inner walls into tight corners.
+                    float target = RouteLength(corners) * roomScale;
+                    var compact = new Vector2[8];
+                    float oval = .89f + .07f * (room % Plans.Length);
+                    for (int i = 0; i < compact.Length; i++)
+                    {
+                        float angle = (i - .5f) * Mathf.PI * .25f;
+                        compact[i] = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle) * oval);
+                    }
+                    float unit = target / (2 * Mathf.PI);
+                    const float cornerShare = .78f;
+                    var test = BuildCorners(compact, unit, unit * cornerShare);
+                    unit *= target / RouteLength(test);
+                    corners = BuildCorners(compact, unit, unit * cornerShare);
+                }
+                int count = corners.Length;
 
                 var parts = new List<GallerySegment>(count*2+1);
                 Vector2 seam = Vector2.Lerp(corners[0].End,corners[1].Start,.42f);
@@ -102,7 +120,18 @@ namespace Echoes
                 Metres = closing.EndDistance;
             }
 
-            private static GalleryCorner[] BuildCorners(Vector2[] plan,float scale)
+            private static float RouteLength(GalleryCorner[] corners)
+            {
+                float length = 0;
+                for (int i = 0; i < corners.Length; i++)
+                {
+                    GalleryCorner at = corners[i], next = corners[(i + 1) % corners.Length];
+                    length += Vector2.Distance(at.End, next.Start) + next.Radius * Mathf.Abs(next.Turn);
+                }
+                return length;
+            }
+
+            private static GalleryCorner[] BuildCorners(Vector2[] plan,float scale,float radius)
             {
                 int count=plan.Length;
                 var directions=new Vector2[count];
@@ -119,7 +148,7 @@ namespace Echoes
                 {
                     Vector2 incoming=directions[(i+count-1)%count], outgoing=directions[i];
                     turns[i]=Mathf.Atan2(incoming.x*outgoing.y-incoming.y*outgoing.x,Vector2.Dot(incoming,outgoing));
-                    setbacks[i]=10.9f*Mathf.Tan(Mathf.Abs(turns[i])*.5f);
+                    setbacks[i]=radius*Mathf.Tan(Mathf.Abs(turns[i])*.5f);
                 }
                 // Adjacent bends share the available straight. A shallow turn leaves more
                 // room for its neighbour so a short edge does not force a pinched corner.

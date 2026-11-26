@@ -34,14 +34,19 @@ namespace Echoes
 
         private readonly List<RuinLootChoice> ruinLootDevices = new List<RuinLootChoice>(SlotsPerRuinChest);
         private readonly List<RuinLootChoice> ruinLootChoices = new List<RuinLootChoice>(SlotsPerRuinChest + 1);
+        private readonly List<RuinObject> ruinDeferredLoot = new List<RuinObject>(4);
         private ulong ruinChestLootTaken, ruinReleasedMemories, ruinReleasedMemoriesExtra;
-        private RuinObject ruinLootClearedSource, ruinLootReleaseSource;
+        private RuinObject ruinLootReleaseSource;
+        private RuinObject ruinAutomaticChest;
+        private float ruinChestPickupAt;
         private RuinLootChoice ruinPendingDevice;
         private float ruinLootReleaseAt = float.NegativeInfinity;
 
         public RuinObject RuinLootSource { get; private set; }
-        public RuinObject RuinLootDisplaySource => RuinLootSource ?? (RuinLootReleaseAge >= 0 ? ruinLootReleaseSource : null);
+        public RuinObject RuinLootDisplaySource => RuinLootSource ?? ruinAutomaticChest ??
+            (RuinLootReleaseAge >= 0 ? ruinLootReleaseSource : null);
         public bool RuinLootOpen => RuinLootSource != null;
+        public bool RuinChestOpening => ruinAutomaticChest != null;
         public bool RuinLootSwap { get; private set; }
         public int RuinLootIndex { get; private set; }
         public int RuinLootPendingSlot => RuinLootSwap ? ruinPendingDevice.Slot : -1;
@@ -101,16 +106,20 @@ namespace Echoes
 
         private void RefreshRuinLootContact()
         {
-            if (ruinLootClearedSource != null && (Math.Abs(ruinLootClearedSource.Depth - Distance) > 1.98f ||
-                Math.Abs(ruinLootClearedSource.Lane - RuinLane) > .80f))
-                ruinLootClearedSource = null;
+            for (int i = ruinDeferredLoot.Count - 1; i >= 0; i--)
+            {
+                RuinObject item = ruinDeferredLoot[i];
+                if (Math.Abs(item.Depth - Distance) > 1.98f * RuinAtlas.LengthScale(ruinRoomId) ||
+                    Math.Abs(item.Lane - RuinLane) > .80f || Math.Abs(item.Altitude - Flight.Height) > .78f)
+                    ruinDeferredLoot.RemoveAt(i);
+            }
         }
 
         private bool OfferRuinLoot(RuinObject item)
         {
-            if (RuinLootOpen) return true;
+            if (RuinLootOpen || RuinChestOpening) return true;
             RefreshRuinLootContact();
-            if (item == ruinLootClearedSource) return false;
+            if (ruinDeferredLoot.Contains(item)) return false;
             if (item.Kind == RuinObjectKind.Chest)
             {
                 if (RuinChestRemaining(item) == 0) return false;
@@ -118,15 +127,22 @@ namespace Echoes
                 if (!item.Collected)
                 {
                     RecordRuinPickup(item);
-                    Notify(JourneyCue.RuinCollect);
                     Revision++;
                 }
+                ruinAutomaticChest = item;
+                ruinChestPickupAt = .73f;
+                FillRuinChestDevices(item);
+                RuinForwardSpeed = 0;
+                StopRuinSteering();
+                RuinSearchTarget = null;
+                Message = "宝箱打开，设备正在入包。";
+                return true;
             }
             else if (!IsRuinDevice(item.Kind) || item.Collected || RuinInventory < RuinCapacity) return false;
             else if (RuinHearts + RuinBrains == 0)
             {
                 Message = $"{RuinCapacity} 格全是已锁定的设备。这件设备留在原处。";
-                ruinLootClearedSource = item;
+                ruinDeferredLoot.Add(item);
                 return false;
             }
 
@@ -138,6 +154,41 @@ namespace Echoes
             return true;
         }
 
+        private bool AdvanceAutomaticRuinChest(float dt)
+        {
+            var chest = ruinAutomaticChest;
+            if (chest == null) return false;
+            chest.OpenAge += dt;
+            if (chest.OpenAge < ruinChestPickupAt) return true;
+            if (RuinInventory < RuinCapacity && ruinLootDevices.Count > 0)
+            {
+                var device = ruinLootDevices[0];
+                ClaimRuinLoot(chest, device);
+                ruinLootDevices.RemoveAt(0);
+                ruinChestPickupAt += .28f;
+                Message = "「" + device.Label + "」已入包并锁定。";
+                if (ruinLootDevices.Count > 0) return true;
+            }
+            ruinAutomaticChest = null;
+            if (ruinLootDevices.Count == 0)
+            {
+                ruinDeferredLoot.Add(chest);
+                return true;
+            }
+            RuinLootSource = chest;
+            ShowRuinLootDevices();
+            return true;
+        }
+
+        private void FillRuinChestDevices(RuinObject chest)
+        {
+            ruinLootDevices.Clear();
+            int count = RuinChestItemCount(chest);
+            for (int slot = 0; slot < count; slot++)
+                if ((ruinChestLootTaken & RuinDeviceBit(chest, slot)) == 0)
+                    ruinLootDevices.Add(RuinChestDevice(chest, slot));
+        }
+
         private void ShowRuinLootDevices()
         {
             RuinLootSwap = false;
@@ -146,10 +197,7 @@ namespace Echoes
             var source = RuinLootSource;
             if (source.Kind == RuinObjectKind.Chest)
             {
-                int count = RuinChestItemCount(source);
-                for (int slot = 0; slot < count; slot++)
-                    if ((ruinChestLootTaken & RuinDeviceBit(source, slot)) == 0)
-                        ruinLootDevices.Add(RuinChestDevice(source, slot));
+                FillRuinChestDevices(source);
             }
             else ruinLootDevices.Add(new RuinLootChoice(RuinLootAction.Take, source.Kind, 0, source.Id % ComputerNames.Length,
                 RuinObjectLabels[(int)source.Kind]));
@@ -190,6 +238,7 @@ namespace Echoes
 
         private bool TryRuinLootTouch(int option)
         {
+            if (RuinChestOpening) return true;
             if (!RuinLootOpen) return false;
             if (option == 0)
             {
@@ -227,6 +276,18 @@ namespace Echoes
             }
 
             var source = RuinLootSource;
+            ClaimRuinLoot(source, device);
+            string result = "「" + device.Label + "」已入包并锁定。";
+            if (source.Kind != RuinObjectKind.Chest || RuinChestRemaining(source) == 0) CloseRuinLoot(result);
+            else
+            {
+                ShowRuinLootDevices();
+                Message = result;
+            }
+        }
+
+        private void ClaimRuinLoot(RuinObject source, RuinLootChoice device)
+        {
             if (source.Kind == RuinObjectKind.Chest)
             {
                 ruinChestLootTaken |= RuinDeviceBit(source, device.Slot);
@@ -235,13 +296,6 @@ namespace Echoes
             else RecordRuinPickup(source);
             Notify(JourneyCue.RuinCollect);
             Revision++;
-            string result = "「" + device.Label + "」已入包并锁定。";
-            if (source.Kind != RuinObjectKind.Chest || RuinChestRemaining(source) == 0) CloseRuinLoot(result);
-            else
-            {
-                ShowRuinLootDevices();
-                Message = result;
-            }
         }
 
         private void RecordRuinPickup(RuinObject item)
@@ -254,7 +308,7 @@ namespace Echoes
 
         private void CloseRuinLoot(string message)
         {
-            ruinLootClearedSource = RuinLootSource;
+            ruinDeferredLoot.Add(RuinLootSource);
             ClearRuinLootPanel();
             Message = message;
         }
@@ -262,7 +316,8 @@ namespace Echoes
         private void ClearRuinLoot()
         {
             ClearRuinLootPanel();
-            ruinLootClearedSource = null;
+            ruinAutomaticChest = null;
+            ruinDeferredLoot.Clear();
             ruinLootReleaseSource = null;
             ruinLootReleaseAt = float.NegativeInfinity;
         }

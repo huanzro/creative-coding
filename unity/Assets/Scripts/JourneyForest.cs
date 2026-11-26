@@ -69,11 +69,13 @@ namespace Echoes
         private const float DoorDepth = MachineDoorDepth, ShaftDepth = MachineShaftDepth, HeartDepth = MachineHeartDepth;
         private const int PreviousHeartDepth = 208;
         public const float ForestTransitionDuration = 3.7f;
+        public const float ForestTransitionExtension = 5f, ForestCableTransitionDuration = 8.8f + ForestTransitionExtension;
         internal const float ForestFallSwallowStart = .49f, ForestDescentSwallowStart = .41f;
         internal const float ForestRecyclerSwallowStart = .81f, ForestCableSwallowStart = .79f;
         public const float ForestDoorDuration = 13.4f;
         public const float ForestMachineUpperFloor = 1.46f;
-        public float ForestTransitionTime => ForestTrap == ForestTrapKind.Cable ? 8.8f : ForestTransitionDuration;
+        public float ForestTransitionTime => ForestTrap == ForestTrapKind.Cable
+            ? ForestCableTransitionDuration : ForestTransitionDuration + ForestTransitionExtension;
         public const float ForestFallDuration = 2.45f;
         public float ForestCaptureTime => ForestTrap == ForestTrapKind.Maw ? ForestMawRescueDuration : ForestRescueDuration;
         internal float ForestRescueAuthoredAge => Age * (ForestRescueDuration / ForestCaptureTime);

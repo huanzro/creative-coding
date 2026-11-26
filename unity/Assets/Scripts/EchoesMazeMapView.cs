@@ -66,10 +66,10 @@ namespace Echoes
             Paint(new Rect(at.x - 47, at.y - 47, 94, 94), Opacity(MapPlayer, .28f + .19f * shimmer), glow);
             Paint(new Rect(at.x - 20, at.y - 20, 40, 40), Opacity(MapInk, .86f), glow);
             Paint(new Rect(at.x - 24, at.y - 24, 48, 48), Opacity(MapPlayer, .84f), ring);
-            GUI.Label(new Rect(at.x - 20, at.y - 20, 40, 40), arrow, guideArrow);
+            LocaleGui.Label(new Rect(at.x - 20, at.y - 20, 40, 40), arrow, guideArrow);
             Paint(new Rect(at.x - 41, at.y + 24, 82, 23), MapInk);
             string destination = floor < MazeLevels.Length - 1 ? "去" + MazeLevels[floor + 1] : "去终点";
-            GUI.Label(new Rect(at.x - 41, at.y + 24, 82, 23), destination, guideLabel);
+            LocaleGui.Label(new Rect(at.x - 41, at.y + 24, 82, 23), destination, guideLabel);
         }
 
         internal MazeMapCommand DrawMazeMap(Journey journey, bool open, bool showRoute)
@@ -79,17 +79,17 @@ namespace Echoes
             var command = MazeMapCommand.None;
             string toggle = open ? "收起地图" : "迷宫地图";
             if (Application.platform != RuntimePlatform.WebGLPlayer) toggle += " · F2";
-            if (GUI.Button(new Rect(894, 27, 153, 36), toggle, button))
+            if (LocaleGui.Button(new Rect(894, 27, 153, 36), toggle, button))
                 command = MazeMapCommand.Toggle;
 
             if (open)
             {
                 PrepareMazeMap(journey.ForestMaze);
                 Paint(new Rect(822, 74, 429, 564), MapInk);
-                GUI.Label(new Rect(840, 86, 201, 30), "根渠迷宫", mapTitle);
-                if (GUI.Button(new Rect(1135, 87, 98, 28), showRoute ? "隐藏路线" : "指路到出口", button))
+                LocaleGui.Label(new Rect(840, 86, 201, 30), "根渠迷宫", mapTitle);
+                if (LocaleGui.Button(new Rect(1135, 87, 98, 28), showRoute ? "隐藏路线" : "指路到出口", button))
                     command = MazeMapCommand.Route;
-                GUI.Label(new Rect(840, 116, 388, 23), "青色箭头是你 · 虚线是上下层坡道", mapLabel);
+                LocaleGui.Label(new Rect(840, 116, 388, 23), "青色箭头是你 · 虚线是上下层坡道", mapLabel);
                 DrawMazeFloors(journey, showRoute);
             }
             EndFrame(matrix);
@@ -141,7 +141,7 @@ namespace Echoes
                 bool currentFloor = floor == playerFloor;
                 Color surface = currentFloor ? new Color(.092f,.18f,.194f) : new Color(.062f,.13f,.139f);
                 Paint(tile, surface);
-                GUI.Label(new Rect(tile.x + 11, tile.y + 7, 100, 21),
+                LocaleGui.Label(new Rect(tile.x + 11, tile.y + 7, 100, 21),
                     currentFloor ? MazeLevels[floor] + " · 当前" : MazeLevels[floor], mapLabel);
                 var drawing = new Rect(tile.x + 99, tile.y + 13, tile.width - 150, tile.height - 26);
                 foreach (ForestMazeEdge edge in maze.Edges)
@@ -157,11 +157,11 @@ namespace Echoes
 
             bool atExit = journey.ForestMazeNode == maze.RootChamber;
             if (atExit)
-                GUI.Label(new Rect(840, 537, 392, 75), "已到古根空地。找两处高低不同的光位，靠近后张手持续发声，让两处都亮起来。", mapLabel);
+                LocaleGui.Label(new Rect(840, 537, 392, 75), "已到古根空地。找两处高低不同的光位，靠近后张手持续发声，让两处都亮起来。", mapLabel);
             else if (route != null)
-                GUI.Label(new Rect(840, 537, 392, 75), MazeRouteInstruction(journey, current, route, remaining), mapLabel);
+                LocaleGui.Label(new Rect(840, 537, 392, 75), MazeRouteInstruction(journey, current, route, remaining), mapLabel);
             else
-                GUI.Label(new Rect(840, 537, 392, 75), "出口在三层古根空地。到达后，请给上下两处种光。", mapLabel);
+                LocaleGui.Label(new Rect(840, 537, 392, 75), "出口在三层古根空地。到达后，请给上下两处种光。", mapLabel);
         }
 
         private void DrawMazeMapEdge(ForestMazeEdge edge, ForestMaze maze, int from, int target, int floor, Rect bounds, int[] route)
@@ -189,7 +189,7 @@ namespace Echoes
             Vector2 end = a.Level == floor ? bb : aa;
             Paint(new Rect(end.x-2,end.y-2,4,4),color);
             var mark = new Rect(Mathf.Clamp(end.x + 5, bounds.xMin - 12, bounds.xMax + 8), end.y - 10, 44, 20);
-            GUI.Label(mark, otherLevel > floor ? "↑" + MazeLevels[otherLevel] : "↓" + MazeLevels[otherLevel], mapMark);
+            LocaleGui.Label(mark, otherLevel > floor ? "↑" + MazeLevels[otherLevel] : "↓" + MazeLevels[otherLevel], mapMark);
         }
 
         private void DrawMazeEnd(ForestMazeNode node, int floor, Rect bounds, Rect tile, string text, Color color)
@@ -197,7 +197,7 @@ namespace Echoes
             if (node.Level != floor) return;
             Vector2 spot = ProjectMazePoint(MapCoordinates(node),floor,bounds);
             Paint(new Rect(spot.x-4,spot.y-4,8,8),color);
-            GUI.Label(new Rect(Mathf.Clamp(spot.x+9,tile.x+5,tile.xMax-39),
+            LocaleGui.Label(new Rect(Mathf.Clamp(spot.x+9,tile.x+5,tile.xMax-39),
                 Mathf.Clamp(spot.y-12,tile.y+2,tile.yMax-20),44,20),text,mapMark);
         }
 

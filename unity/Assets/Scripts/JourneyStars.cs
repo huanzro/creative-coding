@@ -50,15 +50,20 @@ namespace Echoes
         public const float MinimumStarCruiseSpeed = .25f, DefaultStarCruiseSpeed = .72f, MaximumStarCruiseSpeed = 1.65f;
         private const float StarVoiceFloor = .075f, StarAudioBoost = 1.50f;
         public const float StarMaxSpeed = MaximumStarCruiseSpeed + StarAudioBoost;
+        public const float StarFinaleDistance = StarMaxSpeed * 30f;
+        public const float StarFinaleDuration = 14f;
         private readonly Queue<int> starStamps = new Queue<int>(12);
         private readonly int[] lastStarMotif = { -1, -1 };
         private readonly float[] lastStampAt = new float[2];
         private float starCruiseSpeed = DefaultStarCruiseSpeed;
+        private float starFinaleAge = -1;
 
         public bool InStars => Chapter == 2 && Lesson < 0;
         public int StarPaper { get; private set; }
         public StarTip StarPointer { get; private set; }
         public float StarSpeed { get; private set; }
+        public bool StarFinaleActive => InStars && starFinaleAge >= 0;
+        public float StarFinaleAge => StarFinaleActive ? starFinaleAge : -1;
         public float StarCruiseSpeed
         {
             get => starCruiseSpeed;
@@ -69,7 +74,10 @@ namespace Echoes
             ? "指尖引导光迹，发声加快飞行。按 A/B 让图案沿光迹长出。"
             : "光迹正飞向深处。只伸出食指，就能改变它的走向。";
 
-        public void SetStarPointer(StarTip pointer) => StarPointer = InStars ? pointer : default;
+        public void SetStarPointer(StarTip pointer)
+        {
+            if (!StarFinaleActive) StarPointer = InStars ? pointer : default;
+        }
 
         internal bool TryTakeStarStamp(out int motif)
         {
@@ -80,6 +88,7 @@ namespace Echoes
         private void StartStar()
         {
             StarPaper++;
+            starFinaleAge = -1;
             StarSpeed = starCruiseSpeed;
             StarLastStamp = 0;
             StarPointer = default;
@@ -96,7 +105,7 @@ namespace Echoes
 
         private bool StarsTouch(int option)
         {
-            if (starStamps.Count >= 12 || Time - lastStampAt[option] < .115f) return false;
+            if (StarFinaleActive || starStamps.Count >= 12 || Time - lastStampAt[option] < .115f) return false;
             int previous = lastStarMotif[option];
             int chosen = forestRandom.Next(previous < 0 ? StarMotifs.PerGroup : StarMotifs.PerGroup - 1);
             if (previous >= 0 && chosen >= previous) chosen++;
@@ -110,13 +119,25 @@ namespace Echoes
 
         private void UpdateStars(float dt)
         {
+            if (StarFinaleActive)
+            {
+                starFinaleAge = Math.Min(StarFinaleDuration, starFinaleAge + dt);
+                return;
+            }
             float pressure = Clamp((Voice - StarVoiceFloor) / (1 - StarVoiceFloor));
             float target = starCruiseSpeed + StarAudioBoost * (float)Math.Pow(pressure, .80);
             float difference = target - StarSpeed;
             float step = dt * (difference >= 0 ? 4.8f : 7.6f);
             StarSpeed += Math.Max(-step, Math.Min(step, difference));
             Distance += StarSpeed * dt;
-            Progress = StarSpeed / StarMaxSpeed;
+            if (Distance >= StarFinaleDistance)
+            {
+                starFinaleAge = (Distance - StarFinaleDistance) / Math.Max(.01f, StarSpeed);
+                Distance = StarFinaleDistance;
+                StarSpeed = 0;
+                Revision++;
+            }
+            Progress = Distance / StarFinaleDistance;
         }
 
         private void RetryStar()
@@ -130,8 +151,14 @@ namespace Echoes
         private void RestoreStars(JourneyCheckpoint checkpoint)
         {
             if (checkpoint.version < 11) return;
-            Distance = checkpoint.starDepth;
+            Distance = Math.Min(checkpoint.starDepth, StarFinaleDistance);
             Time = PoseTime = checkpoint.starTime;
+            if (Distance >= StarFinaleDistance)
+            {
+                starFinaleAge = 0;
+                StarSpeed = 0;
+            }
+            Progress = Distance / StarFinaleDistance;
         }
     }
 }

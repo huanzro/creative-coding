@@ -19,6 +19,7 @@ namespace Echoes
         private readonly float[] lampBegin = new float[2];
         private readonly float[] lampEnd = { -1, -1 };
         private readonly ForestLampShow forestLamps = new ForestLampShow();
+        private readonly ChapterLampShow chapterLamps = new ChapterLampShow();
         private readonly Dictionary<int, int> lampTestPackets = new Dictionary<int, int>();
         private static readonly LampRgb TestAmber = new LampRgb(27, 17, 0);
         private static readonly LampRgb TestCyan = new LampRgb(4, 18, 25);
@@ -126,12 +127,17 @@ namespace Echoes
                 {
                     SuspendOutput();
                     forestLamps.Reset(journey.CueId, journey.ForestSwallowing);
+                    chapterLamps.Reset(journey.CueId);
                     return;
                 }
                 LampRgb forest = default;
                 if (Ready && running && LampsEnabled && inForest && !LampTesting)
                     forest = forestLamps.Sample(journey, now);
                 else forestLamps.Reset(journey.CueId, journey.ForestSwallowing);
+                LampRgb chapterLeft = default, chapterRight = default;
+                if (Ready && running && LampsEnabled && !LampTesting && (journey.InRuins || journey.InStars))
+                    chapterLamps.Sample(journey, now, out chapterLeft, out chapterRight);
+                else chapterLamps.Reset(journey.CueId);
                 if (!Ready || now < nextWrite) return;
                 nextWrite = now + .05f;
                 if (LampTesting)
@@ -142,6 +148,11 @@ namespace Echoes
                 int fan = FanEnabled ? (int)Math.Round(Math.Max(0, Math.Min(1, energy)) * 132) : 0;
                 LampRgb left = inForest ? forest : ExhibitProtocol.LeftTouch.Dim(Lamp(0, now));
                 LampRgb right = inForest ? forest : ExhibitProtocol.RightTouch.Dim(Lamp(1, now));
+                if (journey.InRuins || journey.InStars)
+                {
+                    left = chapterLeft;
+                    right = chapterRight;
+                }
                 WriteOutput(left, right, fan);
             }
             catch (Win32Exception error)

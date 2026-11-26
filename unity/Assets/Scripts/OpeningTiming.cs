@@ -12,6 +12,6 @@ namespace Echoes
             SecondFall = 27.9f,
             Impact = 31.4f,
             Recovery = 33.5f,
-            Duration = 37.6f;
+            Duration = 40.4f;
     }
 }

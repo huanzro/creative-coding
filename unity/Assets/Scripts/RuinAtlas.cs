@@ -19,7 +19,7 @@ namespace Echoes
         public RuinDirection Direction { get; }
         public RuinGate Gate { get; }
         public bool Hidden { get; }
-        public int TargetRoom { get; }
+        public int TargetRoom { get; internal set; }
         public int FrameStyle { get; }
         public bool Opened { get; internal set; }
         public float OpenAge { get; internal set; } = -1;
@@ -93,6 +93,8 @@ namespace Echoes
         private const int FirstExtraFind = RoomCount * ObjectSlots;
         private const int FirstNewVault = RoomCount * PassageSlots;
         internal const int ExitRoom = 9;
+
+        internal static float LengthScale(int room) => room == 0 || room == ExitRoom ? 1f : .5f;
 
         private static readonly RuinObjectKind[] AdditionalFinds =
         {
@@ -190,6 +192,13 @@ namespace Echoes
                         dir = RuinDirection.Left;
                         destination = 0;
                     }
+                    if (destination == ExitRoom)
+                    {
+                        // Keep the vault formerly reached through the terminal gallery in the live network.
+                        bool vault = roomId == 7 && end;
+                        destination = vault ? 15 : roomId == 6 ? 5 : 6;
+                        if (vault) hidden = true;
+                    }
                     int lane = dir == RuinDirection.Left ? -1 : dir == RuinDirection.Right ? 1 : 0;
                     int id = roomId * PassageSlots + slot;
                     portals[slot] = new RuinPortal(id, depth, height, lane, dir, gate, hidden,
@@ -232,7 +241,24 @@ namespace Echoes
                 objects[3] = new RuinObject(roomId * ObjectSlots + 3, chestDepth, chestHeight, chestLane,
                     RuinObjectKind.Chest, room.chest);
                 PlaceRuinCaches(seed, roomId, room.length, portals, objects);
-                atlas[roomId] = new RuinRoom(room.name, room.layer, room.style, room.length, portals, objects);
+                float scale = LengthScale(roomId);
+                if (scale < 1)
+                {
+                    for (int i = 0; i < portals.Length; i++)
+                    {
+                        RuinPortal portal = portals[i];
+                        portals[i] = new RuinPortal(portal.Id, portal.Depth * scale, portal.Altitude,
+                            portal.Lane, portal.Direction, portal.Gate, portal.Hidden, portal.TargetRoom, portal.FrameStyle);
+                    }
+                    for (int i = 0; i < objects.Length; i++)
+                    {
+                        RuinObject item = objects[i];
+                        objects[i] = new RuinObject(item.Id, item.Depth * scale, item.Altitude,
+                            item.Lane, item.Kind, item.ChestStyle);
+                    }
+                }
+                atlas[roomId] = new RuinRoom(room.name, room.layer, room.style, room.length * scale,
+                    roomId == ExitRoom ? Array.Empty<RuinPortal>() : portals, objects);
             }
             return atlas;
         }
