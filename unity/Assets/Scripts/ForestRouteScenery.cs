@@ -53,6 +53,8 @@ namespace Echoes
         public static Vector3 MazeActor(Journey journey, float altitude) =>
             new Vector3(journey.ForestMazeX,journey.ForestMazeY + .54f + 5.2f*altitude,journey.ForestMazeZ);
 
+        public static Vector3 MazeRootCenter(Journey journey) => MazeNodePosition(journey.ForestMaze.Nodes[journey.ForestMaze.RootChamber]);
+
         public static Quaternion ForestOrientation(Journey journey) =>
             Quaternion.Euler(0,ForestHeading(journey),0);
 
@@ -80,8 +82,9 @@ namespace Echoes
 
         public static Vector3 ForestDescentMouth(Journey journey)
         {
-            if (!journey.ForestMazeActive) return ForestPoint(journey,journey.ForestTrapLane,journey.ForestTrapDepth+2.35f,0);
-            return MazeActor(journey,0) + ForestOrientation(journey)*Vector3.forward*2.35f;
+            if (journey.AtMazeRoots)
+                return MazeRootCenter(journey) + ForestOrientation(journey)*new Vector3(0,.54f,.42f);
+            return ForestPoint(journey,journey.ForestTrapLane,journey.ForestTrapDepth+2.35f,0);
         }
 
         public static Vector4 ForestSink(Journey journey)

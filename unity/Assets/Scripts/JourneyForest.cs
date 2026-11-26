@@ -52,7 +52,7 @@ namespace Echoes
     public sealed partial class Journey
     {
         private const int StartingLights = 3;
-        private const float PlantTime = .80f;
+        private const float PlantTime = .80f, PlantVoice = .12f;
         // Both rescue performances use this authored clock. The flower plays it in less time.
         public const float ForestRescueDuration = 9.4f;
         public const float ForestMawRescueDuration = 6.2f;
@@ -755,18 +755,37 @@ namespace Echoes
                 : "停在种光台上，张手，持续发声。");
         }
 
+        private bool CanReachPlant(ForestFeature site) => site != null && !site.Collected &&
+            Math.Abs(site.Lane - ForestLane) < .31f &&
+            Math.Abs(site.Altitude - Flight.Height) < (site.Altitude > .5f ? .19f : .17f);
+
+        private void StepForestHeight(float dt)
+        {
+            ForestFeature upper = forestSites[1];
+            if (AtMazeRoots && forestPlantTime > 0 && Gesture == Hand.Open && PoseVoice >= PlantVoice &&
+                CanReachPlant(upper) && ForestPlantTargetId == upper.Id)
+            {
+                // Sustain the hover once the player has flown into reach and started sowing.
+                float settle = 1 - (float)Math.Exp(-3.7f * dt);
+                Flight.FollowForestCourse(Lerp(Flight.Height, upper.Altitude - .06f, settle), dt);
+                return;
+            }
+            Flight.StepForest(dt, Gesture, ForestHeightLimit, ForestFlightFloor);
+        }
+
         private void PlantForestLight(float dt)
         {
-            if (Branch == ForestBranch.Left && forestPlantMask == 0 && ForestLights == 1 &&
+            if (AtMazeRoots && forestPlantMask == 0 && ForestLights == 1 &&
                 (forestRenewal == null || forestRenewal.Collected))
-                forestRenewal = AddMazeFeature(ForestFeatureKind.Amber,0,.115f,ForestMazeX-ForestLane*2.1f,ForestMazeY,ForestMazeZ);
+            {
+                ForestMazeNode center = ForestMaze.Nodes[ForestMaze.RootChamber];
+                forestRenewal = AddMazeFeature(ForestFeatureKind.Amber, 0, .115f, center.X, center.Y, center.Z);
+            }
 
             ForestFeature aligned = null;
             foreach (ForestFeature site in forestSites)
             {
-                if (site != null && !site.Collected && Math.Abs(site.Lane - ForestLane) < .31f &&
-                    Math.Abs(site.Altitude - Flight.Height) < (site.Altitude > .5f ? .19f : .17f))
-                    aligned = site;
+                if (CanReachPlant(site)) aligned = site;
             }
 
             if (aligned == null || aligned.Id != ForestPlantTargetId)
@@ -775,7 +794,7 @@ namespace Echoes
                 ForestPlantTargetId = aligned?.Id ?? -1;
             }
             bool enough = ForestLights > 1 || ForestLights == 1 && Plants + 1 == ForestPlantsRequired;
-            bool voiced = aligned != null && enough && Gesture == Hand.Open && Voice >= .12f;
+            bool voiced = aligned != null && enough && Gesture == Hand.Open && Voice >= PlantVoice;
             forestPlantTime = Math.Max(0, forestPlantTime + dt * (voiced ? 1 : -2.2f));
             Progress = ForestPlantCharge;
             if (forestPlantTime < PlantTime || aligned == null) return;

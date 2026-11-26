@@ -40,10 +40,10 @@ namespace Echoes
         public ForestMaze ForestMaze { get; private set; }
         public bool ForestMazeActive => InForest && Branch == ForestBranch.Left && Distance >= MazeEntranceDepth && ForestMaze != null;
         internal bool ForestMazeWalkArea => ForestMazeActive && !AtMazeRoots;
-        public float ForestMazeX => mazeX + (AtMazeRoots ? ForestLane * 2.1f : 0);
+        public float ForestMazeX => AtMazeRoots ? ForestMaze.RootPositionX(ForestLane * ForkLaneWidth, 0) : mazeX;
         public float ForestMazeY => mazeY;
-        public float ForestMazeZ => mazeZ;
-        public float ForestMazeHeading => mazeYaw;
+        public float ForestMazeZ => AtMazeRoots ? ForestMaze.RootPositionZ(ForestLane * ForkLaneWidth, 0) : mazeZ;
+        public float ForestMazeHeading => AtMazeRoots ? ForestMaze.RootHeading : mazeYaw;
         public float ForestMazeSpeed => mazeSpeed;
         public float ForestMazeTravel => mazeTravel;
         public float ForestMazeWallOffset => mazeWallOffset;
@@ -58,7 +58,7 @@ namespace Echoes
             (Phase == Stage.ForestExplore || Phase == Stage.ForestLoop && mazeMotion == ForestMazeMotion.Retracing);
         internal float ForestMazePassageHeading => mazeTarget >= 0 ? ForestMaze.Heading(mazeFrom, mazeTarget) : mazeYaw;
 
-        private bool AtMazeRoots => ForestMazeActive && Distance >= ClearingDepth;
+        internal bool AtMazeRoots => ForestMazeActive && Distance >= ClearingDepth;
         private float MazeWalkingPace => Gesture == Hand.Open
             ? mazeWalkScale * Math.Min(.98f + 2.55f * Voice, ForestMaze.MaximumSpeed / DefaultMazeWalkScale) : 0;
 
@@ -103,11 +103,6 @@ namespace Echoes
             RecordMazeFloor(mazeFrom);
             mazePath.Add(mazeFrom);
             SetMazePosition(ForestMaze.Nodes[mazeFrom]);
-            if (mazeFrom == ForestMaze.RootChamber)
-            {
-                int approach = ForestMaze.Connections(mazeFrom)[0].Other(mazeFrom);
-                mazeYaw = ForestMaze.ArrivalHeading(mazeFrom, approach);
-            }
         }
 
         private void PopulateMaze(Random random)
@@ -125,9 +120,16 @@ namespace Echoes
                 float altitude = kind == ForestFeatureKind.Web ? .58f : kind == ForestFeatureKind.Maw ? .035f : .08f;
                 AddMazeFeature(kind, 0, altitude, Lerp(a.X,b.X,fraction), Lerp(a.Y,b.Y,fraction), Lerp(a.Z,b.Z,fraction));
             }
-            ForestMazeNode root = ForestMaze.Nodes[ForestMaze.RootChamber];
-            forestSites[0] = AddMazeFeature(ForestFeatureKind.Plant, -1, .064f, root.X - 2.1f, root.Y, root.Z);
-            forestSites[1] = AddMazeFeature(ForestFeatureKind.Plant, 1, .63f, root.X + 2.1f, root.Y, root.Z);
+            AddRootPlant(0, -1, .064f);
+            AddRootPlant(1, 1, .63f);
+        }
+
+        private void AddRootPlant(int index, int lane, float altitude)
+        {
+            float across = lane * ForkLaneWidth;
+            forestSites[index] = AddMazeFeature(ForestFeatureKind.Plant, lane, altitude,
+                ForestMaze.RootPositionX(across, ForestMaze.RootCupLead), ForestMaze.Nodes[ForestMaze.RootChamber].Y,
+                ForestMaze.RootPositionZ(across, ForestMaze.RootCupLead));
         }
 
         private ForestFeature AddMazeFeature(ForestFeatureKind kind, int lane, float altitude, float x,float floor,float z)
@@ -142,7 +144,7 @@ namespace Echoes
 
         private float MazeFeatureDepth(ForestFeature feature)
         {
-            double heading=mazeYaw*Math.PI/180;
+            double heading=ForestMazeHeading*Math.PI/180;
             float x=feature.WorldX+(feature.LaneAt(Time)-feature.Lane)*2.1f-ForestMazeX;
             float z=feature.WorldZ+feature.DepthAt(Time)-feature.Depth-ForestMazeZ;
             return x*(float)Math.Sin(heading)+z*(float)Math.Cos(heading);
@@ -150,7 +152,7 @@ namespace Echoes
 
         private float MazeFeatureLane(ForestFeature feature)
         {
-            double heading=mazeYaw*Math.PI/180;
+            double heading=ForestMazeHeading*Math.PI/180;
             float x=feature.WorldX+(feature.LaneAt(Time)-feature.Lane)*2.1f-ForestMazeX;
             float z=feature.WorldZ+feature.DepthAt(Time)-feature.Depth-ForestMazeZ;
             return Math.Abs(x*(float)Math.Cos(heading)-z*(float)Math.Sin(heading))/2.1f;

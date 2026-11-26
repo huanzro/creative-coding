@@ -324,8 +324,7 @@ namespace Echoes
                 BuildMazeRoom(fabric,maze,node,ports[node.Id]);
             BuildMazeEntryGate(MazeNodePosition(maze.Nodes[maze.Entry]));
 
-            ForestMazeNode end = maze.Nodes[maze.RootChamber];
-            BuildMazeBasins(fabric,MazeNodePosition(end));
+            BuildMazeBasins(fabric,maze);
             BuildMazeBackdrop(fabric,maze);
 
             MazePiece("Ground beyond the drainage works", fabric.Ground, soil, mazeArchitecture);
@@ -618,8 +617,10 @@ namespace Echoes
                 else if (basin)
                 {
                     Vector3 left=lip-tangent*(PassageHalf+.03f), right=lip+tangent*(PassageHalf+.03f);
-                    fabric.Bark.Tube(new[] {left,right-tangent*.80f+Vector3.up*4.55f,right+Vector3.up*.94f},
-                        new[] {.24f,.26f,.28f},9,PollutedBark);
+                    // Keep the arch out of the central sightline as the camera enters the chamber.
+                    fabric.Bark.Tube(new[] {left,left+Vector3.up*2.84f,left+tangent*.46f+Vector3.up*4.51f,
+                            lip+Vector3.up*5.04f,right-tangent*.50f+Vector3.up*4.55f,right+Vector3.up*2.64f,right},
+                        new[] {.29f,.23f,.22f,.24f,.19f,.21f,.30f},9,PollutedBark);
                 }
             }
 
@@ -711,15 +712,18 @@ namespace Echoes
             return false;
         }
 
-        private void BuildMazeBasins(MazeFabric fabric,Vector3 chamber)
+        private void BuildMazeBasins(MazeFabric fabric,ForestMaze maze)
         {
+            Vector3 chamber = MazeNodePosition(maze.Nodes[maze.RootChamber]);
+            Quaternion facing = Quaternion.Euler(0,maze.RootHeading,0);
+            Vector3 At(float x,float y,float z) => chamber+facing*new Vector3(x,y,z);
             for (int i=0;i<mazeRootSignals.Length;i++)
             {
                 float side=i==0?-1:1;
-                Vector3 rootAt=chamber+new Vector3(side*MazeLane,i==0?.09f:3.02f,0);
+                Vector3 rootAt=At(side*MazeLane,i==0?.09f:3.02f,ForestMaze.RootCupLead);
                 for(int segment=0;segment<8;segment++)
                 {
-                    Vector3 radial = MazeRadial(segment,8);
+                    Vector3 radial = facing*MazeRadial(segment,8);
                     Vector3 lip=rootAt+radial*.56f;
                     fabric.Concrete.Rock(lip,new Vector3(.25f,.17f,.29f),WorldMesh.Shade(WetConcrete,.96f),
                         segment*.83f,4,8,.21f);
@@ -728,15 +732,15 @@ namespace Echoes
                 }
                 if (i==1)
                 {
-                    Roots(fabric.Bark,chamber+new Vector3(3.67f,.17f,1.10f),rootAt+Vector3.down*.211f,
+                    Roots(fabric.Bark,At(3.28f,.17f,1.28f),rootAt+Vector3.down*.211f,
                         .56f,.44f,9f);
-                    Roots(fabric.Bark,chamber+new Vector3(3.03f,.12f,-1.81f),rootAt+Vector3.down*.243f,
+                    Roots(fabric.Bark,At(2.43f,.12f,2.74f),rootAt+Vector3.down*.243f,
                         .42f,.28f,13f);
                 }
                 var veins=new WorldMesh(mazeMeshes);
                 for (int line=0;line<4;line++)
                 {
-                    var tip=rootAt+new Vector3(side*(.53f+line*.24f),i==0?.68f:1.25f,-.42f+line*.28f);
+                    var tip=rootAt+facing*new Vector3(side*(.53f+line*.24f),i==0?.68f:1.25f,-.42f+line*.28f);
                     Roots(veins,rootAt+Vector3.up*.12f,tip,.031f,.17f,4*line,Color.white);
                 }
                 mazeRootSignals[i]=MazePiece("Expandable veins of the planting basin",veins,glow,mazeArchitecture);

@@ -389,7 +389,7 @@ namespace Echoes
             }
             else if (Lesson >= 0) Flight.Step(dt, Gesture);
             else if (InForest && !IsForestSequence && Section != ForestSection.Shaft && advanceJourney && Gesture != Hand.Missing)
-                Flight.StepForest(dt, Gesture, ForestHeightLimit, ForestFlightFloor);
+                StepForestHeight(dt);
             storyPulse = Math.Max(0, storyPulse - dt);
             Light = Math.Max(0, Light - dt * .85f);
             if (!advanceJourney || Phase == Stage.Complete) return;

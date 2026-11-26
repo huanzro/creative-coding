@@ -475,9 +475,14 @@ Assert ($resumed.Restore($forestSave) -and $resumed.InForest -and $resumed.Plant
     $resumed.Checkpoint.forestSeed -eq $forestSave.forestSeed) 'Restore must replay the same planted clearing with the integer light reserve.'
 Pose $resumed Open .01 0
 Steer $resumed 1
-Pose $resumed Fist .55 .7
+Pose $resumed Fist .55 .30
+Pose $resumed Open .76 .30
+Assert ($resumed.ForestPlantCharge -gt .08 -and $resumed.Plants -eq 1) 'The upper root starts to charge while the player hovers in reach.'
+Pose $resumed Open 2.9 0
+Assert ($resumed.ForestPlantCharge -eq 0 -and $resumed.Flight.Height -lt .02 -and $resumed.ForestLights -eq 1) 'Silence cancels the hover and charge without spending the companion.'
+Pose $resumed Fist .55 .30
 Pose $resumed Open 1.7 .3
-Assert ($resumed.ForestLights -eq 0 -and $resumed.Phase -eq 'ForestTransition' -and $resumed.ForestTrap -eq 'Web') 'The final upper root may spend the last companion and selects the web ending.'
+Assert ($resumed.ForestLights -eq 0 -and $resumed.Phase -eq 'ForestTransition' -and $resumed.ForestTrap -eq 'Web') 'One regular jump and a light voice complete the upper root, spend the last companion, and select the web ending.'
 Step $resumed ($resumed.ForestTransitionTime - $resumed.Age - .16) 0
 Assert ($resumed.Phase -eq 'ForestTransition') 'The spider still has a visible beat before the descent.'
 Step $resumed .35 0

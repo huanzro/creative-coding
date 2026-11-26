@@ -551,7 +551,7 @@ namespace Echoes
             if (journey.ForestTrap==ForestTrapKind.Cable)
                 return WorldSet.MachineCableActor(point,phase,journey.ForestCableAnchor);
             Vector3 mouth=WorldSet.ForestDescentMouth(journey);
-            float move=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.20f,.75f,phase));
+            float move=OpeningStoryboard.Ease(.20f,journey.AtMazeRoots?.60f:.75f,phase);
             point=Vector3.Lerp(point,mouth,move);
             if(journey.ForestTrap==ForestTrapKind.Web)
             {
@@ -601,11 +601,12 @@ namespace Echoes
                     at = Vector3.Lerp(at,roomCamera+side,nearWall);
                     focus = Vector3.Lerp(focus,actor+Vector3.up*.20f,nearWall);
                 }
-                if (j.Phase==Stage.ForestPlanting)
+                if (j.AtMazeRoots)
                 {
-                    Vector3 center=WorldSet.MazeActor(j,0)-Vector3.right*(j.ForestLane*2.1f);
-                    at=center+heading*new Vector3(0,1.89f,-3.74f)+Vector3.up*(frame.altitude*.36f);
-                    focus=center+heading*new Vector3(0,1.30f,.87f);
+                    Vector3 center=WorldSet.MazeRootCenter(j);
+                    float lift=OpeningStoryboard.Ease(.08f,.66f,frame.altitude);
+                    at=center+heading*new Vector3(j.ForestLane*.60f,1.90f+1.30f*lift,-3.26f);
+                    focus=center+heading*new Vector3(j.ForestLane*.55f,1.24f+1.72f*lift,.88f);
                 }
             }
             else if (j.Branch != ForestBranch.Shared && j.Distance < 136)

@@ -48,6 +48,7 @@ namespace Echoes
         public const float MaximumSpeed = 3.4f;
         public const float RoomRadius = 3.52f;
         internal const float PassageHalf = 2.46f;
+        internal const float RootCupLead = 1.50f;
         internal const float WallCenterRadius = RoomRadius - .17f;
         internal const float WallThickness = .46f;
         internal const float WallHeight = 4.64f;
@@ -56,12 +57,20 @@ namespace Echoes
         private readonly List<ForestMazeNode> nodes = new List<ForestMazeNode>();
         private readonly List<ForestMazeEdge> edges = new List<ForestMazeEdge>();
         private readonly List<List<ForestMazeEdge>> connections = new List<List<ForestMazeEdge>>();
+        private readonly float rootForwardX, rootForwardZ;
 
         public IReadOnlyList<ForestMazeNode> Nodes { get; }
         public IReadOnlyList<ForestMazeEdge> Edges { get; }
         public int Seed { get; }
         public int Entry => 0;
         public int RootChamber { get; private set; }
+        internal float RootHeading { get; }
+
+        internal float RootPositionX(float across, float ahead) =>
+            nodes[RootChamber].X + across * rootForwardZ + ahead * rootForwardX;
+
+        internal float RootPositionZ(float across, float ahead) =>
+            nodes[RootChamber].Z - across * rootForwardX + ahead * rootForwardZ;
 
         public IReadOnlyList<ForestMazeEdge> Connections(int node) => connections[node];
 
@@ -120,6 +129,10 @@ namespace Echoes
                 if (i > 0) Link(i - 1, i);
             }
             RootChamber = nodes.Count - 1;
+            RootHeading = Heading(RootChamber - 1, RootChamber);
+            double rootRadians = RootHeading * Math.PI / 180;
+            rootForwardX = (float)Math.Sin(rootRadians);
+            rootForwardZ = (float)Math.Cos(rootRadians);
 
             int lowLoop = 1 + random.Next(2);
             if (!AddLoop(lowLoop, random) && !AddLoop(3 - lowLoop, random)) AddDiagonalLoop(1, 3);
