@@ -1,3 +1,9 @@
+#if UNITY_EDITOR_WIN || UNITY_EDITOR_OSX || (!UNITY_EDITOR && (UNITY_STANDALONE_WIN || UNITY_STANDALONE_OSX))
+#define ECHOES_DESKTOP_CAMERA
+#endif
+#if UNITY_EDITOR_WIN || (UNITY_STANDALONE_WIN && !UNITY_EDITOR)
+#define ECHOES_WINDOWS_HARDWARE
+#endif
 using System;
 using System.Runtime.InteropServices;
 using UnityEngine;
@@ -28,7 +34,7 @@ namespace Echoes
 #if !UNITY_WEBGL || UNITY_EDITOR
         private readonly LocalMicrophone microphone = new LocalMicrophone();
 #endif
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if ECHOES_WINDOWS_HARDWARE
         private readonly WindowsExhibit exhibit = new WindowsExhibit();
 #endif
         private int savedRevision, savedStarInk;
@@ -147,7 +153,7 @@ namespace Echoes
 #if UNITY_EDITOR
             Active = this;
 #endif
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if ECHOES_WINDOWS_HARDWARE
             exhibit.TouchChanged += PhysicalTouch;
             comPort = PlayerPrefs.GetString("EchoesUnity.Port", "");
             RefreshSerialPorts();
@@ -157,7 +163,7 @@ namespace Echoes
 #endif
         }
 
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if ECHOES_WINDOWS_HARDWARE
         private void PhysicalTouch(int option, bool down) => TrackTouch(option, down, true);
 #endif
 
@@ -181,7 +187,7 @@ namespace Echoes
             if (microphone.Ready) voice = microphone.Level;
 #endif
             journey.RuinDirectPalmLook = !preview;
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if ECHOES_DESKTOP_CAMERA
             journey.RuinDirectPalmLook |= desktopCamera.Active;
 #endif
             UpdateHand(keyboard, !paused && (inputReady || journey.InStars));
@@ -214,7 +220,7 @@ namespace Echoes
             openingSound.Follow(journey.IsOpening ? journey.OpeningTime : -1, paused);
             travelSound.Follow(journey, paused);
             forestAudio.Follow(journey,paused);
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if ECHOES_WINDOWS_HARDWARE
             exhibit.Tick(now, !paused && !journey.IsOpening, Application.isFocused,
                 Mathf.Max(journey.Voice * .42f, journey.WindOutput), journey);
 #endif
@@ -389,10 +395,10 @@ namespace Echoes
                 return;
             }
             LocaleGui.Label(new Rect(20, 14, 160, 28), "游戏设置", label);
-            if (LocaleGui.Button(new Rect(184, 12, 156, 31), "摄像头 / Arduino", button))
+            if (LocaleGui.Button(new Rect(184, 12, 156, 31), DeviceSettingsLabel, button))
             {
                 deviceSettings = true;
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if ECHOES_WINDOWS_HARDWARE
                 RefreshSerialPorts();
 #endif
             }
@@ -401,12 +407,12 @@ namespace Echoes
                 new[] { "自动", "薄暮", "蓝调", "月夜", "破晓" }, 5, button);
             LocaleGui.Label(new Rect(20, 98, 160, 27), "背景速度 " + view.ScrollSpeed.ToString("0.00") + "×", label);
             view.ScrollSpeed = GUI.HorizontalSlider(new Rect(182, 109, 317, 21), view.ScrollSpeed, .25f, 2);
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if ECHOES_DESKTOP_CAMERA
             bool enabled = GUI.enabled;
             GUI.enabled = enabled && !desktopCamera.Active;
 #endif
             noHand = LocaleGui.Toggle(new Rect(20, 139, 210, 27), noHand, "模拟手离开画面");
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if ECHOES_DESKTOP_CAMERA
             GUI.enabled = enabled;
 #endif
             characterOnly = LocaleGui.Toggle(new Rect(226, 139, 153, 27), characterOnly, "纯黑人物");
@@ -731,7 +737,7 @@ namespace Echoes
             bool active = playing && inputReady;
             bool touchesActive = playing && (inputReady || journey.InStars);
             bool physicalReady = false;
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if ECHOES_WINDOWS_HARDWARE
             physicalReady = exhibit.Ready;
 #endif
             if (!touchesActive || !physicalReady) Array.Clear(physicalTouchDown, 0, physicalTouchDown.Length);
@@ -748,7 +754,7 @@ namespace Echoes
             int cueBefore = journey.CueId;
             bool steering = journey.InForest || journey.InRuins;
             if (paused || !inputReady && !journey.InStars || !journey.Touch(option)) return;
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if ECHOES_WINDOWS_HARDWARE
             if (steering) return;
             bool changed = journey.CueId != cueBefore;
             if (changed && journey.Cue == JourneyCue.Withdraw) exhibit.ClearLamp(1);
@@ -825,9 +831,11 @@ namespace Echoes
 #if UNITY_EDITOR
             if (Active == this) Active = null;
 #endif
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if ECHOES_WINDOWS_HARDWARE
             exhibit.TouchChanged -= PhysicalTouch;
             exhibit.Dispose();
+#endif
+#if ECHOES_DESKTOP_CAMERA
             CloseDesktopCamera();
 #endif
 #if !UNITY_WEBGL || UNITY_EDITOR
@@ -843,7 +851,7 @@ namespace Echoes
             view = null;
         }
 
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if ECHOES_WINDOWS_HARDWARE
         private void OnApplicationFocus(bool focused)
         {
             if (!focused) exhibit.SuspendOutput();

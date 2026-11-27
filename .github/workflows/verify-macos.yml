@@ -1,0 +1,95 @@
+name: Verify macOS release
+
+on:
+  workflow_dispatch:
+    inputs:
+      asset_id:
+        description: GitHub release asset ID of the macOS ZIP
+        required: true
+        type: string
+      sha256:
+        description: Expected SHA-256 of the macOS ZIP
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  boot:
+    name: macOS headless bootstrap (${{ matrix.architecture }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+          - runner: macos-15-intel
+            architecture: x86_64
+    env:
+      MAC_QA: ${{ runner.temp }}/echoes-macos
+    steps:
+      - name: Download and verify exact release package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSET_ID: ${{ inputs.asset_id }}
+          EXPECTED_SHA: ${{ inputs.sha256 }}
+        shell: bash
+        run: |
+          [[ "$ASSET_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-fA-F]{64}$ ]]
+          mkdir -p "$MAC_QA"
+          curl --fail --silent --show-error --location --retry 2 --max-time 150 \
+            -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/octet-stream' \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/assets/$ASSET_ID" -o "$MAC_QA/release.zip"
+          printf '%s  %s\n' "$(printf %s "$EXPECTED_SHA" | tr '[:upper:]' '[:lower:]')" "$MAC_QA/release.zip" \
+            | shasum -a 256 -c -
+          curl --fail --silent --show-error --location --retry 2 --max-time 30 \
+            -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github.raw+json' \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/contents/unity/Tools/PackageMac.py?ref=$GITHUB_SHA" \
+            -o "$MAC_QA/PackageMac.py"
+          python3 "$MAC_QA/PackageMac.py" verify "$MAC_QA/release.zip"
+
+      - name: Extract the app and boot the native Unity player
+        env:
+          EXPECTED_ARCH: ${{ matrix.architecture }}
+        shell: bash
+        run: |
+          test "$(uname -m)" = "$EXPECTED_ARCH"
+          mkdir -p "$MAC_QA/unpacked"
+          ditto -x -k "$MAC_QA/release.zip" "$MAC_QA/unpacked"
+          set -- "$MAC_QA"/unpacked/*.app
+          test "$#" = 1
+          test -d "$1"
+          app="$1"
+          name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
+          executable="$app/Contents/MacOS/$name"
+          test -x "$executable"
+          xcrun lipo "$executable" -verify_arch x86_64 arm64
+          codesign -dv --verbose=2 "$app" || printf '%s\n' 'The bundle did not report a code signature.'
+          log="$MAC_QA/unity.log"
+          console="$MAC_QA/console.log"
+          touch "$log"
+          /usr/bin/arch "-$EXPECTED_ARCH" "$executable" -batchmode -nographics -echoes-smoke -logFile "$log" \
+            > "$console" 2>&1 &
+          player="$!"
+          trap 'kill "$player" 2>/dev/null || true' EXIT
+          for ((attempt=0; attempt<45; attempt++)); do
+            if ! kill -0 "$player" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if kill -0 "$player" 2>/dev/null; then
+            cat "$console" "$log"
+            printf '%s\n' 'Unity did not exit within 45 seconds.'
+            exit 1
+          fi
+          result=0
+          wait "$player" || result="$?"
+          cat "$console" "$log"
+          test "$result" = 0
+          grep -Fq 'ECHOES_SMOKE_READY scene=Journey mode=headless-bootstrap' "$log"
+          if grep -Eq 'NullReferenceException|DllNotFoundException|BadImageFormatException|InvalidOperationException|FileNotFoundException|Unhandled Exception' "$log"; then
+            exit 1
+          fi

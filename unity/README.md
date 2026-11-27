@@ -7,6 +7,16 @@
 3. 松开空格是张手，按住空格是握拳，Z 模拟轻声，X 模拟较大音量。在森林林道按住 A/B 横移，在迷宫按住 A/B 转向，遗迹按住 A/B 横移。星海用 A/B 放出图案，按住鼠标拖动可以模拟食指。R 重试，**恢复**读取最近的有效进度。底部四个章节按钮供单独排练。Esc 可以跳过序幕。
 4. 选择 `Echoes of Light > Build Windows Preview` 构建 Windows x64 正式版，选择 `Build Windows Debug` 构建带 Unity 调试支持的版本。两档输出分别位于 `unity/Builds/Windows/` 和 `unity/Builds/WindowsDebug/`。运行游戏时保留同目录的数据文件。浏览器预览使用 `Build Web Preview`。
 
+### macOS 版
+
+从 [GitHub Releases](https://github.com/huanzro/creative-coding/releases) 下载 `Echoes-of-Light-macOS-Universal.zip`。在 Mac 解压并打开 **Echoes of Light.app**。同一份包支持 Apple 芯片和 Intel 芯片。按 **F1 → 摄像头 / 麦克风** 可启用手势或声音输入，也可用空格、A/B、Z/X 和鼠标进行完整排练。正式演出要连接 Arduino 或使用独立人物投影窗时，请用 Windows 展示版。
+
+给当前 Unity 版本添加 **Mac Build Support (Mono)**，然后选 **Echoes of Light → Build macOS Universal**。在仓库根目录运行下方命令打包并校验应用。
+
+```text
+python unity/Tools/PackageMac.py pack "unity/Builds/macOS/Echoes of Light.app" "unity/Builds/Release/Echoes-of-Light-macOS-Universal.zip"
+```
+
 ## 完整流程
 
 | 场景 | 如何操作 |

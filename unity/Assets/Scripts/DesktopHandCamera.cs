@@ -1,4 +1,4 @@
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if UNITY_EDITOR_WIN || UNITY_EDITOR_OSX || (!UNITY_EDITOR && (UNITY_STANDALONE_WIN || UNITY_STANDALONE_OSX))
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -241,6 +241,7 @@ namespace Echoes
 
         private Session session;
         private string error = "摄像头已关闭";
+        private bool assetsMissing;
         public bool Active => session != null;
         public Hand ReadGesture(bool enabled) => session?.ReadGesture(enabled) ?? Hand.Missing;
         public static double Clock => Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
@@ -253,7 +254,10 @@ namespace Echoes
         {
             get
             {
-                if (!Active) return error;
+                if (!Active) return assetsMissing
+                    ? EchoesLocale.T("摄像头资源不完整。请重新下载游戏或从完整工程构建。",
+                        "Camera files are missing. Download the game again or build from the complete project.")
+                    : error;
                 if (ReadIndexTip(out _).Valid) return "摄像头已启用，识别到食指坐标";
                 switch (session.State)
                 {
@@ -278,12 +282,9 @@ namespace Echoes
             if (session != null && session.Live) return session.Url;
             session?.Stop();
             session = null;
-            if (!File.Exists(Path.Combine(pageRoot, "camera.mjs")) ||
-                !File.Exists(Path.Combine(mediaRoot, "vendor", "hand_landmarker.task")))
-            {
-                error = "摄像头资源不完整，请从仓库运行或重新构建 Windows 版";
-                return null;
-            }
+            assetsMissing = !File.Exists(Path.Combine(pageRoot, "camera.mjs")) ||
+                !File.Exists(Path.Combine(mediaRoot, "vendor", "hand_landmarker.task"));
+            if (assetsMissing) return null;
             var next = new Session(pageRoot, mediaRoot);
             try { next.Listener.Start(8); }
             catch (SocketException)
@@ -301,6 +302,7 @@ namespace Echoes
         {
             session?.Stop();
             session = null;
+            assetsMissing = false;
             error = "摄像头已关闭";
         }
     }

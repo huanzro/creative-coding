@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 using UnityEditor;
-using UnityEditor.Callbacks;
+using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -13,7 +13,7 @@ namespace Echoes
     {
         private const string ScenePath = "Assets/Scenes/Journey.unity";
         private static readonly string Project = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
-        private static readonly string Website = Path.GetFullPath(Path.Combine(Project, "..", "dist"));
+        internal static readonly string Website = Path.GetFullPath(Path.Combine(Project, "..", "dist"));
         private static readonly string[] Artwork = {
             "chapter1-0.png", "chapter1-1.png", "chapter1-2.png", "chapter2-0.png",
             "chapter3-0.png", "forest-sylph-long-dress.png"
@@ -136,13 +136,7 @@ namespace Echoes
             Prepare(false);
             if (!BuildPipeline.IsBuildTargetSupported(BuildTargetGroup.Standalone, BuildTarget.StandaloneWindows64))
                 throw new InvalidOperationException("Install Windows Build Support for this Unity Editor.");
-            PlayerSettings.productName = "Echoes of Light";
-            PlayerSettings.companyName = "Creative Coding";
-            PlayerSettings.defaultScreenWidth = 1280;
-            PlayerSettings.defaultScreenHeight = 720;
-            PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
-            PlayerSettings.resizableWindow = true;
-            PlayerSettings.runInBackground = true;
+            ConfigureDesktop();
             string output = Path.Combine(Project, "Builds", development ? "WindowsDebug" : "Windows", "Echoes of Light.exe");
             var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions {
                 scenes = new[] { ScenePath },
@@ -155,15 +149,44 @@ namespace Echoes
             Debug.Log("Echoes Windows build: " + output);
         }
 
-        [PostProcessBuild]
-        private static void CopyWindowsCameraAssets(BuildTarget target, string executable)
+        [MenuItem("Echoes of Light/Build macOS Universal")]
+        public static void Mac()
         {
-            if (target != BuildTarget.StandaloneWindows && target != BuildTarget.StandaloneWindows64) return;
-            string data = Path.Combine(Path.GetDirectoryName(executable), Path.GetFileNameWithoutExtension(executable) + "_Data");
-            string camera = Path.Combine(data, "StreamingAssets", "EchoesCamera");
-            Directory.CreateDirectory(camera);
-            File.Copy(Path.Combine(Website, "core.js"), Path.Combine(camera, "core.js"), true);
-            CopyDirectory(Path.Combine(Website, "vendor"), Path.Combine(camera, "vendor"));
+            const BuildTarget target = BuildTarget.StandaloneOSX;
+            if (!BuildPipeline.IsBuildTargetSupported(BuildTargetGroup.Standalone, target))
+                throw new InvalidOperationException("Install Mac Build Support (Mono) for this Unity Editor.");
+
+            Prepare(false);
+            ConfigureDesktop();
+            PlayerSettings.SetScriptingBackend(NamedBuildTarget.Standalone, ScriptingImplementation.Mono2x);
+            PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.Standalone, "org.creativecoding.echoesoflight");
+            PlayerSettings.iOS.microphoneUsageDescription = "Echoes of Light uses the microphone locally to control flight speed.";
+            string platform = BuildPipeline.GetBuildTargetName(target);
+            EditorUserBuildSettings.SetPlatformSettings(platform, "Architecture", OSArchitecture.x64ARM64.ToString().ToLowerInvariant());
+            EditorUserBuildSettings.SetPlatformSettings(platform, "CreateXcodeProject", "false");
+
+            string output = Path.Combine(Project, "Builds", "macOS", "Echoes of Light.app");
+            var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions {
+                scenes = new[] { ScenePath },
+                locationPathName = output,
+                targetGroup = BuildTargetGroup.Standalone,
+                target = target,
+                options = BuildOptions.None
+            });
+            if (report.summary.result != BuildResult.Succeeded)
+                throw new InvalidOperationException("Unity macOS build failed: " + report.summary.result);
+            Debug.Log("Echoes macOS build: " + output);
+        }
+
+        private static void ConfigureDesktop()
+        {
+            PlayerSettings.productName = "Echoes of Light";
+            PlayerSettings.companyName = "Creative Coding";
+            PlayerSettings.defaultScreenWidth = 1280;
+            PlayerSettings.defaultScreenHeight = 720;
+            PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
+            PlayerSettings.resizableWindow = true;
+            PlayerSettings.runInBackground = true;
         }
 
         private static void CopyDirectory(string source, string destination)
@@ -173,6 +196,19 @@ namespace Echoes
                 File.Copy(name, Path.Combine(destination, Path.GetFileName(name)), true);
             foreach (string folder in Directory.GetDirectories(source))
                 CopyDirectory(folder, Path.Combine(destination, Path.GetFileName(folder)));
+        }
+    }
+
+    internal sealed class DesktopCameraBuildAssets : BuildPlayerProcessor
+    {
+        public override void PrepareForBuild(BuildPlayerContext context)
+        {
+            BuildTarget target = context.BuildPlayerOptions.target;
+            if (target != BuildTarget.StandaloneWindows && target != BuildTarget.StandaloneWindows64 &&
+                target != BuildTarget.StandaloneOSX) return;
+
+            context.AddAdditionalPathToStreamingAssets(Path.Combine(EchoesBuild.Website, "core.js"), "EchoesCamera/core.js");
+            context.AddAdditionalPathToStreamingAssets(Path.Combine(EchoesBuild.Website, "vendor"), "EchoesCamera/vendor");
         }
     }
 }

@@ -4,6 +4,8 @@
 
 Windows x64 安装包、便携包和调试包在同一页发布。直接运行 `Echoes-of-Light-Setup-Windows-x64.exe` 选择安装目录。便携展示用 `Echoes-of-Light-Windows-x64.zip`，排练和定位问题用 `Echoes-of-Light-Debug-Windows-x64.zip`。解压后运行 `Echoes of Light.exe`，保留同目录的游戏数据和运行库。调试包用 Unity Development Build 构建，请一并保留随包生成的调试文件。[GitHub Releases](https://github.com/huanzro/creative-coding/releases)
 
+Mac 下载 `Echoes-of-Light-macOS-Universal.zip`，在 Finder 解压后打开 **Echoes of Light.app**。该包支持 Apple 芯片和 Intel 芯片。摄像头和麦克风在 F1 设置里启用。带 Arduino 和独立人物投影窗的实体展示用 Windows 版。[GitHub Releases](https://github.com/huanzro/creative-coding/releases)
+
 从底部「试玩」进回声庭院。按住空格约半秒再松开模拟握拳和张手。按住 Z 或 X 试两档音量，用 A/B 模拟两个触点。遗迹也可用左右方向键。星海按住鼠标左键拖动模拟食指。F1 设置，F2 迷宫地图，R 重试，Esc 跳过片头。整条键盘流程可离开实体设备排练。
 
 ## 打开可修改的项目

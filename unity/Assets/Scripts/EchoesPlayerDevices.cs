@@ -1,3 +1,9 @@
+#if UNITY_EDITOR_WIN || UNITY_EDITOR_OSX || (!UNITY_EDITOR && (UNITY_STANDALONE_WIN || UNITY_STANDALONE_OSX))
+#define ECHOES_DESKTOP_CAMERA
+#endif
+#if UNITY_EDITOR_WIN || (UNITY_STANDALONE_WIN && !UNITY_EDITOR)
+#define ECHOES_WINDOWS_HARDWARE
+#endif
 using System;
 using System.IO;
 using UnityEngine;
@@ -10,16 +16,24 @@ namespace Echoes
         private Hand recentCameraHand;
         private float lastCameraHandAt = -10;
         private bool keyboardFist;
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if ECHOES_DESKTOP_CAMERA
         private readonly DesktopHandCamera desktopCamera = new DesktopHandCamera();
         private bool runInBackgroundBeforeCamera;
+#endif
+#if ECHOES_WINDOWS_HARDWARE
         private string[] serialPorts = Array.Empty<string>();
         private string comPort;
+#endif
+        private static string DeviceSettingsLabel =>
+#if ECHOES_WINDOWS_HARDWARE
+            "摄像头 / Arduino";
+#else
+            EchoesLocale.T("摄像头 / 麦克风", "Camera / Mic");
 #endif
 
         private void UpdateHand(bool keyboard, bool enabled)
         {
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if ECHOES_DESKTOP_CAMERA
             if (preview && desktopCamera.Active)
             {
                 bool overrideHand = enabled && keyboard && Input.GetKey(KeyCode.Space);
@@ -45,7 +59,7 @@ namespace Echoes
         }
 
         private static double IndexClock =>
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if ECHOES_DESKTOP_CAMERA
             DesktopHandCamera.Clock;
 #else
             Time.realtimeSinceStartupAsDouble;
@@ -62,7 +76,7 @@ namespace Echoes
             StarTip tip = default;
             if (enabled)
             {
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if ECHOES_DESKTOP_CAMERA
                 if (preview && desktopCamera.Active)
                 {
                     tip = desktopCamera.ReadIndexTip(out double sampledAt);
@@ -86,7 +100,7 @@ namespace Echoes
             journey.SetStarPointer(starBrush.Follow(tip, capture, now, Mathf.Min(.12f, Time.unscaledDeltaTime)));
         }
 
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if ECHOES_DESKTOP_CAMERA
         private void OpenCameraPage()
         {
             string url = StartDesktopCamera();
@@ -116,7 +130,9 @@ namespace Echoes
             Application.runInBackground = runInBackgroundBeforeCamera;
             journey.SetHand(Hand.Missing);
         }
+#endif
 
+#if ECHOES_WINDOWS_HARDWARE
         private void RefreshSerialPorts()
         {
             serialPorts = WindowsExhibit.AvailablePorts();
@@ -172,8 +188,12 @@ namespace Echoes
 
         private void DrawDeviceSettings(GUIStyle label, GUIStyle button)
         {
+#if ECHOES_WINDOWS_HARDWARE
             LocaleGui.Label(new Rect(20, 14, 315, 28), "摄像头、麦克风与 Arduino", label);
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#else
+            LocaleGui.Label(new Rect(20, 14, 315, 28), EchoesLocale.T("摄像头与麦克风", "Camera and microphone"), label);
+#endif
+#if ECHOES_DESKTOP_CAMERA
             if (LocaleGui.Button(new Rect(20, 55, 180, 32), desktopCamera.Active ? "关闭摄像头" : "开启摄像头", button))
             {
                 if (desktopCamera.Active) CloseDesktopCamera();
@@ -198,8 +218,12 @@ namespace Echoes
             if (LocaleGui.Button(new Rect(178, 224, 112, 32), "重新校准", button)) microphone.Calibrate();
             LocaleGui.Label(new Rect(303, 223, 202, 40), microphone.Status, label);
 #endif
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+#if ECHOES_WINDOWS_HARDWARE
             DrawArduinoSettings(label, button);
+#elif UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
+            LocaleGui.Label(new Rect(20, 289, 477, 65),
+                EchoesLocale.T("如无法启用麦克风，请在系统设置 → 隐私与安全性 → 麦克风中检查游戏权限。",
+                    "If the microphone is unavailable, check the game's permission in System Settings → Privacy & Security → Microphone."), label);
 #endif
         }
     }
