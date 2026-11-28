@@ -65,8 +65,17 @@ namespace Echoes
                 source = next;
             }
             // Unity can restore the window's player reference after a script reload.
-            if (source != null) source.SetEditorProjection(true, position.size, sideways, lightReach);
+            if (source != null)
+            {
+                source.SetEditorProjection(true, position.size, sideways, lightReach);
+                source.SetEditorProjectionFocused(focusedWindow == this);
+            }
             Repaint();
+        }
+
+        private void OnLostFocus()
+        {
+            if (source != null) source.SetEditorProjectionFocused(false);
         }
 
         private void OnDisable()
@@ -89,6 +98,9 @@ namespace Echoes
             }
 
             Event key = Event.current;
+            bool pressed = key.type == EventType.KeyDown && !key.alt && !key.control && !key.command;
+            if (source != null && (pressed || key.type == EventType.KeyUp) && source.SetEditorProjectionKey(key.keyCode, pressed))
+                key.Use();
             if (key.type == EventType.KeyDown && !key.alt && !key.control && !key.command)
             {
 #if UNITY_EDITOR_WIN

@@ -61,7 +61,6 @@ namespace Echoes
         private const string GradientKey = "EchoesUnity.Projection.Gradient";
         private const string StageScaleKey = "EchoesUnity.Projection.StageScale";
         private bool projectionSettings, flightSettings, ruinSettings, changedTuning, ruinWallDebug;
-        private readonly bool[] physicalTouchDown = new bool[2];
         private readonly bool[] browserTouch = new bool[2];
         private Frame remote = new Frame();
         private const string SaveKey = "EchoesUnity.Checkpoint.Ruins.11";
@@ -77,8 +76,10 @@ namespace Echoes
         public static EchoesPlayer Active { get; private set; }
         public static event Action CharacterWindowRequested;
         public static event Action OperatorWindowRequested;
-        private bool editorProjection, editorOperatorVisible;
+        private bool editorProjection, editorProjectionFocused, editorOperatorVisible, editorOperatorFocused;
         private int editorTouch = -1;
+        private int projectionKeys;
+        private const int ProjectionLeftKeys = 1 | 4, ProjectionRightKeys = 2 | 8;
 #endif
 
         [Serializable]
@@ -182,7 +183,7 @@ namespace Echoes
             bool keyboard = preview && Application.isFocused;
             bool operatorTouch = false;
 #if UNITY_EDITOR
-            operatorTouch = editorTouch >= 0;
+            operatorTouch = editorTouch >= 0 || projectionKeys != 0;
 #endif
             inputReady = preview || audioReady && cameraReady && now - lastAudioAt < .5f && now - lastHandAt < .5f;
             if (preview && Input.GetKeyDown(KeyCode.F1))
@@ -236,7 +237,7 @@ namespace Echoes
             travelSound.Follow(journey, paused);
             forestAudio.Follow(journey,paused);
 #if ECHOES_WINDOWS_HARDWARE
-            exhibit.Tick(now, !paused && !journey.IsOpening, Application.isFocused,
+            exhibit.Tick(now, !paused && !journey.IsOpening, ExhibitFocused,
                 Mathf.Max(journey.Voice * .42f, journey.WindOutput), journey);
 #endif
 
@@ -654,11 +655,33 @@ namespace Echoes
         {
             editorOperatorVisible = visible;
             if (visible) return;
+            editorOperatorFocused = false;
             ReleaseEditorTouch();
             SaveTuning();
         }
 
         public void ReleaseEditorTouch() => editorTouch = -1;
+        public void SetEditorOperatorFocused(bool focused) => editorOperatorFocused = focused;
+        public void SetEditorProjectionFocused(bool focused)
+        {
+            editorProjectionFocused = focused;
+            if (!focused) projectionKeys = 0;
+        }
+
+        public bool SetEditorProjectionKey(KeyCode key, bool down)
+        {
+            int bit = key == KeyCode.A ? 1 : key == KeyCode.B ? 2 :
+                key == KeyCode.LeftArrow ? 4 : key == KeyCode.RightArrow ? 8 : 0;
+            if (bit == 0 || down && bit > 2 && !journey.InRuins) return false;
+            bool left = (bit & ProjectionLeftKeys) != 0;
+            int direction = left ? ProjectionLeftKeys : ProjectionRightKeys;
+            bool alreadyHeld = (projectionKeys & direction) != 0;
+            if (down) projectionKeys |= bit;
+            else projectionKeys &= ~bit;
+            if (down && !alreadyHeld && (!journey.InForest || (projectionKeys & ~direction) == 0))
+                Touch(left ? 0 : 1, false);
+            return true;
+        }
 
         public void DrawEditorOperator(Rect viewport, ref Vector2 scroll)
         {
@@ -679,6 +702,7 @@ namespace Echoes
         public void SetEditorProjection(bool active, Vector2 size = default, bool sideways = true, float lightReach = 1.45f)
         {
             editorProjection = active;
+            if (!active) SetEditorProjectionFocused(false);
             if (view != null)
                 view.StarWindow = active && size.x > 1 && size.y > 1
                     ? StarProjection.Window(size, sideways, lightReach) : StarProjection.DefaultWindow;
@@ -706,7 +730,6 @@ namespace Echoes
             ruinWallDebug = true;
             savedRevision = journey.Revision;
             paused = settings = characterOnly = mazeMapOpen = mazeMapRoute = false;
-            Array.Clear(physicalTouchDown, 0, physicalTouchDown.Length);
             Array.Clear(browserTouch, 0, browserTouch.Length);
             SaveTuning();
         }
@@ -779,34 +802,30 @@ namespace Echoes
 
         private void TrackTouch(int option, bool down, bool physical)
         {
-            bool active = !paused && (inputReady || journey.InStars) && Application.isFocused;
-            if (physical)
-            {
-                bool held = active && down;
-                if (physicalTouchDown[option] == held) return;
-                physicalTouchDown[option] = held;
-                if (journey.InForest && physicalTouchDown[1-option]) return;
-            }
+            bool active = !paused && (inputReady || journey.InStars) && (Application.isFocused || physical && ExhibitFocused);
+            if (physical && journey.InForest && ExhibitTouchHeld(1 - option)) return;
             if (active && down) Touch(option, physical);
         }
 
+        private bool ExhibitTouchHeld(int option) =>
+#if ECHOES_WINDOWS_HARDWARE
+            exhibit.TouchEnabled(option) && exhibit.TouchPressed(option);
+#else
+            false;
+#endif
+
         private void ResolveHeldSteering(bool left, bool right)
         {
-            bool playing = Application.isFocused && !paused;
+            bool playing = ExhibitFocused && !paused;
             bool active = playing && inputReady;
             bool touchesActive = playing && (inputReady || journey.InStars);
-            bool physicalReady = false;
-#if ECHOES_WINDOWS_HARDWARE
-            physicalReady = exhibit.Ready;
-#endif
-            if (!touchesActive || !physicalReady) Array.Clear(physicalTouchDown, 0, physicalTouchDown.Length);
-            left = active && (left || physicalTouchDown[0]);
-            right = active && (right || physicalTouchDown[1]);
+            left = active && (left || ExhibitTouchHeld(0));
+            right = active && (right || ExhibitTouchHeld(1));
 #if UNITY_EDITOR
             if (!paused && inputReady)
             {
-                left |= editorTouch == 0;
-                right |= editorTouch == 1;
+                left |= editorTouch == 0 || (projectionKeys & ProjectionLeftKeys) != 0;
+                right |= editorTouch == 1 || (projectionKeys & ProjectionRightKeys) != 0;
             }
 #endif
             journey.SetMazeSteering(left, right);
@@ -917,10 +936,16 @@ namespace Echoes
             view = null;
         }
 
+        private bool ExhibitFocused => Application.isFocused
+#if UNITY_EDITOR_WIN
+            || (editorOperatorFocused || editorProjectionFocused) && WindowsExhibit.HasForegroundWindow
+#endif
+            ;
+
 #if ECHOES_WINDOWS_HARDWARE
         private void OnApplicationFocus(bool focused)
         {
-            if (!focused) exhibit.SuspendOutput();
+            if (!focused && !ExhibitFocused) exhibit.SuspendOutput();
         }
 #endif
 

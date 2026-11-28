@@ -164,6 +164,11 @@ $depth = $game.Distance
 $game.SetHand([Echoes.Hand]::Missing)
 Step $game 2 .7
 Assert ($game.Distance -eq $depth -and $game.ForestLights -eq 4) 'Losing a hand pauses movement and preserves earned light.'
+$beforeMissingSteer = $game.ForestLane
+$game.SetForestLateralInput($true,$false)
+Step $game .35 .7
+Assert ($game.ForestLane -lt $beforeMissingSteer -and $game.Distance -eq $depth) 'Forest steering still responds while missing camera poses suppress forward flight.'
+$game.SetForestLateralInput($false,$false)
 $frame=[Echoes.SpiritFrame]::Read($game, 1)
 Assert ($frame.cast -eq 1 -and $frame.forest -and $frame.forestAirborne -and $frame.forestReserve -eq 4) 'The projection knows cast, flight state and the new orbit reserve.'
 EnterLeft $game
@@ -571,6 +576,11 @@ Assert ($ruins.InRuins -and $ruins.RuinLayer -eq 0 -and $ruins.RuinVisitedCount 
 $ruins.SetHand([Echoes.Hand]::Open)
 Step $ruins 75 0
 Assert ($ruins.Distance -eq 0 -and $ruins.RuinForwardSpeed -eq 0 -and $ruins.Phase -eq 'RuinExplore') 'Idle exploration has no initial speed or ending countdown.'
+$missingRuin = [Echoes.Journey]::new(92)
+$missingRuin.SelectChapter(1)
+$missingRuin.SetRuinSteering($false,$true)
+Step $missingRuin .35 .7
+Assert ($missingRuin.RuinLane -gt .1 -and $missingRuin.Distance -eq 0 -and $missingRuin.Flight.Speed -le 0) 'Ruins A/B can steer without camera data and cannot start forward flight.'
 $quietJump = [Echoes.Journey]::new(92)
 $loudJump = [Echoes.Journey]::new(92)
 $slowJump = [Echoes.Journey]::new(92)

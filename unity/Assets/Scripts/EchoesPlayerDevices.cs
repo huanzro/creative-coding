@@ -118,6 +118,7 @@ namespace Echoes
                 runInBackgroundBeforeCamera = Application.runInBackground;
                 Application.runInBackground = true;
                 noHand = false;
+                lastCameraHandAt = -10;
                 journey.SetHand(Hand.Missing);
             }
             return url;
@@ -128,6 +129,7 @@ namespace Echoes
             if (!desktopCamera.Active) return;
             desktopCamera.Dispose();
             Application.runInBackground = runInBackgroundBeforeCamera;
+            lastCameraHandAt = -10;
             journey.SetHand(Hand.Missing);
         }
 #endif
@@ -172,6 +174,8 @@ namespace Echoes
                 ? "Windows 未发现串口。用 USB 数据线连接，再点「刷新端口」。" : exhibit.Status;
             if (exhibit.Ready && !exhibit.FanSupported) status += " · 低亮度模式";
             LocaleGui.Label(new Rect(20, 364, 484, 65), status, label);
+            if (exhibit.Ready)
+                GUI.Label(new Rect(20, 407, 484, 25), "A " + ReadTouchStatus(0) + "     B " + ReadTouchStatus(1), label);
             GUI.enabled = enabled && exhibit.Ready && !paused;
             exhibit.LampsEnabled = LocaleGui.Toggle(new Rect(20, 442, 146, 28), exhibit.LampsEnabled, "启用双灯");
             GUI.enabled = GUI.enabled && exhibit.FanSupported;
@@ -183,6 +187,14 @@ namespace Echoes
                 exhibit.StartLampTest(Time.unscaledTime);
             GUI.enabled = enabled;
             LocaleGui.Label(new Rect(181, 481, 323, 65), exhibit.LampTestStatus, label);
+        }
+
+        private string ReadTouchStatus(int option)
+        {
+            if (!exhibit.TouchEnabled(option)) return EchoesLocale.T("未启用", "disabled");
+            var (presses, releases) = exhibit.TouchCounts(option);
+            string state = exhibit.TouchPressed(option) ? EchoesLocale.T("按住", "held") : EchoesLocale.T("松开", "released");
+            return EchoesLocale.T($"{state}（按 {presses} / 松 {releases}）", $"{state} ({presses}/{releases})");
         }
 #endif
 

@@ -54,7 +54,7 @@ namespace Echoes
         public int ForestMazeFloor => mazeFloor;
         public bool ForestMazeGuideActive => ForestMazeWalkArea && mazeFloorSeconds >= MazeGuideDelay &&
             (Phase == Stage.ForestExplore || Phase == Stage.ForestLoop);
-        internal bool CanSteerMaze => Started && Gesture != Hand.Missing && ForestMazeWalkArea &&
+        internal bool CanSteerMaze => Started && ForestMazeWalkArea &&
             (Phase == Stage.ForestExplore || Phase == Stage.ForestLoop && mazeMotion == ForestMazeMotion.Retracing);
         internal float ForestMazePassageHeading => mazeTarget >= 0 ? ForestMaze.Heading(mazeFrom, mazeTarget) : mazeYaw;
 

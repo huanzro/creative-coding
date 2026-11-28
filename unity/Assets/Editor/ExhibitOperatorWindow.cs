@@ -47,6 +47,7 @@ namespace Echoes
                 return;
             }
 
+            source.SetEditorOperatorFocused(focusedWindow == this);
             source.DrawEditorOperator(new Rect(0, 0, position.width, position.height), ref scroll);
         }
 
@@ -54,7 +55,9 @@ namespace Echoes
 
         private void OnLostFocus()
         {
-            if (source != null) source.ReleaseEditorTouch();
+            if (source == null) return;
+            source.SetEditorOperatorFocused(false);
+            source.ReleaseEditorTouch();
         }
 
         private void OnDisable()

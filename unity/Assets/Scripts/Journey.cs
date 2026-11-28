@@ -428,7 +428,16 @@ namespace Echoes
             }
             if (!Started || Gesture == Hand.Missing)
             {
-                if (InRuins) { RuinForwardSpeed = 0; StopRuinSteering(); }
+                if (InRuins)
+                {
+                    RuinForwardSpeed = 0;
+                    if (!RuinLootOpen) UpdateRuinSteering(dt);
+                }
+                else if (InForest)
+                {
+                    if (ForestMazeWalkArea) StepMazeSteering(dt);
+                    else StepForestLateral(dt);
+                }
                 return;
             }
 

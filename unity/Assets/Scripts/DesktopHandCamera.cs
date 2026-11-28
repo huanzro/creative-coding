@@ -206,7 +206,8 @@ namespace Echoes
             }
 
             private static bool ValidState(string state) => state == "open" || state == "closed" || state == "missing" ||
-                state == "loading" || state == "off" || state == "not-found" || state == "denied" || state == "busy" || state == "model-error";
+                state == "loading" || state == "recovering" || state == "off" || state == "not-found" ||
+                state == "denied" || state == "busy" || state == "model-error";
 
             private static string ReadRequest(NetworkStream stream)
             {
@@ -265,12 +266,13 @@ namespace Echoes
                     case "closed": return "摄像头已启用，识别到握拳";
                     case "missing": return "摄像头已启用，请把一只手放入画面";
                     case "loading": return "等待摄像头权限或正在载入识别模型";
+                    case "recovering": return "正在自动恢复摄像头和手势识别";
                     case "denied": return "浏览器未获摄像头权限，请在识别页允许后重试";
                     case "busy": return "摄像头被占用或不可读，关闭其他占用程序后重试";
                     case "not-found": return "未检测到摄像头，请检查插线和系统权限";
                     case "off": return "识别页已关闭摄像头，点「重新打开识别页」恢复";
                     case "model-error": return "识别模型未启动，请查看识别页提示";
-                    case "stale": return "摄像头信号中断，请检查识别页是否仍在运行";
+                    case "stale": return "暂未收到摄像头数据，识别页将尝试恢复连接";
                     case "bridge-error": return "本机连接已结束，请关闭后重新开启摄像头";
                     default: return "识别页已启动，请在弹出的浏览器中允许摄像头";
                 }

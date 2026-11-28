@@ -33,7 +33,6 @@ namespace Echoes
             forestDebugPoint = point;
             savedRevision = journey.Revision;
             paused = settings = mazeMapOpen = mazeMapRoute = false;
-            System.Array.Clear(physicalTouchDown, 0, physicalTouchDown.Length);
             SaveTuning();
         }
     }

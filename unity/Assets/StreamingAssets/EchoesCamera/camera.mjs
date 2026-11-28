@@ -15,10 +15,12 @@ const receivedPose = {
   closed: 'Unity 已收到：握拳',
   missing: 'Unity 已连接。把一只手放进画面。'
 };
-let stream, detector, frameReader, timer, queuedState;
+let stream, detector, frameReader, timer, queuedState, captureRetry, bridgeRetry;
 let worker, pendingFrame, frameInWorker = false, readingPreview = false;
 let previewWindow, previewStatus;
 let generation = 0, sending = false, connected = true;
+let wantsCamera = false, hadFrames = false, captureAttempts = 0, bridgeLostAt = -1;
+let lastFrameAt = 0, workerSentAt = 0;
 let videoTime = -1, lastLandmarksAt = -Infinity;
 let pose = 'missing', candidate = null, candidateAt = 0;
 
@@ -91,30 +93,59 @@ async function togglePreview() {
   }
 }
 
-async function report(state) {
-  queuedState = state;
-  if (sending || !connected) return;
+function report(state) {
+  queuedState = { state, at: performance.now(), generation };
+  void flushReport();
+}
+
+async function flushReport() {
+  if (sending || !connected || bridgeRetry != null) return;
   sending = true;
   try {
     while (queuedState) {
-      const next = queuedState;
-      const current = generation;
+      const packet = queuedState;
       queuedState = null;
-      const response = await fetch('./state/' + next, { method: 'POST', cache: 'no-store' });
-      if (!response.ok) throw new Error('Unity connection lost');
-      const label = next.includes('/') ? 'Unity 已收到：食指位置' : receivedPose[next];
-      if (generation === current && label) setStatus(label);
+      if (packet.generation !== generation) continue;
+      const posePacket = packet.state === 'open' || packet.state === 'closed' || packet.state.includes('/');
+      const state = posePacket && performance.now() - packet.at > 300 ? 'missing' : packet.state;
+      const abort = new AbortController();
+      const deadline = setTimeout(() => abort.abort(), 1200);
+      try {
+        const response = await fetch('./state/' + state,
+          { method: 'POST', cache: 'no-store', signal: abort.signal });
+        if (response.status === 404 || response.status === 410) { bridgeClosed(); break; }
+        if (!response.ok) throw new Error('Unity connection interrupted');
+        bridgeLostAt = -1;
+        const label = state.includes('/') ? 'Unity 已收到：食指位置' : receivedPose[state];
+        if (packet.generation === generation && label) setStatus(label);
+      } catch {
+        if (!connected) break;
+        if (packet.generation !== generation) continue;
+        const now = performance.now();
+        if (bridgeLostAt < 0) bridgeLostAt = now;
+        if (now - bridgeLostAt >= 12000) { bridgeClosed(); break; }
+        // A retry without a new frame probes the bridge without replaying a pose.
+        queuedState ??= { ...packet, state: posePacket ? 'missing' : packet.state, at: now };
+        setStatus('正在恢复与 Unity 的连接…');
+        bridgeRetry = setTimeout(() => { bridgeRetry = null; void flushReport(); }, 300);
+        break;
+      } finally {
+        clearTimeout(deadline);
+      }
     }
-  } catch {
-    connected = false;
-    stop('Unity 已关闭连接。请回到 Unity 重新开启摄像头。');
-    button.disabled = true;
   } finally {
     sending = false;
   }
 }
 
-function releaseCamera() {
+function bridgeClosed() {
+  connected = false;
+  queuedState = null;
+  stop('Unity 识别会话已结束。请从 Unity 重新打开识别页。');
+  button.disabled = true;
+}
+
+function releaseCamera(keepPreview = false) {
   generation++;
   clearInterval(timer);
   void frameReader?.cancel().catch(() => {});
@@ -124,9 +155,14 @@ function releaseCamera() {
   stream?.getTracks().forEach(track => track.stop());
   stream = null;
   video.srcObject = null;
-  previewWindow?.close();
-  previewWindow = previewStatus = null;
-  previewButton.textContent = '打开独立预览';
+  if (keepPreview) {
+    const feed = previewWindow?.document.querySelector('video');
+    if (feed) feed.srcObject = null;
+  } else {
+    previewWindow?.close();
+    previewWindow = previewStatus = null;
+    previewButton.textContent = '打开独立预览';
+  }
   previewButton.disabled = true;
   pose = 'missing';
   candidate = null;
@@ -136,10 +172,29 @@ function releaseCamera() {
 }
 
 function stop(message, state = 'off') {
+  wantsCamera = false;
+  clearTimeout(captureRetry);
+  captureRetry = null;
   releaseCamera();
   setStatus(message);
   button.textContent = '开启摄像头';
-  void report(state);
+  button.disabled = !connected;
+  if (connected) report(state);
+}
+
+function retryCapture(current, message, discardDetector = false) {
+  if (current !== generation || !wantsCamera || !connected) return;
+  releaseCamera(true);
+  if (discardDetector) {
+    detector?.close?.();
+    detector = null;
+  }
+  setStatus(message);
+  report('recovering');
+  button.textContent = '关闭摄像头';
+  button.disabled = false;
+  const wait = Math.min(4000, 450 * 2 ** Math.min(captureAttempts++, 4));
+  captureRetry = setTimeout(() => { captureRetry = null; void start(); }, wait);
 }
 
 function clearWorker() {
@@ -157,7 +212,7 @@ function recoverDetector(current) {
     if (generation === current) detector = next;
     else next.close?.();
   }).catch(() => {
-    if (generation === current) stop('手势识别中断，请重新开启摄像头。', 'model-error');
+    retryCapture(current, '正在重启手势识别…', true);
   });
 }
 
@@ -201,6 +256,7 @@ function submitLatest() {
   const next = pendingFrame;
   pendingFrame = null;
   frameInWorker = true;
+  workerSentAt = performance.now();
   try {
     worker.postMessage(next, [next.frame]);
   } catch {
@@ -217,6 +273,8 @@ function keepLatest(frame, at) {
 }
 
 function receiveLandmarks(points, aspect, now) {
+  hadFrames = true;
+  captureAttempts = 0;
   const tip = indexTracker.update(points, aspect, now);
   const score = handOpenness(points?.map(point => ({ x: point.x * aspect, y: point.y, z: point.z * aspect })));
   if (now - lastLandmarksAt >= handLostAfter) {
@@ -231,7 +289,7 @@ function receiveLandmarks(points, aspect, now) {
   } else if (candidate && now - candidateAt >= confirmPoseAfter) {
     pose = candidate;
   }
-  void report(withIndexTip(pose, tip));
+  report(withIndexTip(pose, tip));
   placeTip(previewFrame, video, tip);
   const floating = previewWindow?.document.querySelector('.preview-frame');
   if (floating) placeTip(floating, floating.querySelector('video'), tip);
@@ -246,7 +304,10 @@ async function trackFrames(reader, current) {
       let transferred = false;
       try {
         const now = performance.now();
-        if (generation !== current || !clock.take(frame.timestamp == null ? now : frame.timestamp / 1000)) continue;
+        if (generation !== current) continue;
+        lastFrameAt = now;
+        checkCapture(current);
+        if (!clock.take(frame.timestamp == null ? now : frame.timestamp / 1000)) continue;
         if (worker) {
           keepLatest(frame, now);
           transferred = true;
@@ -259,19 +320,21 @@ async function trackFrames(reader, current) {
         }
       } finally { if (!transferred) frame.close(); }
     }
-    if (generation === current) stop('摄像头画面已断开，请重新开启。');
+    retryCapture(current, '摄像头画面中断，正在重新连接…');
   } catch {
-    if (generation === current) stop('手势识别中断，请重新开启摄像头。', 'model-error');
+    retryCapture(current, '正在恢复摄像头和手势识别…', true);
   } finally {
     reader.releaseLock();
   }
 }
 
 function trackPreview() {
+  if (!stream || frameReader) return;
   const now = performance.now();
   try {
     if (video.readyState >= 2 && videoTime !== video.currentTime && !readingPreview) {
       videoTime = video.currentTime;
+      lastFrameAt = now;
       if (worker) {
         readingPreview = true;
         const current = generation;
@@ -286,15 +349,25 @@ function trackPreview() {
       }
     }
   } catch {
-    stop('手势识别中断，请重新开启摄像头。', 'model-error');
+    retryCapture(generation, '正在恢复手势识别…', true);
   }
 }
 
+function checkCapture(current) {
+  if (current !== generation || !stream) return;
+  const now = performance.now();
+  if (worker && frameInWorker && now - workerSentAt > 1600) recoverDetector(current);
+  if ((frameReader || !document.hidden) && now - lastFrameAt > 3500)
+    retryCapture(current, '摄像头画面停滞，正在重新连接…');
+}
+
 async function start() {
+  if (!wantsCamera || !connected) return;
   const current = ++generation;
-  button.disabled = true;
+  button.textContent = '关闭摄像头';
+  button.disabled = false;
   setStatus('等待浏览器的摄像头权限…');
-  void report('loading');
+  report(hadFrames ? 'recovering' : 'loading');
   try {
     const next = await navigator.mediaDevices.getUserMedia({
       video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 }, facingMode: 'user' }, audio: false
@@ -303,13 +376,22 @@ async function start() {
     stream = next;
     const track = stream.getVideoTracks()[0];
     track.addEventListener('ended', () => {
-      if (generation === current) stop('摄像头已断开，请检查连接。');
+      retryCapture(current, '摄像头已断开，正在重新连接…');
     });
     video.srcObject = stream;
     void video.play().catch(() => {});
+    const feed = previewWindow?.document.querySelector('video');
+    if (feed) {
+      feed.srcObject = stream;
+      void feed.play().catch(() => {});
+    }
     previewButton.disabled = false;
     setStatus('载入手势识别模型…');
-    if (!await useWorker(current) && generation === current && !detector) detector = await loadHandDetector();
+    if (!await useWorker(current) && generation === current && !detector) {
+      const nextDetector = await loadHandDetector();
+      if (generation === current) detector = nextDetector;
+      else nextDetector.close?.();
+    }
     if (generation !== current) return;
     setStatus('等待摄像头画面…');
     if (typeof MediaStreamTrackProcessor === 'function') {
@@ -317,11 +399,10 @@ async function start() {
       try { frameReader = new MediaStreamTrackProcessor({ track, maxBufferSize: 1 }).readable.getReader(); }
       catch { frameReader = null; }
     }
+    lastFrameAt = performance.now();
+    videoTime = -1;
+    timer = setInterval(() => { trackPreview(); checkCapture(current); }, frameReader ? 250 : handSampleInterval);
     if (frameReader) void trackFrames(frameReader, current);
-    else {
-      videoTime = -1;
-      timer = setInterval(trackPreview, handSampleInterval);
-    }
     button.textContent = '关闭摄像头';
   } catch (error) {
     if (generation !== current) return;
@@ -330,16 +411,36 @@ async function start() {
       NotFoundError: ['系统未找到摄像头。接好设备后重试。', 'not-found'],
       NotReadableError: ['摄像头不可读。关闭可能占用它的程序后重试。', 'busy']
     }[error.name] || ['手势识别模型无法启动。请重开识别页。', 'model-error'];
-    stop(...failure);
+    if (hadFrames && error.name !== 'NotAllowedError') retryCapture(current, '正在重新连接摄像头…', failure[1] === 'model-error');
+    else stop(...failure);
   } finally {
     button.disabled = !connected;
   }
 }
 
-button.addEventListener('click', () => stream ? stop('摄像头已关闭。') : void start());
+function enableCamera() {
+  wantsCamera = true;
+  hadFrames = false;
+  captureAttempts = 0;
+  void start();
+}
+
+button.addEventListener('click', () => wantsCamera ? stop('摄像头已关闭。') : enableCamera());
 previewButton.addEventListener('click', () => void togglePreview());
+video.addEventListener('timeupdate', trackPreview);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && stream) {
+    void video.play().catch(() => {});
+    trackPreview();
+    checkCapture(generation);
+  }
+});
 window.addEventListener('pagehide', () => {
+  wantsCamera = false;
+  clearTimeout(captureRetry);
+  clearTimeout(bridgeRetry);
   releaseCamera();
   if (connected) void fetch('./state/off', { method: 'POST', keepalive: true }).catch(() => {});
+  connected = false;
 });
-void start();
+enableCamera();

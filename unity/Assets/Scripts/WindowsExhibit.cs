@@ -21,6 +21,7 @@ namespace Echoes
         private readonly ForestLampShow forestLamps = new ForestLampShow();
         private readonly ChapterLampShow chapterLamps = new ChapterLampShow();
         private readonly Dictionary<int, int> lampTestPackets = new Dictionary<int, int>();
+        private readonly int[] touchPresses = new int[2], touchReleases = new int[2];
         private static readonly LampRgb TestAmber = new LampRgb(27, 17, 0);
         private static readonly LampRgb TestCyan = new LampRgb(4, 18, 25);
         private static readonly string[] LampTestSteps = { "左侧黄灯 · D6", "右侧黄灯 · D7", "双侧青灯", "双侧熄灭" };
@@ -38,6 +39,25 @@ namespace Echoes
         public string LampTestStatus { get; private set; } = "";
         public bool LampTesting => lampTestAt >= 0;
         public event Action<int, bool> TouchChanged;
+        public bool TouchEnabled(int option) => Ready && (lastEnabled & 1 << option) != 0;
+        public bool TouchPressed(int option) => (lastMask & 1 << option) != 0;
+        public (int presses, int releases) TouchCounts(int option) => (touchPresses[option], touchReleases[option]);
+
+#if UNITY_EDITOR_WIN
+        public static bool HasForegroundWindow
+        {
+            get
+            {
+                IntPtr window = GetForegroundWindow();
+                return window != IntPtr.Zero && GetWindowThreadProcessId(window, out uint process) != 0 &&
+                    process == GetCurrentProcessId();
+            }
+        }
+
+        [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
+        [DllImport("kernel32.dll")] private static extern uint GetCurrentProcessId();
+#endif
 
         public static string[] AvailablePorts()
         {
@@ -199,6 +219,8 @@ namespace Echoes
                 int bit = 1 << option;
                 if ((changed & bit) == 0) continue;
                 bool pressed = (mask & bit) != 0;
+                if (pressed) touchPresses[option]++;
+                else touchReleases[option]++;
                 TouchChanged?.Invoke(option, pressed);
                 if (!pressed && !inForest)
                     lampEnd[option] = Math.Min(lampEnd[option], Math.Max(lampBegin[option] + .5f, now));
@@ -300,6 +322,8 @@ namespace Echoes
             port = null;
             portName = null;
             Ready = FanSupported = overflow = false;
+            Array.Clear(touchPresses, 0, touchPresses.Length);
+            Array.Clear(touchReleases, 0, touchReleases.Length);
             line.Clear();
             Status = "串口未连接";
             LampTestStatus = "";
