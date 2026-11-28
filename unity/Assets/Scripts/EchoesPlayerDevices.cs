@@ -31,7 +31,7 @@ namespace Echoes
             EchoesLocale.T("摄像头 / 麦克风", "Camera / Mic");
 #endif
 
-        private void UpdateHand(bool keyboard, bool enabled)
+        private void UpdateHand(bool keyboard, bool enabled, bool operatorTouch)
         {
 #if ECHOES_DESKTOP_CAMERA
             if (preview && desktopCamera.Active)
@@ -54,7 +54,7 @@ namespace Echoes
 #endif
             keyboardFist = false;
             Hand gesture = !enabled ? Hand.Missing : !preview ? liveHand :
-                noHand || !keyboard ? Hand.Missing : Input.GetKey(KeyCode.Space) ? Hand.Fist : Hand.Open;
+                noHand || !keyboard && !operatorTouch ? Hand.Missing : keyboard && Input.GetKey(KeyCode.Space) ? Hand.Fist : Hand.Open;
             journey.SetHand(gesture);
         }
 

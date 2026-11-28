@@ -26,6 +26,7 @@ namespace Echoes
         public const int RuinRoomCount = RuinAtlas.RoomCount;
         public const float RuinMinimumReach = .65f;
         public const float RuinMaximumReach = RuinPortal.MaximumReach;
+        public const float MinRuinMoveScale = .25f, DefaultRuinMoveScale = .55f, MaxRuinMoveScale = 1.25f;
         private const float RuinSideLimit = 1.32f;
         private const float RuinSideSpeed = 1.55f;
         private const float HeartStartleTime = 1.45f;
@@ -40,6 +41,7 @@ namespace Echoes
         private float ruinHeartAt, ruinSteeringSpeed, ruinPassageSpeed;
         private RuinTransferMetrics ruinTransferMetrics;
         private bool ruinHeartSeen, ruinAirCruise;
+        private float ruinMoveScale = DefaultRuinMoveScale;
         private string ruinHint;
 
         public bool InRuins => Chapter == 1 && Lesson < 0;
@@ -101,6 +103,11 @@ namespace Echoes
         public float RuinLane { get; private set; }
         public float RuinSteering { get; private set; }
         public float RuinForwardSpeed { get; private set; }
+        public float RuinMoveScale
+        {
+            get => ruinMoveScale;
+            set => ruinMoveScale = TuningValue(value, MinRuinMoveScale, MaxRuinMoveScale, DefaultRuinMoveScale);
+        }
         public RuinObject RuinSearchTarget { get; private set; }
         public RuinObject RuinNearbyClue { get; private set; }
         public bool RuinCanTake => Phase == Stage.RuinExplore && !RuinLootOpen && RuinSearchTarget != null &&
@@ -288,8 +295,12 @@ namespace Echoes
             }
 
             UpdateRuinSteering(dt);
-            if (Flight.Height <= .002f && Flight.Speed <= .02f) ruinAirCruise = false;
-            float targetSpeed = RuinVoiceSpeed + (ruinAirCruise ? FlightCruiseSpeed : 0);
+            if (ruinAirCruise && Flight.Height <= .002f && Flight.Speed <= .02f)
+            {
+                ruinAirCruise = false;
+                RuinForwardSpeed = Math.Min(RuinForwardSpeed, RuinVoiceSpeed);
+            }
+            float targetSpeed = RuinVoiceSpeed + (ruinAirCruise ? FlightCruiseSpeed * RuinMoveScale : 0);
             RuinForwardSpeed = ApproachRuinSpeed(RuinForwardSpeed, targetSpeed, 5.6f * dt, 18f * dt);
             Distance += RuinForwardSpeed * dt;
             if (TryStartRuinRetry()) return;
@@ -305,7 +316,8 @@ namespace Echoes
             {
                 RuinPortal route = ruinSteerHeld == 0 ? null :
                     FindRuinPortal(ruinSteerHeld < 0 ? RuinDirection.Left : RuinDirection.Right);
-                if (route == null && Gesture == Hand.Open) route = FindRuinPortal(RuinDirection.Upper);
+                if (route == null && Gesture == Hand.Open && Flight.Speed >= -.035f)
+                    route = FindRuinPortal(RuinDirection.Upper);
                 if (route == null && (Flight.Speed < -.035f || wasDescending && Flight.Height <= .03f))
                     route = FindRuinPortal(RuinDirection.Lower);
                 if (route != null)
@@ -342,7 +354,7 @@ namespace Echoes
             else if (CueAge > 1.2f) Message = ruinHint;
         }
 
-        private float RuinVoiceSpeed => RuinFastSpeed * Clamp((Voice - RuinVoiceDeadZone) / .76f);
+        private float RuinVoiceSpeed => RuinFastSpeed * RuinMoveScale * Clamp((Voice - RuinVoiceDeadZone) / .76f);
 
         private static float ApproachRuinSpeed(float speed, float target, float accel, float brake) =>
             speed + Math.Max(-brake, Math.Min(accel, target - speed));

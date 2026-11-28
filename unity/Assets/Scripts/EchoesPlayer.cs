@@ -47,6 +47,7 @@ namespace Echoes
         private const string RuinRightReachKey = "EchoesUnity.Ruins.RightReach";
         private const string RuinUpperReachKey = "EchoesUnity.Ruins.UpperReach";
         private const string RuinLowerReachKey = "EchoesUnity.Ruins.LowerReach";
+        private const string RuinMoveKey = "EchoesUnity.Ruins.MoveScale";
         private const string JumpHeightKey = "EchoesUnity.Flight.JumpHeight";
         private const string DoorJumpHeightKey = "EchoesUnity.Flight.DoorJumpHeight";
         private const string StarCruiseSpeedKey = "EchoesUnity.Stars.CruiseSpeed";
@@ -75,7 +76,9 @@ namespace Echoes
 #if UNITY_EDITOR
         public static EchoesPlayer Active { get; private set; }
         public static event Action CharacterWindowRequested;
-        private bool editorProjection;
+        public static event Action OperatorWindowRequested;
+        private bool editorProjection, editorOperatorVisible;
+        private int editorTouch = -1;
 #endif
 
         [Serializable]
@@ -145,6 +148,7 @@ namespace Echoes
             journey.RuinRightReach = PlayerPrefs.GetFloat(RuinRightReachKey, 1);
             journey.RuinUpperReach = PlayerPrefs.GetFloat(RuinUpperReachKey, 1);
             journey.RuinLowerReach = PlayerPrefs.GetFloat(RuinLowerReachKey, 1);
+            journey.RuinMoveScale = PlayerPrefs.GetFloat(RuinMoveKey, Journey.DefaultRuinMoveScale);
             journey.JumpHeightScale = PlayerPrefs.GetFloat(JumpHeightKey, Journey.DefaultJumpHeightScale);
             journey.ForestDoorJumpHeightScale = PlayerPrefs.GetFloat(DoorJumpHeightKey, Journey.DefaultForestDoorJumpHeightScale);
             journey.StarCruiseSpeed = PlayerPrefs.GetFloat(StarCruiseSpeedKey, Journey.DefaultStarCruiseSpeed);
@@ -176,8 +180,19 @@ namespace Echoes
             float now = Time.unscaledTime;
             float dt = Mathf.Min(.04f, Time.unscaledDeltaTime);
             bool keyboard = preview && Application.isFocused;
+            bool operatorTouch = false;
+#if UNITY_EDITOR
+            operatorTouch = editorTouch >= 0;
+#endif
             inputReady = preview || audioReady && cameraReady && now - lastAudioAt < .5f && now - lastHandAt < .5f;
-            if (preview && Input.GetKeyDown(KeyCode.F1)) ToggleSettings();
+            if (preview && Input.GetKeyDown(KeyCode.F1))
+            {
+#if UNITY_EDITOR
+                OperatorWindowRequested?.Invoke();
+#else
+                ToggleSettings();
+#endif
+            }
             if (keyboard && Input.GetKeyDown(KeyCode.R)) Retry("");
             if (keyboard && Input.GetKeyDown(KeyCode.Escape)) journey.FinishOpening();
             float voice = preview ? (keyboard && Input.GetKey(KeyCode.X) ? (journey.InStars ? 1f : .7f) :
@@ -190,7 +205,7 @@ namespace Echoes
 #if ECHOES_DESKTOP_CAMERA
             journey.RuinDirectPalmLook |= desktopCamera.Active;
 #endif
-            UpdateHand(keyboard, !paused && (inputReady || journey.InStars));
+            UpdateHand(keyboard, !paused && (inputReady || journey.InStars), operatorTouch);
             if (journey.InStars) UpdateIndexTip(keyboard, !paused && !settings);
             bool leftArrow = keyboard && journey.InRuins && Input.GetKey(KeyCode.LeftArrow);
             bool rightArrow = keyboard && journey.InRuins && Input.GetKey(KeyCode.RightArrow);
@@ -285,7 +300,12 @@ namespace Echoes
         }
 
         private SpiritFrame LocalSpirit => SpiritFrame.Read(journey, cast);
-        private bool ShowProjectionCalibration => settings && projectionSettings;
+        private bool ShowProjectionCalibration => projectionSettings &&
+#if UNITY_EDITOR
+            editorOperatorVisible;
+#else
+            settings;
+#endif
 
         private bool StageSplit
         {
@@ -336,7 +356,9 @@ namespace Echoes
             else view.DrawStage(journey, spirit, StageSplit, ShowProjectionCalibration);
             if (journey.StarFinaleActive)
             {
+#if !UNITY_EDITOR
                 if (settings) view.DrawFinaleSettings(DrawSettings, ToggleSettings);
+#endif
                 return;
             }
             if (!settings && !characterOnly && journey.ForestMazeActive)
@@ -344,7 +366,9 @@ namespace Echoes
             if (Application.platform == RuntimePlatform.WebGLPlayer) return;
             if (journey.IsOpening && !settings)
             {
+#if !UNITY_EDITOR
                 if (!characterOnly) view.DrawOpeningControls(journey.OpeningTime, journey.FinishOpening);
+#endif
                 return;
             }
             var state = Snapshot();
@@ -352,6 +376,10 @@ namespace Echoes
                 ruinWallDebug ? "调试 · 遗迹撞墙" : state.title;
             bool ruinEnding = journey.Phase == Stage.RuinRetry;
             bool ruinSurvey = journey.RuinRetryState == RuinRetryPhase.Survey;
+#if UNITY_EDITOR
+            if (!characterOnly || ShowProjectionCalibration)
+                view.DrawEditorHud(heading, state.message, state.voice, journey.ForestMazeWalkArea, journey.InStars, ruinEnding, ruinSurvey);
+#else
             view.DrawControls(heading, state.message, state.left, state.right, state.voice,
                 option => Choose(option.ToString()), Select, () => Retry(""), () => Restore(""),
                 () => Pause(paused ? "0" : "1"), paused, characterOnly, journey.ForestMazeWalkArea,
@@ -359,6 +387,7 @@ namespace Echoes
                 journey.InStars, !ruinEnding || ruinSurvey || journey.RuinRetryState == RuinRetryPhase.Bargain,
                 ruinEnding, ruinSurvey,
                 ToggleSettings, settings ? DrawSettings : (Action<GUIStyle, GUIStyle>)null);
+#endif
         }
 
         private void DrawSettings(GUIStyle label, GUIStyle button)
@@ -458,7 +487,7 @@ namespace Echoes
                 return;
             }
             LocaleGui.Label(new Rect(20, 352, 285, 26), "森林 · 速度与捕捉范围", label);
-            if (LocaleGui.Button(new Rect(293, 349, 116, 29), "遗迹入口范围", button)) ruinSettings = true;
+            if (LocaleGui.Button(new Rect(293, 349, 116, 29), EchoesLocale.T("遗迹设置", "Ruins"), button)) ruinSettings = true;
             if (LocaleGui.Button(new Rect(416, 349, 86, 29), "跳跃高度", button)) flightSettings = true;
             journey.ForestLateralScale = TuningSlider(381, "左右移速", LateralKey, journey.ForestLateralScale,
                 Journey.MinForestLateralScale, Journey.MaxForestLateralScale, label);
@@ -475,13 +504,17 @@ namespace Echoes
         private void DrawRuinSettings(GUIStyle label, GUIStyle button)
         {
             const float minimum = Journey.RuinMinimumReach, maximum = Journey.RuinMaximumReach;
-            LocaleGui.Label(new Rect(20, 14, 315, 28), "遗迹入口范围", label);
-            LocaleGui.Label(new Rect(20, 54, 480, 52), "倍率越大，越早能从附近转入对应的岔道。四个方向可以分别调节。", label);
-            journey.RuinLeftReach = TuningSlider(112, "左侧 · 按 A", RuinLeftReachKey, journey.RuinLeftReach, minimum, maximum, label);
-            journey.RuinRightReach = TuningSlider(153, "右侧 · 按 B", RuinRightReachKey, journey.RuinRightReach, minimum, maximum, label);
-            journey.RuinUpperReach = TuningSlider(194, "上方 · 张手", RuinUpperReachKey, journey.RuinUpperReach, minimum, maximum, label);
-            journey.RuinLowerReach = TuningSlider(235, "下方 · 下降", RuinLowerReachKey, journey.RuinLowerReach, minimum, maximum, label);
-            if (!LocaleGui.Button(new Rect(20, 288, 141, 30), "恢复默认", button)) return;
+            LocaleGui.Label(new Rect(20, 14, 315, 28), EchoesLocale.T("遗迹设置", "Ruins settings"), label);
+            journey.RuinMoveScale = TuningSlider(57, EchoesLocale.T("前进速度", "Forward speed"), RuinMoveKey,
+                journey.RuinMoveScale, Journey.MinRuinMoveScale, Journey.MaxRuinMoveScale, label);
+            LocaleGui.Label(new Rect(20, 91, 480, 52), "倍率越大，越早能从附近转入对应的岔道。四个方向可以分别调节。", label);
+            journey.RuinLeftReach = TuningSlider(149, "左侧 · 按 A", RuinLeftReachKey, journey.RuinLeftReach, minimum, maximum, label);
+            journey.RuinRightReach = TuningSlider(190, "右侧 · 按 B", RuinRightReachKey, journey.RuinRightReach, minimum, maximum, label);
+            journey.RuinUpperReach = TuningSlider(231, "上方 · 张手", RuinUpperReachKey, journey.RuinUpperReach, minimum, maximum, label);
+            journey.RuinLowerReach = TuningSlider(272, "下方 · 下降", RuinLowerReachKey, journey.RuinLowerReach, minimum, maximum, label);
+            if (!LocaleGui.Button(new Rect(20, 325, 141, 30), "恢复默认", button)) return;
+            journey.RuinMoveScale = Journey.DefaultRuinMoveScale;
+            PlayerPrefs.DeleteKey(RuinMoveKey);
             journey.RuinLeftReach = journey.RuinRightReach = journey.RuinUpperReach = journey.RuinLowerReach = 1;
             PlayerPrefs.DeleteKey(RuinLeftReachKey);
             PlayerPrefs.DeleteKey(RuinRightReachKey);
@@ -617,6 +650,32 @@ namespace Echoes
         }
 
 #if UNITY_EDITOR
+        public void SetEditorOperatorVisible(bool visible)
+        {
+            editorOperatorVisible = visible;
+            if (visible) return;
+            ReleaseEditorTouch();
+            SaveTuning();
+        }
+
+        public void ReleaseEditorTouch() => editorTouch = -1;
+
+        public void DrawEditorOperator(Rect viewport, ref Vector2 scroll)
+        {
+            if (view == null) return;
+            var state = Snapshot();
+            bool survey = journey.RuinRetryState == RuinRetryPhase.Survey;
+            bool ending = journey.Phase == Stage.RuinRetry;
+            bool allowTouch = !paused && !journey.IsOpening && !journey.StarFinaleActive &&
+                (!ending || survey || journey.RuinRetryState == RuinRetryPhase.Bargain);
+            bool continuous = journey.InForest || survey || journey.InRuins && !ending &&
+                journey.Phase == Stage.RuinExplore && !journey.RuinLootOpen;
+            view.DrawEditorOperator(viewport, ref scroll, state.left, state.right, allowTouch, continuous,
+                option => { editorTouch = option; Touch(option, false); }, ReleaseEditorTouch,
+                option => Touch(option, false), paused, () => Pause(paused ? "0" : "1"), () => Retry(""),
+                () => Restore(""), Select, journey.IsOpening ? (Action)journey.FinishOpening : null, DrawSettings);
+        }
+
         public void SetEditorProjection(bool active, Vector2 size = default, bool sideways = true, float lightReach = 1.45f)
         {
             editorProjection = active;
@@ -743,6 +802,13 @@ namespace Echoes
             if (!touchesActive || !physicalReady) Array.Clear(physicalTouchDown, 0, physicalTouchDown.Length);
             left = active && (left || physicalTouchDown[0]);
             right = active && (right || physicalTouchDown[1]);
+#if UNITY_EDITOR
+            if (!paused && inputReady)
+            {
+                left |= editorTouch == 0;
+                right |= editorTouch == 1;
+            }
+#endif
             journey.SetMazeSteering(left, right);
             journey.SetForestLateralInput(left, right);
             if (!touchesActive || preview) Array.Clear(browserTouch, 0, browserTouch.Length);

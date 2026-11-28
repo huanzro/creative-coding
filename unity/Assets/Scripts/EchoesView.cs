@@ -419,6 +419,7 @@ namespace Echoes
             }
         }
 
+        private static readonly string[] ChapterButtons = { "试玩", "森林", "遗迹", "星海" };
         private readonly int[] screenTouchFrame = { -100, -100 };
 
         internal bool ScreenTouchHeld(int option) => Input.GetMouseButton(0) && Time.frameCount - screenTouchFrame[option] <= 1;
@@ -470,9 +471,8 @@ namespace Echoes
             if (LocaleGui.Button(new Rect(687, 658, 76, 34), paused ? "继续" : "暂停", button)) pause();
             if (LocaleGui.Button(new Rect(770, 658, 76, 34), "重试", button)) retry();
             if (LocaleGui.Button(new Rect(853, 658, 76, 34), "恢复", button)) restore();
-            string[] names = { "试玩", "森林", "遗迹", "星海" };
-            for (int i = 0; i < names.Length; i++)
-                if (LocaleGui.Button(new Rect(935 + i * 78, 658, 72, 34), names[i], button)) select((i - 1).ToString());
+            for (int i = 0; i < ChapterButtons.Length; i++)
+                if (LocaleGui.Button(new Rect(935 + i * 78, 658, 72, 34), ChapterButtons[i], button)) select((i - 1).ToString());
             GUI.enabled = enabled;
             EndFrame(matrix);
             if (settings == null) return;
@@ -486,6 +486,76 @@ namespace Echoes
             GUI.EndGroup();
             EndFrame(matrix);
         }
+
+#if UNITY_EDITOR
+        internal void DrawEditorHud(string heading, string message, float voice, bool maze, bool stars, bool ending, bool survey)
+        {
+            if (ending && !survey) return;
+            PrepareInterface();
+            Matrix4x4 matrix = BeginFrame(StageViewport);
+            if (!ending)
+            {
+                DrawStageText(new Rect(40, 26, 675, 36), heading, title);
+                DrawStageText(new Rect(40, 65, 710, 55), message, body);
+            }
+            string hint = survey ? "松开空格仰视 · Z 发声俯视" : maze ? "A/B 转向 · 松开空格走 · 按住停" :
+                stars ? "按住鼠标引导光迹 · Z / X 加速" : "空格握拳 · 松开张手 · Z轻声 · X加速";
+            string energy = EchoesLocale.T("声音能量", "Voice energy") + $" {Mathf.Clamp01(voice):P0}";
+            DrawStageText(new Rect(40, ending ? 30 : 123, 880, 29), EchoesLocale.Text(hint) + "  ·  " + energy, body);
+            EndFrame(matrix);
+        }
+
+        private static void DrawStageText(Rect area, string text, GUIStyle style, Color? tint = null)
+        {
+            Color color = GUI.contentColor;
+            Rect shadow = area;
+            shadow.position += new Vector2(1.5f, 1.5f);
+            GUI.contentColor = new Color(.15f, .15f, .15f, .97f);
+            GUI.Label(shadow, text, style);
+            GUI.contentColor = tint ?? color;
+            GUI.Label(area, text, style);
+            GUI.contentColor = color;
+        }
+
+        internal void DrawEditorOperator(Rect viewport, ref Vector2 scroll, string left, string right, bool allowTouch,
+            bool continuous, Action<int> hold, Action release, Action<int> choose, bool paused, Action pause,
+            Action retry, Action restore, Action<string> select, Action skip, Action<GUIStyle, GUIStyle> settings)
+        {
+            PrepareInterface();
+            var pointer = Event.current;
+            if (!allowTouch || pointer.rawType == EventType.MouseLeaveWindow ||
+                pointer.rawType == EventType.MouseUp && pointer.button == 0) release();
+            bool enabled = GUI.enabled;
+            GUI.enabled = enabled && allowTouch;
+            DrawEditorTouch(new Rect(12, 12, 127, 29), left, 0, continuous, hold, choose);
+            DrawEditorTouch(new Rect(145, 12, 127, 29), right, 1, continuous, hold, choose);
+            GUI.enabled = enabled;
+            if (LocaleGui.Button(new Rect(278, 12, 81, 29), paused ? "继续" : "暂停", button)) pause();
+            if (LocaleGui.Button(new Rect(365, 12, 81, 29), "重试", button)) retry();
+            if (LocaleGui.Button(new Rect(452, 12, 81, 29), "恢复", button)) restore();
+            for (int i = 0; i < ChapterButtons.Length; i++)
+                if (LocaleGui.Button(new Rect(12 + 92 * i, 47, 86, 29), ChapterButtons[i], button)) select((i - 1).ToString());
+            if (skip != null && LocaleGui.Button(new Rect(380, 47, 153, 29), "跳过 · Esc", button)) skip();
+            Paint(new Rect(12, 84, viewport.width - 24, 1), new Color(.6f, .7f, .8f, .3f));
+            Rect pane = new Rect(6, 89, viewport.width - 12, viewport.height - 95);
+            scroll = GUI.BeginScrollView(pane, scroll, new Rect(0, 0, Mathf.Max(527, pane.width - 17), 572));
+            settings(body, button);
+            GUI.EndScrollView();
+        }
+
+        private void DrawEditorTouch(Rect rect, string text, int option, bool continuous, Action<int> hold, Action<int> choose)
+        {
+            if (!continuous)
+            {
+                if (LocaleGui.Button(rect, text, button)) choose(option);
+                return;
+            }
+            var pointer = Event.current;
+            if (GUI.enabled && pointer.type == EventType.MouseDown && pointer.button == 0 && rect.Contains(pointer.mousePosition))
+                hold(option);
+            LocaleGui.RepeatButton(rect, text, button);
+        }
+#endif
 
         private void PrepareInterface()
         {

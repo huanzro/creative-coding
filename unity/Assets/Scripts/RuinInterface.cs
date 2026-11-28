@@ -113,13 +113,23 @@ namespace Echoes
             string level = journey.RuinLayer == 0 ? EchoesLocale.T("中层", "Level 0") : journey.RuinLayer > 0
                 ? EchoesLocale.T($"上层 +{journey.RuinLayer}", $"Level +{journey.RuinLayer}")
                 : EchoesLocale.T($"下层 {journey.RuinLayer}", $"Level {journey.RuinLayer}");
-            Paint(new Rect(26, 130, 332, 35), InkGlass);
             string discipline = RuinDisciplineExhibits.Name(journey.RuinDiscipline);
-            GUI.Label(new Rect(43, 134, 310, 27), EchoesLocale.T($"{discipline}展厅  ·  {level}  ·  {journey.RuinRoomName}",
-                $"{EnglishDisciplines[journey.RuinDiscipline]} · {level} · {EnglishGalleryNames[journey.RuinRoomId]}"), body);
+            string gallery = EchoesLocale.T($"{discipline}展厅  ·  {level}  ·  {journey.RuinRoomName}",
+                $"{EnglishDisciplines[journey.RuinDiscipline]} · {level} · {EnglishGalleryNames[journey.RuinRoomId]}");
+#if UNITY_EDITOR
+            DrawStageText(new Rect(40, 154, 575, 29), gallery, body);
+#else
+            Paint(new Rect(26, 130, 332, 35), InkGlass);
+            GUI.Label(new Rect(43, 134, 310, 27), gallery, body);
+#endif
             if (journey.Phase == Stage.RuinExplore && !journey.RuinLootOpen)
             {
-                float hintY = 173;
+                float hintY =
+#if UNITY_EDITOR
+                    190;
+#else
+                    173;
+#endif
                 RuinPortal portal = journey.RuinApproach;
                 RuinPortal upper = journey.RuinUpperApproach;
                 if (portal != null)
@@ -163,9 +173,13 @@ namespace Echoes
 
         private void DrawRuinHint(float y, string hint, Color tint, bool ready)
         {
+#if UNITY_EDITOR
+            DrawStageText(new Rect(40, y + 3, 490, 26), hint, body, ready ? Color.Lerp(tint, Color.white, .55f) : Color.white);
+#else
             Paint(new Rect(26, y, 332, 32), InkGlass);
             Paint(new Rect(26, y, 2, 32), Opacity(tint, ready ? .94f : .30f));
             GUI.Label(new Rect(43, y + 3, 305, 26), hint, body);
+#endif
         }
 
         private void DrawRuinLoot(Journey journey)
