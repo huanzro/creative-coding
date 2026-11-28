@@ -46,6 +46,7 @@ namespace Echoes
     public sealed partial class Journey
     {
         public const float MinJumpHeightScale = .50f, DefaultJumpHeightScale = 1f, MaxJumpHeightScale = 2f;
+        private const float FlightCruiseSpeed = 4.35f;
         public readonly SpiritFlight Flight = new SpiritFlight();
         public readonly FireflyCourse Fireflies = new FireflyCourse();
 
@@ -351,6 +352,7 @@ namespace Echoes
         private void Release()
         {
             if (InRuins && (Phase == Stage.RuinRetry || RuinLootOpen || RuinChestOpening)) return;
+            if (InRuins) ruinAirCruise = true;
             LastRelease = PoseTime;
             ReleaseAltitude = Flight.Height;
             Light = 1;

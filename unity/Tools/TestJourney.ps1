@@ -571,6 +571,19 @@ Assert ($ruins.InRuins -and $ruins.RuinLayer -eq 0 -and $ruins.RuinVisitedCount 
 $ruins.SetHand([Echoes.Hand]::Open)
 Step $ruins 75 0
 Assert ($ruins.Distance -eq 0 -and $ruins.RuinForwardSpeed -eq 0 -and $ruins.Phase -eq 'RuinExplore') 'Idle exploration has no initial speed or ending countdown.'
+$quietJump = [Echoes.Journey]::new(92)
+$loudJump = [Echoes.Journey]::new(92)
+foreach ($jump in @($quietJump, $loudJump)) {
+    $jump.SelectChapter(1)
+    RuinSteer $jump -1.30
+    Launch-Gesture $jump
+}
+Step $quietJump 1 0
+Step $loudJump 1 .7
+Assert ($quietJump.Flight.Speed -lt 0 -and $quietJump.Distance -gt 2 -and $quietJump.RuinForwardSpeed -gt 4) 'A quiet hand release advances through the rising and gliding portions of the jump.'
+Assert ($loudJump.Distance -gt $quietJump.Distance -and $loudJump.RuinForwardSpeed -gt $quietJump.RuinForwardSpeed) 'Voice boosts the same ruins jump.'
+Step $quietJump 5 0
+Assert ($quietJump.Flight.Height -eq 0 -and $quietJump.RuinForwardSpeed -eq 0 -and $quietJump.Phase -eq 'RuinExplore') 'A quiet jump settles back to a stop after landing.'
 Step $ruins 1 .30
 $quietSpeed = $ruins.RuinForwardSpeed
 Step $ruins 1 .78
@@ -675,7 +688,7 @@ $top = $ceilingRoute.RuinPortals | Where-Object { $_.Direction -eq 'Upper' -and 
 FlyRuin $ceilingRoute ($top.Depth - 2.5) 0 0
 Pose $ceilingRoute Fist .22 0
 Assert ($ceilingRoute.Phase -eq 'RuinExplore') 'A fist while near the upper passage does not select it.'
-Pose $ceilingRoute Open 1.2 0
+Pose $ceilingRoute Open .8 0
 if ($ceilingRoute.Phase -eq 'RuinExplore') {
     Pose $ceilingRoute Fist .18 0
     Pose $ceilingRoute Open 1.2 0

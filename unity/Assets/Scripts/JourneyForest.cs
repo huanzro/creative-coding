@@ -157,7 +157,7 @@ namespace Echoes
             ForestMazeActive ? ForestMazeSpeed : Section == ForestSection.Shaft ? 5.1f + 2.65f * Voice + ForestShaftProgress * .85f :
             LeftMazeApproach ? Lerp(ForestApproachPace, MazeWalkingPace, ForestMazeApproachBlend) :
             ForestApproachPace;
-        private float ForestApproachPace => ForestAirborne ? 4.35f + 4.15f * Voice :
+        private float ForestApproachPace => ForestAirborne ? FlightCruiseSpeed + 4.15f * Voice :
             (Distance >= ForestForkPromptDepth && Distance < VestibuleDepth || Section == ForestSection.Brain) &&
             Voice >= .08f && Gesture != Hand.Fist ? .9f + 2.5f * Voice : 0;
         private const float ForestForkPromptDepth = 100;

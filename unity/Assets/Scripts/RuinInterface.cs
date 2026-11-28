@@ -83,7 +83,7 @@ namespace Echoes
                 "裂缝里有光，还有一层空间。" => "Light filters through the seam. There is another floor.",
                 "前面有一条岔道。" => "A branch lies ahead.",
                 "墙后还有空间。沿两侧的微光找一找。" => "There is space beyond the walls. Look for the faint lights on either side.",
-                _ => "Make sound to move. Hold A/B to turn. Open a fist to rise."
+                _ => "Open a fist to jump and glide forward. Use your voice to speed up. Hold A/B to move sideways."
             };
         }
 

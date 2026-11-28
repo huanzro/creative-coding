@@ -39,7 +39,7 @@ namespace Echoes
         private ulong ruinFinds, ruinFindsExtra, ruinOpenLow, ruinOpenHigh, ruinExhibitOrder;
         private float ruinHeartAt, ruinSteeringSpeed, ruinPassageSpeed;
         private RuinTransferMetrics ruinTransferMetrics;
-        private bool ruinHeartSeen;
+        private bool ruinHeartSeen, ruinAirCruise;
         private string ruinHint;
 
         public bool InRuins => Chapter == 1 && Lesson < 0;
@@ -175,15 +175,16 @@ namespace Echoes
             Distance = 0;
             RuinLane = 0;
             RuinForwardSpeed = 0;
+            ruinAirCruise = false;
             StopRuinSteering();
             RuinSearchTarget = RuinNearbyClue = null;
             RuinApproach = RuinEntrance = null;
             foreach (var item in CurrentRuinRoom.Objects) item.Reveal = 0;
             float entryHeight = atThreshold && room == 0 ? EntryAltitude : RuinEntryAltitude;
             Flight.Reset(entryHeight, RuinHeightLimit);
-            ruinHint = room == 0 ? "发声前进，停声停下。按住 A / B 自由横移，握拳后张手上升。" :
+            ruinHint = room == 0 ? "握拳后张手，起跳向前滑翔。发声加速，按住 A / B 横移。" :
                 CurrentRuinRoom.Style == 5 ? "墙后还有空间。沿两侧的微光找一找。" :
-                "发声前进。可在岔口换层，也可停下来查看墙边。";
+                "张手起跳向前滑翔，发声可加速。可在岔口换层。";
             Change(Stage.RuinExplore, ruinHint);
         }
 
@@ -287,7 +288,9 @@ namespace Echoes
             }
 
             UpdateRuinSteering(dt);
-            RuinForwardSpeed = ApproachRuinSpeed(RuinForwardSpeed, RuinVoiceSpeed, 5.6f * dt, 18f * dt);
+            if (Flight.Height <= .002f && Flight.Speed <= .02f) ruinAirCruise = false;
+            float targetSpeed = RuinVoiceSpeed + (ruinAirCruise ? FlightCruiseSpeed : 0);
+            RuinForwardSpeed = ApproachRuinSpeed(RuinForwardSpeed, targetSpeed, 5.6f * dt, 18f * dt);
             Distance += RuinForwardSpeed * dt;
             if (TryStartRuinRetry()) return;
             if (Distance >= RuinRoomLength)
