@@ -31,7 +31,7 @@ namespace Echoes
             }
         }
 
-        private void DrawRuinNiche(int slot, RuinObject item, RuinRouteFrame frame, Journey journey, float time, float gap)
+        private void DrawRuinNiche(int slot,RuinObject item,RuinRouteFrame frame,int room,int style,float time,float gap)
         {
             if (slot == ruinNiches.Count)
             {
@@ -51,7 +51,6 @@ namespace Echoes
             }
             RuinNicheView view = ruinNiches[slot];
             int side = item.Lane < 0 ? -1 : 1;
-            int style = journey.RuinRoomStyle;
             var key = (style, side);
             if (!ruinNicheMeshes.TryGetValue(key, out RuinNicheParts parts))
             {
@@ -66,7 +65,7 @@ namespace Echoes
             }
             view.Root.gameObject.SetActive(true);
             view.Root.SetLocalPositionAndRotation(frame.Position, frame.Rotation);
-            Color roomStone = RuinGalleryStoneFor(style, journey.RuinRoomId);
+            Color roomStone = RuinGalleryStoneFor(style,room);
             Light(view.StoneRenderer, Color.Lerp(Color.white, roomStone, .51f), 0);
             view.MarkerRenderer.enabled = !item.Collected;
             if (item.Collected) return;

@@ -292,7 +292,8 @@ namespace Echoes
         private readonly System.Func<float,Vector2> sourceSection;
         private readonly RuinPortal portal;
         private readonly Vector2 opening;
-        private const float MouthParameter=.22f, BoreParameter=.07f, ArrivalParameter=.81f, ArrivalDepth=-3.7f;
+        private const float MouthParameter=.22f, BoreParameter=.07f;
+        internal const float ArrivalParameter=.81f, ArrivalDepth=-3.7f;
         private const int ApproachSamples=96, BoreSamples=48, CurveSamples=168, MergeSamples=96;
         private const int TravelSamples=ApproachSamples+BoreSamples+CurveSamples+MergeSamples;
         private const int SectionSamples=224;
@@ -408,7 +409,7 @@ namespace Echoes
             }
             float arrival=Mathf.InverseLerp(ArrivalParameter,1,t);
             float height=Mathf.Lerp(.42f,LandingHeight,SmoothJoin(arrival));
-            return RuinTrack.Frame(target,targetLength,Mathf.Lerp(ArrivalDepth,0,arrival)).Point(0,height);
+            return ArrivalFrame(t).Point(0,height);
         }
 
         private Vector3 ForwardAt(float t)
@@ -421,12 +422,15 @@ namespace Echoes
                 return (connector.Tangent(u)+connectorDetour*(12*envelope*envelope*(1-2*u))).normalized;
             }
             float arrival=Mathf.InverseLerp(ArrivalParameter,1,t);
-            var road=RuinTrack.Frame(target,targetLength,Mathf.Lerp(ArrivalDepth,0,arrival));
+            var road=ArrivalFrame(t);
             float normalizedHeightChange=30*arrival*arrival*(1-arrival)*(1-arrival);
             float slope=(LandingHeight-.42f)*normalizedHeightChange/
                 (-ArrivalDepth*RuinTrack.RouteMetresPerDepth(target,targetLength));
             return (road.Forward+Vector3.up*slope).normalized;
         }
+
+        internal RuinRouteFrame ArrivalFrame(float t) => RuinTrack.Frame(target,targetLength,
+            Mathf.Lerp(ArrivalDepth,0,Mathf.InverseLerp(ArrivalParameter,1,t)));
 
         private void PrepareRoll()
         {

@@ -34,7 +34,7 @@ namespace Echoes
 
         private sealed class ExhibitGallery
         {
-            public readonly ExhibitDisplay[] Displays = new ExhibitDisplay[7];
+            public readonly ExhibitDisplay[] Displays = new ExhibitDisplay[30];
             public int Room = -1, Discipline = -1;
             public RuinPortal FirstMouth;
         }
@@ -89,12 +89,10 @@ namespace Echoes
             else
                 HideExhibitGallery(sourceExhibits);
 
-            if (entrance != null && ruinVisualDistance >= ruinVisualArrival - 11f)
+            if (RuinArrivalVisible(journey))
             {
                 int destination = entrance.TargetRoom;
-                float length = journey.RuinRoomLengthFor(destination);
-                float depth = -3.7f + RuinTrack.DepthForMetres(destination, length, ruinVisualDistance - ruinVisualArrival);
-                DrawExhibitGallery(journey, arrivingExhibits, destination, Mathf.Min(0, depth), time, viewer);
+                DrawExhibitGallery(journey, arrivingExhibits, destination, ruinArrivalDepth, time, viewer);
             }
             else
                 HideExhibitGallery(arrivingExhibits);
@@ -143,7 +141,8 @@ namespace Echoes
         private void ArrangeRuinExhibitions(Journey journey, ExhibitGallery gallery, int room, int discipline)
         {
             float length = journey.RuinRoomLengthFor(room);
-            int count = journey.RuinRoomStyleFor(room) == 5 ? 4 : discipline == 3 ? 7 : 6;
+            float spacing = journey.RuinRoomStyleFor(room) == 5 ? 8.1f : 6.9f;
+            int count = Mathf.Clamp(Mathf.CeilToInt((length-13f)/spacing)+1,4,gallery.Displays.Length);
             var random = new Random(74443 + room * 92717);
             Exhibit[] collection = DisciplineModels[discipline];
             int displayed = 0;
@@ -157,7 +156,7 @@ namespace Echoes
                 exhibit.Depth = ExhibitSafeDepth(journey, room, target, exhibit.Side, float.IsInfinity(previous) ? 0 : previous);
                 if (float.IsPositiveInfinity(exhibit.Depth)) continue;
                 int model = (int)collection[displayed++ % collection.Length];
-                exhibit.Height = 3.02f + .58f * (float)random.NextDouble();
+                exhibit.Height = 2.72f + .72f * (float)random.NextDouble();
                 exhibit.Phase = (float)random.NextDouble() * Mathf.PI * 2;
                 Mesh sculpture = archiveSculptures[model];
                 var size = sculpture.bounds.size;

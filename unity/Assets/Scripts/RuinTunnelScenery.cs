@@ -47,37 +47,43 @@ namespace Echoes
 
             if (tunnelRoot == null) BuildRuinTunnel();
             tunnelRoot.gameObject.SetActive(true);
-            int style = Mathf.Clamp(journey.RuinRoomStyle, 0, 5);
-            if (visibleRoom != journey.RuinRoomId || visibleStyle != style)
+            bool arriving=RuinArrivalVisible(journey);
+            int room=arriving ? journey.RuinEntrance.TargetRoom : journey.RuinRoomId;
+            float depth=arriving ? ruinArrivalDepth : journey.Distance;
+            float length=journey.RuinRoomLengthFor(room);
+            int style = Mathf.Clamp(journey.RuinRoomStyleFor(room), 0, 5);
+            var portals=journey.RuinPortalsFor(room);
+            if (visibleRoom != room || visibleStyle != style)
             {
-                visibleRoom = journey.RuinRoomId;
+                visibleRoom = room;
                 visibleStyle = style;
-                PrepareRuinRoom(journey, style);
+                PrepareRuinRoom(journey,room,length,style);
             }
+            wayfinding.gameObject.SetActive(room==0 && journey.RuinVisitedCount==1 && journey.RuinLoops==0 && depth<8.2f);
 
             DrawRuinEnvelopes(journey);
-            for (int i = 0; i < journey.RuinPortals.Count; i++)
+            for (int i = 0; i < portals.Count; i++)
             {
-                RuinPortal portal = journey.RuinPortals[i];
+                RuinPortal portal = portals[i];
                 if (portal.Direction == RuinDirection.Exit || journey.RuinRetryState != RuinRetryPhase.Inactive)
                     tunnelGates[i].Root.gameObject.SetActive(false);
-                else PoseRuinGate(tunnelGates[i], portal, journey, time);
+                else PoseRuinGate(tunnelGates[i],portal,journey,room,length,depth,time);
             }
 
             float archiveTime = journey.RuinRetryState == RuinRetryPhase.Impact ? time - journey.Age : time;
             for (int i = 0; i < axonSignals.Length; i++)
             {
                 float phase = archiveTime * (.31f + (i % 3) * .12f) + i * .417f;
-                float depth = journey.Distance + Mathf.Repeat(phase * 3.9f, 48) + 2;
+                float litDepth = depth + Mathf.Repeat(phase * 3.9f, 48) + 2;
                 float side = (i & 1) == 0 ? -1 : 1;
-                var trace = RuinTrack.Frame(journey.RuinRoomId,journey.RuinRoomLength,depth);
-                axonSignals[i].transform.localPosition = trace.Point(side*(4.61f+.22f*Mathf.Sin(depth*.30f)),5.2f+.67f*Mathf.Sin(depth*.15f+i*.57f));
+                var trace = RuinTrack.Frame(room,length,litDepth);
+                axonSignals[i].transform.localPosition = trace.Point(side*(4.61f+.22f*Mathf.Sin(litDepth*.30f)),5.2f+.67f*Mathf.Sin(litDepth*.15f+i*.57f));
                 axonSignals[i].transform.localRotation = trace.Rotation;
-                Light(axonSignals[i], RuinGalleryAccentFor(style,journey.RuinRoomId), .52f + .26f * Mathf.Sin(phase * 5));
+                Light(axonSignals[i], RuinGalleryAccentFor(style,room), .52f + .26f * Mathf.Sin(phase * 5));
             }
             DrawRuinGalleryStyle(journey,archiveTime);
             DrawRuinExhibits(journey,archiveTime,viewer);
-            DrawRuinArtifacts(journey, archiveTime);
+            DrawRuinArtifacts(journey,room,length,depth,archiveTime);
             DrawRuinRetry(journey, time);
             if (throughDoor) ClearOldGalleryBehindDoor(journey);
         }
@@ -128,17 +134,18 @@ namespace Echoes
             return value;
         }
 
-        private void PrepareRuinRoom(Journey journey, int style)
+        private void PrepareRuinRoom(Journey journey,int room,float length,int style)
         {
-            while (tunnelGates.Count < journey.RuinPortals.Count) tunnelGates.Add(null);
+            var portals=journey.RuinPortalsFor(room);
+            while (tunnelGates.Count < portals.Count) tunnelGates.Add(null);
             for (int i = 0; i < tunnelGates.Count; i++)
             {
-                if (i >= journey.RuinPortals.Count)
+                if (i >= portals.Count)
                 {
                     tunnelGates[i]?.Root.gameObject.SetActive(false);
                     continue;
                 }
-                RuinPortal portal = journey.RuinPortals[i];
+                RuinPortal portal = portals[i];
                 if (tunnelGates[i] == null || tunnelGates[i].Direction != portal.Direction)
                 {
                     if (tunnelGates[i] != null) UnityEngine.Object.Destroy(tunnelGates[i].Root.gameObject);
@@ -148,18 +155,16 @@ namespace Echoes
                 tunnelGates[i].OpenFraction = portal.Opened || portal.Gate == RuinGate.Open ? 1 : 0;
             }
 
-            wayfinding.gameObject.SetActive(journey.RuinRoomId == 0 && journey.RuinVisitedCount == 1 &&
-                journey.RuinLoops == 0 && journey.Distance < 8.2f);
-            var entranceRoad=RuinTrack.Frame(journey.RuinRoomId,journey.RuinRoomLength,2.6f);
+            var entranceRoad=RuinTrack.Frame(room,length,2.6f);
             wayfinding.localPosition=entranceRoad.Point(-3.0f,2.56f);
             wayfinding.localRotation=entranceRoad.Rotation*Quaternion.Euler(1,-12,0);
             bool hiddenChamber = style == 5;
             roomEmblem.gameObject.SetActive(hiddenChamber);
             if (hiddenChamber)
             {
-                int identity = Mathf.Max(0, journey.RuinRoomId - 11) % chamberEmblems.Length;
+                int identity = Mathf.Max(0, room - 11) % chamberEmblems.Length;
                 roomEmblem.GetComponent<MeshFilter>().sharedMesh = chamberEmblems[identity];
-                var arch=RuinTrack.Frame(journey.RuinRoomId,journey.RuinRoomLength,journey.RuinRoomLength*.46f);
+                var arch=RuinTrack.Frame(room,length,length*.46f);
                 roomEmblem.localPosition=arch.Point(0,6.68f);
                 roomEmblem.localRotation = arch.Rotation*Quaternion.Euler(0,0,identity*8-15);
                 Color jewel = identity == 0 ? Warm : identity == 1 ? Pale : identity == 2 ? IrisBlue : identity == 3 ? Red : Jade;
@@ -342,16 +347,17 @@ namespace Echoes
         private static Vector3 GatePoint(float angle, Vector2 radius, float z) =>
             new Vector3(Mathf.Cos(angle) * radius.x, Mathf.Sin(angle) * radius.y, z);
 
-        private void PoseRuinGate(RuinGateView view, RuinPortal gate, Journey journey, float time)
+        private void PoseRuinGate(RuinGateView view,RuinPortal gate,Journey journey,int room,float length,float depth,float time)
         {
-            var layout=RuinTrack.Frame(journey.RuinRoomId,journey.RuinRoomLength,gate.Depth);
-            Vector2 hole=RuinGallerySection(journey.RuinRoomStyle,RuinTrack.PortalAngle(gate.Direction));
+            var layout=RuinTrack.Frame(room,length,gate.Depth);
+            int style=journey.RuinRoomStyleFor(room);
+            Vector2 hole=RuinGallerySection(style,RuinTrack.PortalAngle(gate.Direction));
             Vector3 bore=RuinTrack.PortalForward(layout,gate);
             view.Root.localPosition=layout.Point(hole.x,hole.y)-bore*.20f;
             view.Root.localRotation=Quaternion.LookRotation(bore);
             view.Root.localScale=Vector3.one*RuinGateScale(gate.Direction);
             bool top=gate.Direction==RuinDirection.Upper, bottom=gate.Direction==RuinDirection.Lower;
-            float range=RuinTrack.Offset(gate.Depth,journey.Distance,journey.RuinRoomLength);
+            float range=RuinTrack.Offset(gate.Depth,depth,length);
             bool reveal = !gate.Hidden || range < 24;
             bool visible = range > -7 && range < 25;
             view.Root.gameObject.SetActive(visible);
@@ -370,7 +376,7 @@ namespace Echoes
             view.RightDoor.localRotation = Quaternion.Euler(0, opened * 70, opened * 6);
             Color hue = top ? new Color(.64f, .72f, 1) : bottom ? new Color(.35f, .83f, .86f) :
                 gate.Direction == RuinDirection.Left ? new Color(.41f,.93f,.75f) : new Color(.97f,.62f,.34f);
-            hue = Color.Lerp(hue, RuinGalleryAccentFor(journey.RuinRoomStyle,journey.RuinRoomId), .15f + (gate.FrameStyle % 5) * .04f);
+            hue = Color.Lerp(hue, RuinGalleryAccentFor(style,room), .15f + (gate.FrameStyle % 5) * .04f);
             RuinPortal approach = top ? journey.RuinUpperApproach : journey.RuinApproach;
             bool ready = gate == journey.RuinEntrance || gate == approach && journey.IsRuinEntranceInRange(gate);
             float pulse = .13f * Mathf.Sin(time * 2.6f + gate.Id * 1.71f);
@@ -435,23 +441,23 @@ namespace Echoes
             return marker;
         }
 
-        private void DrawRuinArtifacts(Journey journey, float time)
+        private void DrawRuinArtifacts(Journey journey,int room,float length,float depth,float time)
         {
             int artifacts = 0;
             int chests = 0;
             int niches = 0;
-            foreach (RuinObject item in journey.RuinObjects)
+            foreach (RuinObject item in journey.RuinObjectsFor(room))
             {
-                float gap = RuinTrack.Offset(item.Depth, journey.Distance, journey.RuinRoomLength);
-                if (gap < -6 || gap > 22) continue;
-                var frame = RuinTrack.Frame(journey.RuinRoomId, journey.RuinRoomLength, item.Depth);
+                float gap = RuinTrack.Offset(item.Depth,depth,length);
+                if (gap < -6 || gap > 34) continue;
+                var frame = RuinTrack.Frame(room,length,item.Depth);
                 float height = .54f + 3.30f * item.Altitude;
                 float heading = frame.Rotation.eulerAngles.y;
                 if (item.Kind == RuinObjectKind.Chest)
                 {
                     // Keep the centerline clear for the close impact and gate shots.
                     if (journey.Phase == Stage.RuinRetry && item.Lane == 0 &&
-                        Mathf.Abs(RuinTrack.Offset(item.Depth, journey.RuinRetryWallDepth, journey.RuinRoomLength)) < 3.75f)
+                        Mathf.Abs(RuinTrack.Offset(item.Depth,journey.RuinRetryWallDepth,length)) < 3.75f)
                         continue;
                     Vector3 at = frame.Point(item.Lane * 2.45f, height - .29f);
                     bool stocked = journey.RuinChestRemaining(item) > 0;
@@ -459,7 +465,7 @@ namespace Echoes
                     archiveObjects.UpdateChest(chests++, item.ChestStyle, at, time, item.Reveal, displaying, stocked, heading - item.Lane * 10);
                     continue;
                 }
-                DrawRuinNiche(niches++, item, frame, journey, time, gap);
+                DrawRuinNiche(niches++,item,frame,room,journey.RuinRoomStyleFor(room),time,gap);
                 if (item.Collected || item == journey.RuinLootSource || item.Reveal <= .18f) continue;
                 float reveal = Mathf.InverseLerp(.18f, .78f, item.Reveal);
                 int side = item.Lane < 0 ? -1 : 1;

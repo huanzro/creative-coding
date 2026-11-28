@@ -444,9 +444,10 @@ namespace Echoes
             ruinFarSide=played>=seam;
             float shade=RuinTrackConnection.SmoothJoin(Mathf.InverseLerp(.35f,1.5f,Mathf.Abs(played-seam)));
             ruinPassageLight=Mathf.Lerp(.015f,1,shade);
-            set.SetRuinTransitionDistances(metres,mouth,arrival);
+            float arrivalDepth=ruinPassage.ArrivalRoadDepth(ruinPassageStart,metres);
+            set.SetRuinTransitionDistances(metres,mouth,arrival,arrivalDepth);
             float enter=RuinTrackConnection.SmoothJoin(Mathf.InverseLerp(mouth-6f,mouth+1.8f,metres));
-            float exit=RuinTrackConnection.SmoothJoin(Mathf.InverseLerp(arrival-7.8f,arrival+3.2f,metres));
+            float exit=RuinTrackConnection.SmoothJoin(Mathf.InverseLerp(arrival-8.2f,arrival+3.2f,metres));
             float inside=enter*(1-exit);
             var trailing=ruinPassage.Travel(ruinPassageStart,metres/length,-Mathf.Lerp(4.9f,2.55f,inside));
             var ahead=ruinPassage.Travel(ruinPassageStart,metres/length,Mathf.Lerp(5.9f,3.35f,inside));
@@ -466,15 +467,16 @@ namespace Echoes
                 at=Vector3.Lerp(sourceAt,at,leadIn);
                 focus=Vector3.Lerp(sourceFocus,focus,leadIn);
             }
-            float merge=RuinTrackConnection.SmoothJoin(Mathf.InverseLerp(arrival-3.2f,Mathf.Min(length,arrival+7.8f),metres));
+            float merge=RuinTrackConnection.SmoothJoin(Mathf.InverseLerp(arrival-1.8f,Mathf.Min(length,arrival+8.2f),metres));
             if(merge>0)
             {
                 int destination=journey.RuinEntrance.TargetRoom;
-                float depth=ruinPassage.ArrivalRoadDepth(ruinPassageStart,metres);
-                float baseY=RuinTrack.Frame(destination,journey.RuinRoomLengthFor(destination),depth).Position.y;
+                float baseY=RuinTrack.Frame(destination,journey.RuinRoomLengthFor(destination),arrivalDepth).Position.y;
                 float altitude=(actor.Position.y-baseY-.54f)/3.30f;
-                RuinGalleryShot(journey,destination,depth,0,altitude,null,out Vector3 destinationAt,out Vector3 destinationFocus);
-                at=Vector3.Lerp(at,destinationAt,merge);
+                RuinGalleryShot(journey,destination,arrivalDepth,0,altitude,null,out Vector3 destinationAt,out Vector3 destinationFocus);
+                // The follow camera stays low and centred in the mouth until it clears the last rib.
+                float settle=RuinTrackConnection.SmoothJoin(Mathf.InverseLerp(arrival+1.1f,length,metres));
+                at=Vector3.Lerp(at,destinationAt,settle);
                 focus=Vector3.Lerp(focus,destinationFocus,merge);
             }
 

@@ -43,14 +43,18 @@ namespace Echoes
         private readonly List<Mesh> ruinSpatialMeshes = new List<Mesh>();
         private RuinPortal ruinLayoutIdentity;
         private int lastRuinExitPortalRoom = -1;
-        private float ruinVisualDistance, ruinVisualMouth, ruinVisualArrival;
+        private float ruinVisualDistance, ruinVisualMouth, ruinVisualArrival, ruinArrivalDepth;
 
-        internal void SetRuinTransitionDistances(float distance,float mouth,float arrival)
+        internal void SetRuinTransitionDistances(float distance,float mouth,float arrival,float arrivalDepth)
         {
             ruinVisualDistance=distance;
             ruinVisualMouth=mouth;
             ruinVisualArrival=arrival;
+            ruinArrivalDepth=arrivalDepth;
         }
+
+        private bool RuinArrivalVisible(Journey journey) => journey.Phase==Stage.RuinTransfer &&
+            journey.RuinEntrance!=null && ruinVisualDistance>=Mathf.Max(ruinVisualMouth+3f,ruinVisualArrival-22f);
         internal static RuinTrackConnection RuinConnection(Journey journey,RuinPortal portal)
         {
             int style=journey.RuinRoomStyle;
@@ -90,7 +94,7 @@ namespace Echoes
             bool transfer=next>=0;
             bool inside=transfer && ruinVisualDistance>=Mathf.Max(0,ruinVisualMouth-3.55f);
             bool lining=transfer && ruinVisualDistance>=Mathf.Max(0,ruinVisualMouth-8.2f);
-            bool entering=inside && ruinVisualDistance>=Mathf.Max(ruinVisualMouth+3f,ruinVisualArrival-16f);
+            bool entering=RuinArrivalVisible(j);
             EnsureRuinEnvelope(j,current);
             if(transfer) EnsureRuinEnvelope(j,next);
             else if(j.RuinApproach?.TargetRoom>=0) EnsureRuinEnvelope(j,j.RuinApproach.TargetRoom);
@@ -104,14 +108,13 @@ namespace Echoes
                 bool passedMouth=source && inside && ruinVisualDistance>ruinVisualMouth+12f;
                 envelope.Gallery.gameObject.SetActive(!passedMouth || destination);
                 ulong cut=0;
-                if(inside && (!destination || ruinVisualDistance<ruinVisualArrival+4.8f) &&
+                if(inside && (!destination || ruinVisualDistance<ruinVisualArrival+5.2f) &&
                     envelope.ClearanceSlots.TryGetValue(j.RuinEntrance.Id,out int slot))
                     cut=1UL<<slot;
                 foreach(var panel in envelope.CrossingWalls)
                     panel.Value.gameObject.SetActive((panel.Key & cut)==0);
                 // A side connector joins above the gallery floor. Keep its landing visible as the camera turns in.
-                bool floorReady=destination && ruinVisualDistance>=ruinVisualArrival+
-                    (IsVerticalRuinGate(j.RuinEntrance.Direction) ? .85f : -6.2f);
+                bool floorReady=destination && ruinVisualDistance>=ruinVisualArrival-.7f;
                 ulong floorCut=floorReady ? 0 : cut;
                 foreach(var panel in envelope.CrossingFloors)
                     panel.Value.gameObject.SetActive((panel.Key & floorCut)==0);
@@ -217,6 +220,7 @@ namespace Echoes
                     pair.Value.Finish("Archive crossing floors"),tunnelStone,created.Gallery));
             var strips=RuinPiece("Continuous curb lights",accents.Finish("Track inlay"),glow,created.Gallery).GetComponent<MeshRenderer>();
             Light(strips,Color.white,.69f);
+            BuildRuinWayfinding(created.Gallery,room,length,openings,hue,material);
             foreach(var pair in crossingInlays)
             {
                 Transform inlay=RuinPiece("Fitted landing lights",pair.Value.Finish("Archive crossing lights"),glow,created.Gallery);
@@ -231,7 +235,7 @@ namespace Echoes
                 int nextStyle=j.RuinRoomStyleFor(target);
                 var profile=RuinGallerySection(style,RuinTrack.PortalAngle(portal.Direction));
                 var connection=new RuinTrackConnection(room,length,portal,profile,target,j.RuinRoomLengthFor(target));
-                created.Branches.Add(portal.Id,BuildRuinConnector(created.Root,connection,portal.Direction,material,RuinGalleryStoneFor(nextStyle,target),
+                created.Branches.Add(portal.Id,BuildRuinConnector(created.Root,connection,portal.Direction,nextStyle,material,RuinGalleryStoneFor(nextStyle,target),
                     hue,RuinGalleryAccentFor(nextStyle,target)));
                 if(IsVerticalRuinGate(portal.Direction))
                     BuildRuinApproachLights(created.Root,room,style,length,portal,hue);
@@ -436,10 +440,11 @@ namespace Echoes
             Light(renderer,Color.white,1.12f);
         }
 
-        private RuinConnectorView BuildRuinConnector(Transform parent,RuinTrackConnection path,RuinDirection direction,
+        private RuinConnectorView BuildRuinConnector(Transform parent,RuinTrackConnection path,RuinDirection direction,int destinationStyle,
             Color stoneFrom,Color stoneTo,Color lightFrom,Color lightTo)
         {
-            const int pieces=72, sides=16, visibleSegments=11;
+            const int borePieces=72, landingPieces=12, sides=20, visibleSegments=11;
+            const float collarEnd=.961f;
             var firstWall=new WorldMesh(ruinSpatialMeshes);
             var firstTrim=new WorldMesh(ruinSpatialMeshes);
             var innerWall=new WorldMesh(ruinSpatialMeshes);
@@ -449,29 +454,55 @@ namespace Echoes
             bool vertical=IsVerticalRuinGate(direction);
             Vector2 mouth=vertical ? RuinWorldAperture(direction)*1.09f : new Vector2(2.09f,2.10f);
             Vector2 passage=vertical ? new Vector2(3.50f,3.14f) : new Vector2(3.25f,2.95f);
-            for(int i=0;i<pieces;i++)
+            for(int i=0;i<borePieces+landingPieces;i++)
             {
                 WorldMesh wall=i<visibleSegments ? firstWall : innerWall;
                 WorldMesh trim=i<visibleSegments ? firstTrim : innerTrim;
-                float t=i/(float)pieces*.817f, next=(i+1f)/pieces*.817f;
+                float StartAt(int step) => step <= borePieces ? step/(float)borePieces*RuinTrackConnection.ArrivalParameter :
+                    Mathf.Lerp(RuinTrackConnection.ArrivalParameter,collarEnd,(step-borePieces)/(float)landingPieces);
+                float t=StartAt(i), next=StartAt(i+1);
                 Vector2 span=RuinConnectorRadius(t,mouth,passage);
                 Vector2 nextSpan=RuinConnectorRadius(next,mouth,passage);
-                Color rock=Color.Lerp(stoneFrom,stoneTo,t/.817f);
-                Color lit=Color.Lerp(lightFrom,lightTo,t/.817f);
+                Color rock=Color.Lerp(stoneFrom,stoneTo,t/.88f);
+                Color lit=Color.Lerp(lightFrom,lightTo,t/.88f);
                 var a=path.Frame(t);
                 var b=path.Frame(next);
+                var landingA=path.ArrivalFrame(t);
+                var landingB=path.ArrivalFrame(next);
+                float widenA=RuinTrackConnection.SmoothJoin(Mathf.InverseLerp(.802f,collarEnd,t));
+                float widenB=RuinTrackConnection.SmoothJoin(Mathf.InverseLerp(.802f,collarEnd,next));
+                Vector3 CrossSection(RuinRouteFrame frame,RuinRouteFrame landing,Vector2 radius,float widen,float angle)
+                {
+                    Vector2 gallery=RuinGallerySection(destinationStyle,angle);
+                    // Terminate just behind the gallery wall so the two masonry profiles overlap without flicker.
+                    Vector3 galleryWall=landing.Point(gallery.x*1.025f,4.3f+(gallery.y-4.3f)*1.025f);
+                    return Vector3.Lerp(frame.Section(Mathf.Cos(angle)*radius.x,Mathf.Sin(angle)*radius.y),galleryWall,widen);
+                }
                 for(int side=0;side<sides;side++)
                 {
                     float n=side*Mathf.PI*2/sides, m=(side+1f)*Mathf.PI*2/sides;
-                    Vector2 unitN=new Vector2(Mathf.Cos(n),Mathf.Sin(n)), unitM=new Vector2(Mathf.Cos(m),Mathf.Sin(m));
-                    Vector2 an=Vector2.Scale(unitN,span), am=Vector2.Scale(unitM,span);
-                    Vector2 bn=Vector2.Scale(unitN,nextSpan), bm=Vector2.Scale(unitM,nextSpan);
-                    Vector3 p=a.Section(an.x,an.y), q=a.Section(am.x,am.y), r=b.Section(bn.x,bn.y), s=b.Section(bm.x,bm.y);
+                    Vector3 p=CrossSection(a,landingA,span,widenA,n), q=CrossSection(a,landingA,span,widenA,m);
+                    Vector3 r=CrossSection(b,landingB,nextSpan,widenB,n), s=CrossSection(b,landingB,nextSpan,widenB,m);
                     wall.Quad(p,r,s,q,WorldMesh.Shade(rock,.66f+.16f*((side+i/8)%3)+.11f*Mathf.Sin(i*.47f+side*.63f)));
-                    if(i%9==0)
-                        RuinBar(trim,a.Section(an.x*.94f,an.y*.94f),a.Section(am.x*.94f,am.y*.94f),.045f,.046f,lit);
-                    if(side==1 || side==7 || side==10 || side==13)
-                        RuinBar(trim,a.Section(an.x*.988f,an.y*.988f),b.Section(bn.x*.988f,bn.y*.988f),.029f,.037f,lit);
+                    Vector3 ribFrom=Vector3.Lerp(p,a.Position,.045f);
+                    if(i%9==0 || i==borePieces+5)
+                        RuinBar(trim,ribFrom,Vector3.Lerp(q,a.Position,.045f),.045f,.046f,lit);
+                    if(widenA<.84f && (side==1 || side==9 || side==13 || side==17))
+                        RuinBar(trim,Vector3.Lerp(p,a.Position,.016f),Vector3.Lerp(r,b.Position,.016f),.029f,.037f,lit);
+                }
+                if(t>=.76f)
+                {
+                    Vector3 Floor(RuinRouteFrame frame,RuinRouteFrame landing,float progress,float x,bool rail=false)
+                    {
+                        float leveled=RuinTrackConnection.SmoothJoin(Mathf.InverseLerp(.797f,.885f,progress));
+                        float worldX=x*Mathf.Lerp(rail ? 1.48f : 2.15f,rail ? 1.54f : 3.72f,leveled);
+                        return Vector3.Lerp(frame.Section(worldX,-.53f),landing.Point(worldX,-.059f),leveled);
+                    }
+                    wall.Quad(Floor(a,landingA,t,-1),Floor(b,landingB,next,-1),Floor(b,landingB,next,1),Floor(a,landingA,t,1),
+                        WorldMesh.Shade(rock,.91f));
+                    for(int bank=-1;bank<=1;bank+=2)
+                        RuinBar(trim,Floor(a,landingA,t,bank,true)+Vector3.up*.067f,Floor(b,landingB,next,bank,true)+Vector3.up*.067f,
+                            .042f,.026f,WorldMesh.Shade(lit,.82f));
                 }
             }
             RuinPiece("Mouth masonry",firstWall.Finish("Bending passage entrance"),tunnelStone,mouthRoot);

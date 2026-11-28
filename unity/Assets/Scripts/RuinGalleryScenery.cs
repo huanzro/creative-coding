@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Echoes
@@ -95,26 +96,26 @@ namespace Echoes
 
         private void DrawRuinGalleryStyle(Journey journey, float time)
         {
-            int count = PlaceRuinGallery(journey, journey.RuinRoomId, time, 0);
-            RuinPortal approach = journey.Phase == Stage.RuinTransfer ? journey.RuinEntrance :
-                journey.Phase == Stage.RuinExplore ? journey.RuinApproach : null;
-            if (approach != null && approach.Opened && approach.TargetRoom >= 0 &&
-                approach.TargetRoom != journey.RuinRoomId)
-                count = PlaceRuinGallery(journey, approach.TargetRoom, time, count);
+            bool arrival = RuinArrivalVisible(journey);
+            int count = PlaceRuinGallery(journey, journey.RuinRoomId, journey.Distance, time, 0);
+            if (arrival)
+                count = PlaceRuinGallery(journey, journey.RuinEntrance.TargetRoom, ruinArrivalDepth, time, count);
             for (; count < GalleryBays; count++)
                 if (ruinGalleryBays[count] != null) ruinGalleryBays[count].Root.gameObject.SetActive(false);
         }
 
-        private int PlaceRuinGallery(Journey journey, int room, float time, int count)
+        private int PlaceRuinGallery(Journey journey, int room, float playerDepth, float time, int count)
         {
             int style = Mathf.Clamp(journey.RuinRoomStyleFor(room), 0, GalleryNames.Length - 1);
             float length = journey.RuinRoomLengthFor(room);
             if (!ruinGalleryMeshes[room].HasValue) ruinGalleryMeshes[room] = BuildRuinGalleryBay(style, room);
             GalleryBayMesh model = ruinGalleryMeshes[room].Value;
-            float spacing = style == 2 ? 5.7f : style == 5 ? 6.2f : 7.5f;
+            float spacing = style == 2 ? 4.6f : style == 5 ? 5.4f : 5.1f;
             float first = style == 1 ? 6.10f : style == 4 || style == 5 ? 2.10f : 3.25f;
             for (float depth = first; depth < length - 2.5f && count < GalleryBays; depth += spacing)
             {
+                float ahead = RuinTrack.Offset(depth, playerDepth, length);
+                if (ahead < -9 || ahead > 38) continue;
                 if (!RuinGalleryBayClear(journey, room, depth)) continue;
                 var bay = ruinGalleryBays[count] ?? (ruinGalleryBays[count] = CreateRuinGalleryBay());
                 var frame = RuinTrack.Frame(room, length, depth);
@@ -129,7 +130,7 @@ namespace Echoes
                     bay.Trim.sharedMesh = model.Light;
                 }
                 float cadence = .5f + .5f * Mathf.Sin(time * (style == 2 ? 2.31f : .82f) + depth * .31f + room);
-                Light(bay.TrimRenderer, Color.white, .23f + (style == 3 ? .29f : .20f) * cadence);
+                Light(bay.TrimRenderer, Color.white, .36f + (style == 3 ? .30f : .22f) * cadence);
                 count++;
             }
             return count;
@@ -178,6 +179,53 @@ namespace Echoes
             }
             return new GalleryBayMesh(structure.Finish(GalleryNames[style] + " architecture " + room),
                 emit.Finish(GalleryNames[style] + " lighting " + room));
+        }
+
+        private void BuildRuinWayfinding(Transform parent,int room,float length,IReadOnlyList<RuinPortal> portals,Color accent,Color stonework)
+        {
+            var metal=new WorldMesh(ruinSpatialMeshes);
+            var lamps=new WorldMesh(ruinSpatialMeshes);
+            // Put low markers between the tall bays, so the hall remains readable between exhibits.
+            for(float depth=1.8f;depth<length-1.5f;depth+=4.8f)
+            {
+                var frame=RuinTrack.Frame(room,length,depth);
+                for(int side=-1;side<=1;side+=2)
+                {
+                    bool nearGate=false;
+                    foreach(var portal in portals)
+                    {
+                        float clearance=RuinTrack.Offset(portal.Depth,depth,length);
+                        if((portal.Lane==0 || portal.Lane==side) && Mathf.Abs(clearance)<2.6f) { nearGate=true; break; }
+                    }
+                    if(nearGate) continue;
+                    Vector3 at=frame.Point(side*4.47f,1.14f);
+                    Color bronze=WorldMesh.Shade(stonework,1.55f);
+                    metal.Box(at,new Vector3(.24f,1.27f,.59f),frame.Rotation,bronze);
+                    metal.Box(at+Vector3.up*.50f,new Vector3(.34f,.15f,.77f),frame.Rotation,bronze);
+                    lamps.Box(at-frame.Right*(side*.13f),new Vector3(.05f,.69f,.31f),frame.Rotation,accent);
+                    lamps.Box(at-frame.Right*(side*.39f)-Vector3.up*1.12f,new Vector3(.84f,.024f,.052f),frame.Rotation,
+                        WorldMesh.Shade(accent,.68f));
+                }
+            }
+            foreach(var portal in portals)
+            {
+                if(portal.Hidden || portal.TargetRoom<0 || portal.Direction==RuinDirection.Forward || portal.Direction==RuinDirection.Exit) continue;
+                float depth=portal.Depth-RuinTrack.DepthForMetres(room,length,5.8f);
+                var frame=RuinTrack.Frame(room,length,depth);
+                float side=portal.Lane==0 ? -.92f : portal.Lane;
+                Vector3 at=frame.Point(3.26f*side,2.58f);
+                metal.Box(at,new Vector3(1.04f,.85f,.16f),frame.Rotation,WorldMesh.Shade(stonework,1.48f));
+                Vector3 direction=portal.Lane==0 ? Vector3.up*(portal.Direction==RuinDirection.Upper ? 1 : -1) : frame.Right*portal.Lane;
+                Vector3 across=Vector3.Cross(frame.Forward,direction).normalized;
+                at-=frame.Forward*.10f;
+                Vector3 tip=at+direction*.26f, neck=at+direction*.015f;
+                RuinBar(lamps,at-direction*.23f,tip,.052f,.048f,accent);
+                RuinBar(lamps,neck+across*.15f,tip,.046f,.042f,accent);
+                RuinBar(lamps,neck-across*.15f,tip,.046f,.042f,accent);
+            }
+            RuinPiece("Archive lanterns and sign frames",metal.Finish("Gallery wayfinding structure"),tunnelMetal,parent);
+            var markers=RuinPiece("Gallery wayfinding lamps",lamps.Finish("Lit lanterns and branch arrows"),glow,parent).GetComponent<MeshRenderer>();
+            Light(markers,Color.white,1.08f);
         }
 
         private static Quaternion GalleryTurn(float x, float y = 0, float z = 0) => Quaternion.Euler(x, y, z);

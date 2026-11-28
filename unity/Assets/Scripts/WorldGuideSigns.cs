@@ -36,6 +36,8 @@ namespace Echoes
         };
 
         private readonly GuideSign[] guideSigns = new GuideSign[GuideCopy.GetLength(0)];
+        private GuideSign ruinGalleryNameplate;
+        private static readonly string[] ChineseGalleries = { "石灰岩引水廊", "靛蓝观测厅", "暖铜铸造厅", "绿水书库", "紫晶镜廊", "矿石暗室" };
         private Font guideFont;
 
         public void DrawGuideSigns(Journey journey, bool forest, bool ruins)
@@ -70,6 +72,27 @@ namespace Echoes
             bool entrance = ruins && journey.RuinRoomId == 0 && journey.Phase == Stage.RuinExplore;
             SetRuinGuide(11, 2.05f, -2.18f, journey, entrance);
             SetRuinGuide(12, 4.1f, 2.13f, journey, entrance);
+            DrawRuinGalleryNameplate(journey,ruins);
+        }
+
+        private void DrawRuinGalleryNameplate(Journey journey,bool ruins)
+        {
+            bool arriving=ruins && RuinArrivalVisible(journey);
+            int room=arriving ? journey.RuinEntrance.TargetRoom : journey.RuinRoomId;
+            if(!ruins || room==0 || journey.RuinRetryState!=RuinRetryPhase.Inactive ||
+                journey.Phase==Stage.RuinTransfer && !arriving)
+            {
+                if(ruinGalleryNameplate!=null) ruinGalleryNameplate.Root.gameObject.SetActive(false);
+                return;
+            }
+            int style=journey.RuinRoomStyleFor(room);
+            var road=RuinTrack.Frame(room,journey.RuinRoomLengthFor(room),2.25f);
+            string copy=room==RuinAtlas.ExitRoom ? EchoesLocale.T("往日边缘","The Far Archive") :
+                EchoesLocale.T(ChineseGalleries[style],GalleryNames[style]);
+            if(ruinGalleryNameplate==null) ruinGalleryNameplate=BuildGuideSign(GuideCopy.GetLength(0),new Vector2(2.52f,.78f),false);
+            ruinGalleryNameplate.Root.SetPositionAndRotation(road.Point(-2.84f,0)+Vector3.up*RuinY,road.Rotation);
+            ruinGalleryNameplate.Root.gameObject.SetActive(true);
+            SetGuideCopy(ruinGalleryNameplate,copy);
         }
 
         private void SetForestSign(Journey journey, int index, float depth, float side, bool show, bool fork = false)
@@ -103,6 +126,11 @@ namespace Echoes
             sign.Root.SetPositionAndRotation(at, heading);
             sign.Root.gameObject.SetActive(true);
             string copy = GuideCopy[index, EchoesLocale.English ? 1 : 0];
+            SetGuideCopy(sign,copy);
+        }
+
+        private void SetGuideCopy(GuideSign sign,string copy)
+        {
             if (sign.Lettering.text == copy) return;
             guideFont.RequestCharactersInTexture(copy, sign.Lettering.fontSize);
             sign.Lettering.text = copy;
