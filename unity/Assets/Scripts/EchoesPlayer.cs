@@ -801,10 +801,10 @@ namespace Echoes
             RuinPortal portal = game.RuinEntrance;
             RuinTrackConnection path = WorldSet.RuinConnection(game, portal);
             RuinRouteFrame start = WorldSet.RuinPassageStart(game);
-            float distance = path.TravelMetres(start);
+            float distance = path.GameplayMetres(start);
             float source = RuinTrack.RouteMetresPerDepth(game.RuinRoomId, game.RuinRoomLength);
             float destination = RuinTrack.RouteMetresPerDepth(portal.TargetRoom, game.RuinRoomLengthFor(portal.TargetRoom));
-            return new RuinTransferMetrics(distance, source, destination, progress => path.SafeTransferSpeed(start, progress));
+            return new RuinTransferMetrics(distance, source, destination, progress => path.GameplaySpeedLimit(start, progress));
         }
 
         private void TrackTouch(int option, bool down, bool physical)

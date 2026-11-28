@@ -105,9 +105,10 @@ namespace Echoes
                 ? (RuinRetryRecordKind)checkpoint.ruinRetryRecord : RuinRetryRecordKind.None;
             ruinRetryLastLane = Math.Sign(checkpoint.ruinRetryLastLane);
             RuinRetryAttempts = Math.Max(0, checkpoint.ruinRetryAttempts);
-            ruinRetryWall = checkpoint.ruinRetryWall && checkpoint.ruinRetryDepth > WallApproach &&
-                checkpoint.ruinRetryDepth <= 53;
-            RuinRetryWallDepth = ruinRetryWall ? checkpoint.ruinRetryDepth : 0;
+            float exitLength = RuinAtlas.PreviousExitLength * RuinAtlas.GalleryLengthMultiplier;
+            ruinRetryWall = checkpoint.ruinRetryWall && (checkpoint.ruinRetryDepth == RuinAtlas.PreviousExitLength ||
+                checkpoint.ruinRetryDepth == exitLength);
+            RuinRetryWallDepth = ruinRetryWall ? exitLength : 0;
             RuinRetryOutcome = (uint)checkpoint.ruinRetryOutcome <= (uint)RuinRetryResolution.Kept
                 ? (RuinRetryResolution)checkpoint.ruinRetryOutcome : RuinRetryResolution.None;
         }

@@ -228,7 +228,7 @@ namespace Echoes
         {
             float reach = RuinReach(portal.Direction) * preview;
             float ahead = portal.Depth - Distance;
-            float depthReach = reach * RuinAtlas.LengthScale(ruinRoomId);
+            float depthReach = reach * RuinAtlas.PreviousGalleryScale(ruinRoomId);
             if (ahead < -RuinPortal.TailDepth * depthReach || ahead > RuinPortal.LeadDepth * depthReach) return false;
 
             float lateral = Math.Abs(RuinLane - portal.Lane);
@@ -387,7 +387,7 @@ namespace Echoes
             RuinEntrance = portal;
             RuinApproach = null;
             RuinSearchTarget = RuinNearbyClue = null;
-            ruinTransferMetrics = MeasureRuinPassage?.Invoke(this) ?? new RuinTransferMetrics(26, 2.75f, 2.75f);
+            ruinTransferMetrics = MeasureRuinPassage?.Invoke(this) ?? new RuinTransferMetrics(17.5f, 2.75f, 2.75f);
             float forward = RuinForwardSpeed * ruinTransferMetrics.SourceScale;
             float lateral = ruinSteeringSpeed * 2.45f;
             float vertical = Flight.Speed * 3.30f;
@@ -437,7 +437,7 @@ namespace Echoes
         {
             RefreshRuinLootContact();
             RuinSearchTarget = RuinNearbyClue = null;
-            float depthScale = RuinAtlas.LengthScale(ruinRoomId);
+            float depthScale = RuinAtlas.PreviousGalleryScale(ruinRoomId);
             float nearest = float.PositiveInfinity, nearestClue = 7.3f * depthScale;
             float nearestPickup = float.PositiveInfinity;
             RuinObject pickup = null;

@@ -16,6 +16,8 @@ namespace Echoes
         private RuinPortal lastRuinPortal;
         private RuinTrackConnection ruinPassage;
         private RuinRouteFrame ruinPassageStart;
+        private bool ruinFarSide;
+        private float ruinPassageLight;
         private Vector3 ruinViewUp=Vector3.up;
         private Stage lastPhase;
         private int lastCloseShot;
@@ -115,6 +117,9 @@ namespace Echoes
             bool framework=ruins && WorldSet.IsRuinFramework(ruinEnding);
             bool detached=framework && WorldSet.IsRuinDetached(journey);
             bool ruinExit=framework && WorldSet.IsRuinExit(ruinEnding);
+            bool previousFarSide=ruinFarSide;
+            ruinFarSide=false;
+            ruinPassageLight=1;
             Vector3 forestActor=forest ? ForestActor(journey,frame) : Vector3.zero;
             RuinRouteFrame ruinRoute=framework ? RuinEndingActor(journey,detached) : ruins ? RuinActor(journey,frame) : default;
             Vector3 ruinActor=framework ? ruinRoute.Position : ruins ? ruinRoute.Position+Vector3.up*WorldSet.RuinY : Vector3.zero;
@@ -144,7 +149,7 @@ namespace Echoes
                     (ruins && lastRuinRoom!=journey.RuinRoomId && lastPhase!=Stage.RuinTransfer);
                 bool matchCut=closeShot!=0 && closeShot!=lastCloseShot;
                 lastCloseShot=closeShot;
-                if (cut || stars || ruinExit)
+                if (cut || stars || ruinExit || ruinFarSide && !previousFarSide)
                 {
                     position=wanted; sight=focus;
                     velocity=sightVelocity=Vector3.zero;
@@ -272,6 +277,7 @@ namespace Echoes
                     fade *= 1-.93f*OpeningStoryboard.Ease(journey.Phase==Stage.ForestDoor?.89f:.79f,1,journey.Progress);
                 if (ruins && journey.RuinRetryState==RuinRetryPhase.Impact)
                     fade *= 1-.22f*OpeningStoryboard.Window(journey.Age,.41f,.45f,.49f,.65f);
+                fade *= ruinPassageLight;
                 lens.SetVector("_Lens",new Vector4(fade,opening?1:.25f,0,0));
                 Vector2 center = new Vector2(Mathf.Clamp01(screen.x), 1-Mathf.Clamp01(screen.y));
                 float core = ProjectionLighting.CoreRadius(body);
@@ -380,12 +386,19 @@ namespace Echoes
                 lastRuinPortal=portal;
                 ruinPassageStart=WorldSet.RuinPassageStart(journey);
             }
-            var passage=ruinPassage.Travel(ruinPassageStart,journey.Progress);
-            float travelled=ruinPassage.TravelMetres(ruinPassageStart)*journey.Progress;
+            float travelled=PassageRouteDistance(journey);
+            float length=ruinPassage.TravelMetres(ruinPassageStart);
+            var passage=ruinPassage.Travel(ruinPassageStart,travelled/length);
             var facing=RuinTrack.Frame(journey.RuinRoomId,journey.RuinRoomLength,journey.RuinPassageStartDepth).Forward;
             return new RuinRouteFrame(passage.Position,
                 Vector3.Slerp(facing,passage.Forward,RuinTrackConnection.SmoothJoin(travelled/3.6f)),
                 passage.Right);
+        }
+
+        private float PassageRouteDistance(Journey journey)
+        {
+            float distance=journey.Progress*ruinPassage.GameplayMetres(ruinPassageStart);
+            return ruinPassage.RouteDistance(ruinPassageStart,distance);
         }
 
         private void RuinShot(Journey journey,RuinRouteFrame actor,out Vector3 at,out Vector3 focus)
@@ -425,13 +438,18 @@ namespace Echoes
             float length=ruinPassage.TravelMetres(ruinPassageStart);
             float mouth=ruinPassage.MouthMetres(ruinPassageStart);
             float arrival=ruinPassage.GalleryMetres(ruinPassageStart);
-            float metres=journey.Progress*length;
+            float metres=PassageRouteDistance(journey);
+            float played=journey.Progress*ruinPassage.GameplayMetres(ruinPassageStart);
+            float seam=ruinPassage.PassageSeam(ruinPassageStart);
+            ruinFarSide=played>=seam;
+            float shade=RuinTrackConnection.SmoothJoin(Mathf.InverseLerp(.35f,1.5f,Mathf.Abs(played-seam)));
+            ruinPassageLight=Mathf.Lerp(.015f,1,shade);
             set.SetRuinTransitionDistances(metres,mouth,arrival);
             float enter=RuinTrackConnection.SmoothJoin(Mathf.InverseLerp(mouth-6f,mouth+1.8f,metres));
             float exit=RuinTrackConnection.SmoothJoin(Mathf.InverseLerp(arrival-7.8f,arrival+3.2f,metres));
             float inside=enter*(1-exit);
-            var trailing=ruinPassage.Travel(ruinPassageStart,journey.Progress,-Mathf.Lerp(4.9f,2.55f,inside));
-            var ahead=ruinPassage.Travel(ruinPassageStart,journey.Progress,Mathf.Lerp(5.9f,3.35f,inside));
+            var trailing=ruinPassage.Travel(ruinPassageStart,metres/length,-Mathf.Lerp(4.9f,2.55f,inside));
+            var ahead=ruinPassage.Travel(ruinPassageStart,metres/length,Mathf.Lerp(5.9f,3.35f,inside));
             at=offset+trailing.Section(-.08f,Mathf.Lerp(1.44f,.68f,inside));
             focus=offset+Vector3.Lerp(actor.Point(0,.16f),ahead.Point(0,.27f),Mathf.Lerp(.58f,.37f,inside));
 

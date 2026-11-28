@@ -187,7 +187,8 @@ namespace Echoes
         }
 
         private static Vector3 BlueprintPoint(Vector3 actual) =>
-            BlueprintCentre + new Vector3(actual.x*.80f,actual.y*.89f,actual.z*.79f);
+            BlueprintCentre + new Vector3(actual.x*.80f/RuinAtlas.GalleryLengthMultiplier,actual.y*.89f,
+                actual.z*.79f/RuinAtlas.GalleryLengthMultiplier);
 
         private void ClearRuinBlueprint()
         {

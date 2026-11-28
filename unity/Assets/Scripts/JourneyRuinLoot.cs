@@ -109,7 +109,7 @@ namespace Echoes
             for (int i = ruinDeferredLoot.Count - 1; i >= 0; i--)
             {
                 RuinObject item = ruinDeferredLoot[i];
-                if (Math.Abs(item.Depth - Distance) > 1.98f * RuinAtlas.LengthScale(ruinRoomId) ||
+                if (Math.Abs(item.Depth - Distance) > 1.98f * RuinAtlas.PreviousGalleryScale(ruinRoomId) ||
                     Math.Abs(item.Lane - RuinLane) > .80f || Math.Abs(item.Altitude - Flight.Height) > .78f)
                     ruinDeferredLoot.RemoveAt(i);
             }

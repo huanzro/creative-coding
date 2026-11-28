@@ -94,7 +94,11 @@ namespace Echoes
         private const int FirstNewVault = RoomCount * PassageSlots;
         internal const int ExitRoom = 9;
 
-        internal static float LengthScale(int room) => room == 0 || room == ExitRoom ? 1f : .25f;
+        internal const float GalleryLengthMultiplier = 4f;
+        internal const int PreviousExitLength = 51;
+        internal const float ConnectorLengthMultiplier = .5f;
+
+        internal static float PreviousGalleryScale(int room) => room == 0 || room == ExitRoom ? 1f : .25f;
 
         private static readonly RuinObjectKind[] AdditionalFinds =
         {
@@ -107,7 +111,7 @@ namespace Echoes
             ("机械年轮", 0, 4, 44, 11), ("穹顶档案", 1, 1, 46, 1),
             ("镜像回廊", 0, 3, 50, 12), ("回声索引", -1, 2, 43, 2),
             ("沉底书库", -2, 4, 42, 13), ("计算回廊", -1, 1, 49, 3),
-            ("天窗交汇", 2, 3, 45, 4), ("往日边缘", -2, 0, 51, 14),
+            ("天窗交汇", 2, 3, 45, 4), ("往日边缘", -2, 0, PreviousExitLength, 14),
             ("自我碑阵", 3, 1, 40, 15), ("琥珀夹层", -1, 5, 27, 5),
             ("静音工坊", 0, 5, 30, 6), ("逆读藏室", -1, 5, 29, 7),
             ("沉钟暗室", -3, 5, 31, 8), ("未归档之处", -3, 5, 32, 9)
@@ -241,8 +245,8 @@ namespace Echoes
                 objects[3] = new RuinObject(roomId * ObjectSlots + 3, chestDepth, chestHeight, chestLane,
                     RuinObjectKind.Chest, room.chest);
                 PlaceRuinCaches(seed, roomId, room.length, portals, objects);
-                float scale = LengthScale(roomId);
-                if (scale < 1)
+                float scale = PreviousGalleryScale(roomId) * GalleryLengthMultiplier;
+                if (scale != 1)
                 {
                     for (int i = 0; i < portals.Length; i++)
                     {
@@ -253,7 +257,8 @@ namespace Echoes
                     for (int i = 0; i < objects.Length; i++)
                     {
                         RuinObject item = objects[i];
-                        objects[i] = new RuinObject(item.Id, item.Depth * scale, item.Altitude,
+                        float depth = item.ChestStyle == WelcomeChestStyle ? item.Depth : item.Depth * scale;
+                        objects[i] = new RuinObject(item.Id, depth, item.Altitude,
                             item.Lane, item.Kind, item.ChestStyle);
                     }
                 }

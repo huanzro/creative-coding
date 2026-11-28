@@ -37,7 +37,7 @@ function RuinSteer($game, $lane) {
 function FlyRuin($game, $depth, $height, $lane) {
     $game.SetHand([Echoes.Hand]::Open)
     RuinSteer $game $lane
-    for ($i = 0; $i -lt 3600 -and $game.Distance -lt $depth -and $game.Phase -eq 'RuinExplore'; $i++) {
+    for ($i = 0; $i -lt 12000 -and $game.Distance -lt $depth -and $game.Phase -eq 'RuinExplore'; $i++) {
         $game.Flight.Reset($height, [Echoes.Journey]::RuinHeightLimit)
         $game.Step(.02, .46)
     }
@@ -200,19 +200,21 @@ foreach ($nextRoom in 1,11,12,3,13,14,5,8,10) {
     if ($game.RuinWallPassages -eq $game.RuinWallPassagesRequired) { break }
 }
 Assert ($game.RuinWallPassagesRequired -in 6..9 -and $game.RuinWallPassages -eq $game.RuinWallPassagesRequired -and
-    $game.Phase -eq 'RuinExplore' -and $game.RuinRoomId -eq 9 -and $game.RuinRoomLength -eq 51) 'The sixth through ninth transfer reaches the original-length terminal tunnel without skipping to its end.'
+    $game.Phase -eq 'RuinExplore' -and $game.RuinRoomId -eq 9 -and $game.RuinRoomLength -eq 204) 'The sixth through ninth transfer reaches the enlarged terminal gallery without skipping to its end.'
 $queued = [Echoes.Journey]::new(13)
 Assert ($queued.Restore($game.Checkpoint) -and $queued.RuinWallPassages -eq $queued.RuinWallPassagesRequired) 'The queued wall survives a checkpoint.'
 FlyRuin $queued 7 .05 0
 Assert ($queued.RuinRetryState -eq 'Inactive') 'The wall does not trigger near the final tunnel entrance.'
 FlyRuin $queued 51 .05 0
-Assert ($queued.RuinRetryState -eq 'Impact' -and $queued.RuinRetryWallDepth -eq 51) 'Continuing to the final tunnel end triggers the restored wall.'
-FlyRuin $game 51 .6 0
-Assert ($game.RuinRetryState -eq 'Impact' -and $game.RuinRetryWallDepth -eq 51) 'The final wall catches the player at its terminal end.'
+Assert ($queued.RuinRetryState -eq 'Inactive') 'Passing the old terminal length does not trigger the wall.'
+FlyRuin $queued 204 .05 0
+Assert ($queued.RuinRetryState -eq 'Impact' -and $queued.RuinRetryWallDepth -eq 204) 'Continuing to the final tunnel end triggers the restored wall.'
+FlyRuin $game 204 .6 0
+Assert ($game.RuinRetryState -eq 'Impact' -and $game.RuinRetryWallDepth -eq 204) 'The final wall catches the player at its terminal end.'
 $debugWall = [Echoes.Journey]::new(29)
 $debugWall.JumpToRuinWallDebugPoint()
 Assert ($debugWall.RuinCoins -eq 18 -and $debugWall.RuinTokenCost -eq 15) 'An empty debug run previews a meaningful quote with example items.'
-Assert ($debugWall.RuinRetryState -eq 'Impact' -and $debugWall.Age -eq 0 -and $debugWall.RuinRetryWallDepth -eq 51) 'The debug point starts the actual final-tunnel collision.'
+Assert ($debugWall.RuinRetryState -eq 'Impact' -and $debugWall.Age -eq 0 -and $debugWall.RuinRetryWallDepth -eq 204) 'The debug point starts the actual final-tunnel collision.'
 Step $debugWall .46 0
 Assert ($debugWall.Cue -eq 'RuinWall') 'The debug point plays the same wall impact cue.'
 Step $game 1.60 0
@@ -220,6 +222,11 @@ Assert ($game.RuinRetryState -eq 'Gate') 'Collision splits the wall into a door.
 Step $game 3.25 0
 Assert ($game.RuinRetryState -eq 'Survey') 'Crossing the wall reveals the archive framework.'
 $choiceSave = $game.Checkpoint
+$legacyWall = [Echoes.Journey]::new(17)
+$legacyWallSave = $game.Checkpoint
+$legacyWallSave.ruinRetryDepth = 51
+Assert ($legacyWall.Restore($legacyWallSave) -and $legacyWall.RuinRetryState -eq 'Gate' -and
+    $legacyWall.RuinRetryWallDepth -eq 204) 'An old save at the wall resumes at the new terminal depth.'
 $refused = [Echoes.Journey]::new(17)
 Assert ($refused.Restore($choiceSave) -and $refused.RuinRetryState -eq 'Gate') 'Restoring at the wall restarts the entrance without reopening the old replay.'
 foreach ($room in $galleryOrder.Keys) {
@@ -727,7 +734,7 @@ Assert ($ceilingRoute.RuinLayer -eq 1) 'A ceiling branch leads to an independent
 $earlyUpper = [Echoes.Journey]::new(92)
 $earlyUpper.SelectChapter(1)
 $earlyGate = $earlyUpper.RuinPortals | Where-Object Id -eq 80
-Assert ($earlyGate -and $earlyGate.Direction -eq 'Upper' -and $earlyGate.Depth -lt 9 -and !$earlyGate.Hidden) 'The first hall has a visible upper route before the main junctions.'
+Assert ($earlyGate -and $earlyGate.Direction -eq 'Upper' -and $earlyGate.Depth -eq 29 -and !$earlyGate.Hidden) 'The first hall has a visible upper route before the main junctions.'
 FlyRuin $earlyUpper ($earlyGate.Depth - 1.75) 0 0
 Pose $earlyUpper Fist .21 0
 Pose $earlyUpper Open 1.18 0
@@ -750,12 +757,12 @@ CrossRuin $floorRoute
 $circuit = [Echoes.Journey]::new(44)
 $circuit.SelectChapter(1)
 $circuit.SetHand([Echoes.Hand]::Open)
-for ($sample = 0; $sample -lt 4000 -and $circuit.RuinLoops -eq 0; $sample++) { $circuit.Step(.02,.80) }
+for ($sample = 0; $sample -lt 8000 -and $circuit.RuinLoops -eq 0; $sample++) { $circuit.Step(.02,.80) }
 Assert ($circuit.RuinLoops -eq 1 -and $circuit.RuinRoomId -eq 0 -and $circuit.Phase -eq 'RuinExplore') 'Passing the seam continues the same room without forced transfer.'
 $resumed = [Echoes.Journey]::new(99)
 Assert ($resumed.Restore($circuit.Checkpoint) -and $resumed.RuinLoops -eq 1) 'Returning through a save retains completed circuits.'
 $resumed.SetHand([Echoes.Hand]::Open)
-for ($sample = 0; $sample -lt 4000 -and $resumed.RuinLoops -lt 2; $sample++) { $resumed.Step(.02,.80) }
+for ($sample = 0; $sample -lt 8000 -and $resumed.RuinLoops -lt 2; $sample++) { $resumed.Step(.02,.80) }
 Assert ($resumed.Phase -eq 'RuinExplore' -and $resumed.RuinLoops -eq 2 -and $resumed.RuinWallPassages -eq 0) 'Circling the main gallery never substitutes for a passage transfer.'
 
 $heartbeat=[Echoes.Journey]::new(92)
@@ -789,8 +796,8 @@ $originalLengths = @(48,40,44,46,50,43,42,49,45,51,40,27,30,29,31,32)
 for ($room=0; $room -lt 16; $room++) {
     $atlasSave.ruinRoom = $room
     Assert ($atlas.Restore($atlasSave)) 'Each authored room is valid as a saved starting threshold.'
-    $scale = if ($room -in 0,9) { 1 } else { .25 }
-    Assert ($atlas.RuinRoomLength -eq $originalLengths[$room] * $scale) 'The entrance and final gallery keep their lengths and ordinary galleries are one quarter of the original.'
+    $scale = if ($room -in 0,9) { 4 } else { 1 }
+    Assert ($atlas.RuinRoomLength -eq $originalLengths[$room] * $scale) 'Each gallery is four times the length of the previous release.'
     [void]$depths.Add($atlas.RuinLayer)
     foreach ($portal in $atlas.RuinPortals) { [void]$directions.Add($portal.Direction.ToString()) }
     $passages[$room] = [int[]]@($atlas.RuinPortals | ForEach-Object { $_.TargetRoom })

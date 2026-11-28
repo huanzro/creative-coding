@@ -20,6 +20,7 @@ namespace Echoes
             public readonly int Portal;
             public readonly bool Incoming;
             public readonly List<Vector3> Points = new List<Vector3>();
+            public Bounds Bounds;
 
             public RuinCrossing(int portal, bool incoming)
             {
@@ -256,6 +257,7 @@ namespace Echoes
                     var crossing=new RuinCrossing(portal.Id,incoming);
                     clearances.Add(crossing);
                     Vector3 previous=path.Entrance;
+                    crossing.Bounds=new Bounds(previous,Vector3.zero);
                     for(int i=1;i<=44;i++)
                     {
                         // Allow more room as the final shaft widens into the gallery and the camera follows.
@@ -268,6 +270,7 @@ namespace Echoes
                         }
                         int sweep=Mathf.Max(1,Mathf.CeilToInt(Vector3.Distance(previous,next)/1.42f));
                         for(int s=1;s<=sweep;s++) crossing.Points.Add(Vector3.Lerp(previous,next,s/(float)sweep));
+                        crossing.Bounds.Encapsulate(next);
                         previous=next;
                     }
                 }
@@ -281,7 +284,8 @@ namespace Echoes
             for(int i=0;i<clearances.Count;i++)
             {
                 var crossing=clearances[i];
-                if(InsideRuinClearance(crossing.Points,point,crossing.Incoming ? incoming : outgoing))
+                float radius=crossing.Incoming ? incoming : outgoing;
+                if(crossing.Bounds.SqrDistance(point)<radius*radius && InsideRuinClearance(crossing.Points,point,radius))
                     mask|=1UL<<i;
             }
             return mask;

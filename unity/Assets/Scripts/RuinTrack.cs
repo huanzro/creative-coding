@@ -46,6 +46,7 @@ namespace Echoes
                 new Vector2(-1.17f,.22f), new Vector2(-1.13f,-.89f), new Vector2(-.34f,-1.18f), new Vector2(.19f,-1.11f) }
         };
         private static readonly GalleryRoute[] Routes = new GalleryRoute[Cells.Length];
+        private static readonly GalleryRoute[] PreviousRoutes = new GalleryRoute[Cells.Length];
 
         public static RuinRouteFrame Frame(int room,float length,float depth) => Route(room,length).Frame(depth);
 
@@ -57,8 +58,17 @@ namespace Echoes
         {
             var route = Routes[room];
             if (route == null || route.LogicalLength != length)
-                Routes[room] = route = new GalleryRoute(room,length);
+                Routes[room] = route = new GalleryRoute(room,length,RuinAtlas.GalleryLengthMultiplier);
             return route;
+        }
+
+        internal static RuinRouteFrame PreviousFrame(int room, float length, float depth)
+        {
+            float scale = RuinAtlas.GalleryLengthMultiplier;
+            var route = PreviousRoutes[room];
+            if (route == null || route.LogicalLength != length / scale)
+                PreviousRoutes[room] = route = new GalleryRoute(room, length / scale, 1);
+            return route.Frame(depth / scale);
         }
 
         private sealed class GalleryRoute
@@ -70,17 +80,17 @@ namespace Echoes
             public float LogicalLength { get; }
             public float Metres { get; }
 
-            public GalleryRoute(int room,float length)
+            public GalleryRoute(int room,float length,float stretch)
             {
                 LogicalLength = length;
                 int cell = Cells[room];
-                centre = new Vector3((cell%3-1)*Cell,Elevations[room]*14.2f,(cell/3-1)*Cell);
+                centre = new Vector3((cell%3-1)*Cell*stretch,Elevations[room]*14.2f,(cell/3-1)*Cell*stretch);
                 heading = Quaternion.Euler(0,Heading[room],0);
                 gradePhase = room * 1.13f;
                 Vector2[] plan = Plans[room % Plans.Length];
-                float roomScale = RuinAtlas.LengthScale(room);
-                float scale = Mathf.Clamp(length / roomScale * .378f, 16.3f, 18.8f);
-                var corners = BuildCorners(plan, scale, 10.9f);
+                float roomScale = RuinAtlas.PreviousGalleryScale(room);
+                float scale = Mathf.Clamp(length / (roomScale * stretch) * .378f, 16.3f, 18.8f);
+                var corners = BuildCorners(plan, scale * stretch, 10.9f * stretch);
                 if (roomScale < 1)
                 {
                     // Refit short galleries instead of squeezing their inner walls into tight corners.
@@ -280,6 +290,8 @@ namespace Echoes
         private readonly float sourceLength, sourceMouthDepth;
         private readonly Vector3 sourceInward;
         private readonly System.Func<float,Vector2> sourceSection;
+        private readonly RuinPortal portal;
+        private readonly Vector2 opening;
         private const float MouthParameter=.22f, BoreParameter=.07f, ArrivalParameter=.81f, ArrivalDepth=-3.7f;
         private const int ApproachSamples=96, BoreSamples=48, CurveSamples=168, MergeSamples=96;
         private const int TravelSamples=ApproachSamples+BoreSamples+CurveSamples+MergeSamples;
@@ -293,6 +305,7 @@ namespace Echoes
         private RuinRouteFrame preparedStart;
         private QuinticCurve approach;
         private Vector3 approachDetour;
+        private float previousNarrowLength;
         public readonly Vector3 Entrance, OpeningForward;
 
         public RuinTrackConnection(int room,float length,RuinPortal portal,Vector2 opening,int targetRoom,float tLength,
@@ -301,6 +314,8 @@ namespace Echoes
             var mouthFrame=RuinTrack.Frame(room,length,portal.Depth);
             source=room;
             sourceLength=length;
+            this.portal=portal;
+            this.opening=opening;
             sourceMouthDepth=portal.Depth;
             sourceInward=-portal.Lane*mouthFrame.Right;
             if(portal.Direction==RuinDirection.Left || portal.Direction==RuinDirection.Right) sourceSection=gallerySection;
@@ -308,15 +323,21 @@ namespace Echoes
             OpeningForward=RuinTrack.PortalForward(mouthFrame,portal);
             target=targetRoom;
             targetLength=tLength;
-            var arrival=RuinTrack.Frame(target,targetLength,ArrivalDepth);
-            boreEnd=Entrance+OpeningForward*5f;
+            (boreEnd, connector, connectorDetour) = FitConnector(Entrance,OpeningForward,
+                RuinTrack.Frame(target,targetLength,ArrivalDepth),portal.Direction);
+        }
+
+        private static (Vector3, QuinticCurve, Vector3) FitConnector(Vector3 entrance, Vector3 forward,
+            RuinRouteFrame arrival, RuinDirection direction)
+        {
+            Vector3 boreEnd=entrance+forward*5f;
             Vector3 landing=arrival.Point(0,.42f);
             float gap=Vector3.Distance(boreEnd,landing);
             float span=Mathf.Clamp(gap*.26f,9,36)*.60f;
             float runout=Mathf.Clamp(gap*.20f,8,32)*.60f;
-            connector=new QuinticCurve(boreEnd,OpeningForward*span,landing,arrival.Forward*runout);
-            float lift=portal.Direction==RuinDirection.Left || portal.Direction==RuinDirection.Right ? 7.1f : 0;
-            connectorDetour=ChooseDetour(connector,boreEnd,landing,OpeningForward,arrival.Forward,lift);
+            var curve=new QuinticCurve(boreEnd,forward*span,landing,arrival.Forward*runout);
+            float lift=direction==RuinDirection.Left || direction==RuinDirection.Right ? 7.1f : 0;
+            return (boreEnd, curve, ChooseDetour(curve,boreEnd,landing,forward,arrival.Forward,lift));
         }
 
         private static Vector3 ChooseDetour(QuinticCurve curve,Vector3 start,Vector3 end,
@@ -488,6 +509,46 @@ namespace Echoes
         {
             PrepareTravel(start);
             return cumulative[ApproachSamples+BoreSamples+CurveSamples];
+        }
+
+        internal float PreviousNarrowMetres()
+        {
+            if (previousNarrowLength > 0) return previousNarrowLength;
+            var mouth = RuinTrack.PreviousFrame(source, sourceLength, sourceMouthDepth);
+            var arrival = RuinTrack.PreviousFrame(target, targetLength, ArrivalDepth * RuinAtlas.GalleryLengthMultiplier);
+            Vector3 entrance = mouth.Point(opening.x, opening.y);
+            var (bore, curve, detour) = FitConnector(entrance, RuinTrack.PortalForward(mouth, portal), arrival, portal.Direction);
+            previousNarrowLength = Vector3.Distance(entrance, bore);
+            Vector3 last = bore;
+            for (int i = 1; i <= CurveSamples; i++)
+            {
+                float t = i / (float)CurveSamples;
+                float envelope = 4 * t * (1 - t);
+                Vector3 next = curve.Point(t) + detour * (envelope * envelope * envelope);
+                previousNarrowLength += Vector3.Distance(last, next);
+                last = next;
+            }
+            return previousNarrowLength;
+        }
+
+        private float FoldedMetres(RuinRouteFrame start) =>
+            Mathf.Max(0, GalleryMetres(start) - MouthMetres(start) - PreviousNarrowMetres() * RuinAtlas.ConnectorLengthMultiplier);
+
+        public float GameplayMetres(RuinRouteFrame start) => TravelMetres(start) - FoldedMetres(start);
+
+        // The gallery network remains laid out in the overview. In play the dark throat
+        // joins the two nearby ends of each passage without showing the distant middle.
+        public float PassageSeam(RuinRouteFrame start) => (MouthMetres(start) + GalleryMetres(start) - FoldedMetres(start)) * .5f;
+
+        public float RouteDistance(RuinRouteFrame start, float gameplayDistance) =>
+            gameplayDistance >= PassageSeam(start) ? gameplayDistance + FoldedMetres(start) : gameplayDistance;
+
+        public float GameplaySpeedLimit(RuinRouteFrame start, float progress)
+        {
+            float distance = GameplayMetres(start) * progress;
+            float throat = Mathf.Abs(distance - PassageSeam(start));
+            float speedLimit = SafeTransferSpeed(start, RouteDistance(start, distance) / TravelMetres(start));
+            return Mathf.Lerp(Mathf.Min(speedLimit, 4f), speedLimit, Mathf.InverseLerp(.85f, 3f, throat));
         }
 
         private void PrepareTravel(RuinRouteFrame start)

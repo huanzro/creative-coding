@@ -23,7 +23,7 @@ namespace Echoes
             public int Room = -1;
         }
 
-        private const int GalleryBays = 24;
+        private const int GalleryBays = 56;
         private readonly GalleryBay[] ruinGalleryBays = new GalleryBay[GalleryBays];
         private readonly GalleryBayMesh?[] ruinGalleryMeshes = new GalleryBayMesh?[16];
         private static readonly string[] GalleryNames = {
