@@ -20,3 +20,7 @@
 - 公开地址为 https://echoes-of-light-interactive-1031.tanbowl.chatgpt.site/ 。
 - 使用 Sites 技能并读取 `../sites/echoes-light-share/.openai/hosting.json` 以复用原 Site。Unity 试玩使用通过本机验证的 WebGL 构建；同步到发布检出时保留 `dist/` 提供的历史独立章节和展台调试页路径。
 - 确认发布版本和公开访问状态，检查入口是否展示当次新版。交付时附上公开网址。
+
+## 改动交接记录
+
+- **2026-11-28 · 人物窗无边框全屏**。Windows Unity 编辑器的人物窗支持 F11 或「全屏」，在窗口所在的屏幕铺满并自动隐藏控件。Esc 或 F11 恢复窗口。Unity 编辑器编译已验证，展台双屏实测待确认。
