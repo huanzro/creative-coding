@@ -70,9 +70,16 @@ namespace Echoes
             set => starCruiseSpeed = TuningValue(value, MinimumStarCruiseSpeed, MaximumStarCruiseSpeed, DefaultStarCruiseSpeed);
         }
         public int StarLastStamp { get; private set; }
-        public string StarInstruction => StarPointer.Valid
-            ? "指尖引导光迹，发声加快飞行。按 A/B 让图案沿光迹长出。"
-            : "光迹正飞向深处。只伸出食指，就能改变它的走向。";
+        public string StarInstruction
+        {
+            get
+            {
+                if (StarLastStamp > 0 && PoseTime - LastTouch < 1.35f)
+                    return StarLastStamp <= StarMotifs.PerGroup ? "A · 流线正在展开" : "B · 星纹正在展开";
+                return StarPointer.Valid ? "指尖引导光迹，发声加快飞行。按 A/B 让图案沿光迹长出。"
+                    : "点按 A/B 放出图案。伸出食指可改变光迹走向。";
+            }
+        }
 
         public void SetStarPointer(StarTip pointer)
         {

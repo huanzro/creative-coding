@@ -78,8 +78,8 @@ namespace Echoes
         public static event Action OperatorWindowRequested;
         private bool editorProjection, editorProjectionFocused, editorOperatorVisible, editorOperatorFocused;
         private int editorTouch = -1;
-        private int projectionKeys;
-        private const int ProjectionLeftKeys = 1 | 4, ProjectionRightKeys = 2 | 8;
+        private int projectionKeys, operatorKeys;
+        private const int EditorLeftKeys = 1 | 4, EditorRightKeys = 2 | 8;
 #endif
 
         [Serializable]
@@ -183,7 +183,7 @@ namespace Echoes
             bool keyboard = preview && Application.isFocused;
             bool operatorTouch = false;
 #if UNITY_EDITOR
-            operatorTouch = editorTouch >= 0 || projectionKeys != 0;
+            operatorTouch = editorTouch >= 0 || (projectionKeys | operatorKeys) != 0;
 #endif
             inputReady = preview || audioReady && cameraReady && now - lastAudioAt < .5f && now - lastHandAt < .5f;
             if (preview && Input.GetKeyDown(KeyCode.F1))
@@ -655,30 +655,37 @@ namespace Echoes
         {
             editorOperatorVisible = visible;
             if (visible) return;
-            editorOperatorFocused = false;
+            SetEditorOperatorFocused(false);
             ReleaseEditorTouch();
             SaveTuning();
         }
 
         public void ReleaseEditorTouch() => editorTouch = -1;
-        public void SetEditorOperatorFocused(bool focused) => editorOperatorFocused = focused;
+        public void SetEditorOperatorFocused(bool focused)
+        {
+            editorOperatorFocused = focused;
+            if (!focused) operatorKeys = 0;
+        }
         public void SetEditorProjectionFocused(bool focused)
         {
             editorProjectionFocused = focused;
             if (!focused) projectionKeys = 0;
         }
 
-        public bool SetEditorProjectionKey(KeyCode key, bool down)
+        public bool SetEditorProjectionKey(KeyCode key, bool down) => ForwardEditorKey(ref projectionKeys, key, down);
+        public bool SetEditorOperatorKey(KeyCode key, bool down) => ForwardEditorKey(ref operatorKeys, key, down);
+
+        private bool ForwardEditorKey(ref int heldKeys, KeyCode key, bool down)
         {
             int bit = key == KeyCode.A ? 1 : key == KeyCode.B ? 2 :
                 key == KeyCode.LeftArrow ? 4 : key == KeyCode.RightArrow ? 8 : 0;
             if (bit == 0 || down && bit > 2 && !journey.InRuins) return false;
-            bool left = (bit & ProjectionLeftKeys) != 0;
-            int direction = left ? ProjectionLeftKeys : ProjectionRightKeys;
-            bool alreadyHeld = (projectionKeys & direction) != 0;
-            if (down) projectionKeys |= bit;
-            else projectionKeys &= ~bit;
-            if (down && !alreadyHeld && (!journey.InForest || (projectionKeys & ~direction) == 0))
+            bool left = (bit & EditorLeftKeys) != 0;
+            int direction = left ? EditorLeftKeys : EditorRightKeys;
+            bool alreadyHeld = (heldKeys & direction) != 0;
+            if (down) heldKeys |= bit;
+            else heldKeys &= ~bit;
+            if (down && !alreadyHeld && (!journey.InForest || (heldKeys & ~direction) == 0))
                 Touch(left ? 0 : 1, false);
             return true;
         }
@@ -802,10 +809,18 @@ namespace Echoes
 
         private void TrackTouch(int option, bool down, bool physical)
         {
-            bool active = !paused && (inputReady || journey.InStars) && (Application.isFocused || physical && ExhibitFocused);
+            bool focused = physical ? ExhibitFocused || StarCameraAcceptsTouch : Application.isFocused;
+            bool active = !paused && (inputReady || journey.InStars) && focused;
             if (physical && journey.InForest && ExhibitTouchHeld(1 - option)) return;
             if (active && down) Touch(option, physical);
         }
+
+        private bool StarCameraAcceptsTouch =>
+#if ECHOES_DESKTOP_CAMERA
+            journey.InStars && desktopCamera.Active;
+#else
+            false;
+#endif
 
         private bool ExhibitTouchHeld(int option) =>
 #if ECHOES_WINDOWS_HARDWARE
@@ -824,8 +839,9 @@ namespace Echoes
 #if UNITY_EDITOR
             if (!paused && inputReady)
             {
-                left |= editorTouch == 0 || (projectionKeys & ProjectionLeftKeys) != 0;
-                right |= editorTouch == 1 || (projectionKeys & ProjectionRightKeys) != 0;
+                int editorKeys = projectionKeys | operatorKeys;
+                left |= editorTouch == 0 || (editorKeys & EditorLeftKeys) != 0;
+                right |= editorTouch == 1 || (editorKeys & EditorRightKeys) != 0;
             }
 #endif
             journey.SetMazeSteering(left, right);

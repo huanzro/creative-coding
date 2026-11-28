@@ -48,6 +48,10 @@ namespace Echoes
             }
 
             source.SetEditorOperatorFocused(focusedWindow == this);
+            Event key = Event.current;
+            bool pressed = key.type == EventType.KeyDown && !key.alt && !key.control && !key.command;
+            if ((pressed || key.type == EventType.KeyUp) && source.SetEditorOperatorKey(key.keyCode, pressed))
+                key.Use();
             source.DrawEditorOperator(new Rect(0, 0, position.width, position.height), ref scroll);
         }
 

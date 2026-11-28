@@ -149,7 +149,9 @@ B · 借一步|B · Cross
 A/B 转向，张手走、握拳停。声音加速，岔口沿朝向进入通道。|Turn with A/B, open your palm to walk and close it to stop. Sound speeds you up. Face the passage you want at each junction.
 转向想走的入口，张手沿最接近朝向的隧道前进。|Face the passage you want and open your palm to move ahead.
 指尖引导光迹，发声加快飞行。按 A/B 让图案沿光迹长出。|Guide the ribbon with your fingertip. Sound accelerates flight. A/B grows patterns along the path.
-光迹正飞向深处。只伸出食指，就能改变它的走向。|Your ribbon is traveling onward. Point your index finger to shape its path.
+点按 A/B 放出图案。伸出食指可改变光迹走向。|Tap A/B to add a pattern. Point your index finger to guide the ribbon.
+A · 流线正在展开|A · Ribbon pattern growing
+B · 星纹正在展开|B · Star pattern growing
 一层|Level 1
 二层|Level 2
 三层|Level 3

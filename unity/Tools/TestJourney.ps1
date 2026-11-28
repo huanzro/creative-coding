@@ -275,9 +275,9 @@ Pose $game Open .1 0
 Assert ($game.Phase -eq 'StarsCanvas' -and $game.Started) 'Ruins lead directly into the open Star Sea.'
 $game.SetHand([Echoes.Hand]::Missing)
 $initial = $game.Distance
-Assert ($game.Touch(0) -and $game.StarLastStamp -in 1..4) 'A immediately places one of its four original trails.'
+Assert ($game.Touch(0) -and $game.StarLastStamp -in 1..4 -and $game.StarInstruction.StartsWith('A ·')) 'A immediately places a trail and confirms it on stage.'
 $first = $game.StarLastStamp
-Assert ($game.Touch(1) -and $game.StarLastStamp -in 5..8) 'B works without waiting for A or a gesture.'
+Assert ($game.Touch(1) -and $game.StarLastStamp -in 5..8 -and $game.StarInstruction.StartsWith('B ·')) 'B works without waiting for A or a gesture and confirms it on stage.'
 Step $game 3.2 0
 Assert ([Math]::Abs($game.Distance - $initial - 3.2 * $game.StarCruiseSpeed) -lt .02 -and $game.Phase -eq 'StarsCanvas') 'Motifs extend while the player cruises at the ordinary forward speed.'
 Assert ($game.Touch(0) -and $game.StarLastStamp -in 1..4 -and $game.StarLastStamp -ne $first) 'Repeated A taps sample the same group without an immediate repeat.'
