@@ -74,7 +74,7 @@ namespace Echoes
         private static readonly string[] Titles = { "沉睡森林", "回声遗迹", "星海回响" };
 #if UNITY_EDITOR
         public static EchoesPlayer Active { get; private set; }
-        public static event Action CharacterWindowRequested;
+        public static event Action CharacterWindowToggleRequested;
         public static event Action OperatorWindowRequested;
         private bool editorProjection, editorProjectionFocused, editorOperatorVisible, editorOperatorFocused;
         private int editorTouch = -1;
@@ -448,7 +448,7 @@ namespace Echoes
             characterOnly = LocaleGui.Toggle(new Rect(226, 139, 153, 27), characterOnly, "纯黑人物");
             mirror = LocaleGui.Toggle(new Rect(400, 139, 115, 27), mirror, "镜像");
 #if UNITY_EDITOR
-            if (LocaleGui.Button(new Rect(20, 186, 183, 30), "打开独立人物窗口", button)) CharacterWindowRequested?.Invoke();
+            DrawCharacterWindowToggle(new Rect(20, 186, 183, 30), button);
             if (editorProjection) LocaleGui.Label(new Rect(367, 186, 143, 29), "已分屏", label);
 #elif UNITY_STANDALONE_WIN
             DrawCompanionSettings(label,button);
@@ -553,8 +553,7 @@ namespace Echoes
                 changedTuning = true;
             }
 #if UNITY_EDITOR
-            if (!editorProjection && LocaleGui.Button(new Rect(309, 53, 193, 31), "打开独立人物窗口", button))
-                CharacterWindowRequested?.Invoke();
+            DrawCharacterWindowToggle(new Rect(309, 53, 193, 31), button);
 #endif
             view.ScreenBrightness = TuningSlider(90, "全屏亮度", BrightnessKey, view.ScreenBrightness,
                 ProjectionLighting.MinimumBrightness, ProjectionLighting.MaximumBrightness, label, "");
@@ -651,6 +650,12 @@ namespace Echoes
         }
 
 #if UNITY_EDITOR
+        private void DrawCharacterWindowToggle(Rect bounds, GUIStyle button)
+        {
+            string action = editorProjection ? "关闭独立人物窗口" : "打开独立人物窗口";
+            if (LocaleGui.Button(bounds, action, button)) CharacterWindowToggleRequested?.Invoke();
+        }
+
         public void SetEditorOperatorVisible(bool visible)
         {
             editorOperatorVisible = visible;
@@ -708,11 +713,14 @@ namespace Echoes
 
         public void SetEditorProjection(bool active, Vector2 size = default, bool sideways = true, float lightReach = 1.45f)
         {
+            bool changed = editorProjection != active;
             editorProjection = active;
             if (!active) SetEditorProjectionFocused(false);
-            if (view != null)
-                view.StarWindow = active && size.x > 1 && size.y > 1
-                    ? StarProjection.Window(size, sideways, lightReach) : StarProjection.DefaultWindow;
+            if (view == null) return;
+            view.StarWindow = active && size.x > 1 && size.y > 1
+                ? StarProjection.Window(size, sideways, lightReach) : StarProjection.DefaultWindow;
+            if (changed && isActiveAndEnabled)
+                view.UpdateWorld(journey, LocalSpirit, StageSplit, ShowProjectionCalibration);
         }
 
         public void DrawCharacterWindow(Rect viewport, bool mirrored, bool sideways, float characterScale, float lightReach)

@@ -547,6 +547,14 @@ namespace Echoes
         public float RouteDistance(RuinRouteFrame start, float gameplayDistance) =>
             gameplayDistance >= PassageSeam(start) ? gameplayDistance + FoldedMetres(start) : gameplayDistance;
 
+        public void PassageSeamFrames(RuinRouteFrame start,out RuinRouteFrame before,out RuinRouteFrame after)
+        {
+            float length=TravelMetres(start);
+            float seam=PassageSeam(start);
+            before=Travel(start,seam/length);
+            after=Travel(start,RouteDistance(start,seam)/length);
+        }
+
         public float GameplaySpeedLimit(RuinRouteFrame start, float progress)
         {
             float distance = GameplayMetres(start) * progress;

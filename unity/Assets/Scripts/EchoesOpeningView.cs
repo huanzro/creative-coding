@@ -13,12 +13,17 @@ namespace Echoes
         private Material plateMaterial;
         private RenderTexture compositePlate;
         private float plateTime = -1;
+        private Vector2 stageAnchor=new Vector2(.5f,.5f);
 
         public void UpdateWorld(Journey journey, SpiritFrame frame, bool split, bool previewWorld = false)
         {
             UpdateStarFinale(journey);
             if (journey.StarFinaleAge > FinaleWorldEnd && finaleArtwork?.Ready == true) return;
-            if (frame.openingTime < 0 && !frame.forest && !frame.ruins && !journey.InStars && !UseWorld && !previewWorld) return;
+            if (frame.openingTime < 0 && !frame.forest && !frame.ruins && !journey.InStars && !UseWorld && !previewWorld)
+            {
+                stageAnchor=EchoesWorld.CentrePerformer(new Vector2(.5f,SpiritFlight.ScreenY(frame.altitude)));
+                return;
+            }
             if (world == null) world = new EchoesWorld();
             Vector2 amber = Vector2.zero, red = Vector2.zero;
             if (frame.openingTime >= 0)
@@ -33,18 +38,24 @@ namespace Echoes
             world.Render(journey,frame,spirit,split,TimeOfDay,ScrollSpeed,amber,red,
                 ScreenBrightness,ProjectionFalloff,ProjectionGradient,BackgroundBrightness,
                 ForestSpiderBrightness,ForestMawBrightness,starInk,StarWindow);
+            if(world.Ready) stageAnchor=world.ActorScreen;
+            else if(frame.openingTime>=0)
+            {
+                var shot=OpeningStoryboard.Sample(frame.openingTime).Actor;
+                stageAnchor=EchoesWorld.CentrePerformer(new Vector2(shot.x,shot.y));
+            }
+            else stageAnchor=EchoesWorld.CentrePerformer(new Vector2(.5f,SpiritFlight.ScreenY(frame.altitude)));
             if (frame.openingTime >= 0 && !world.Ready) UpdatePlates(frame.openingTime);
         }
 
         private void DrawSpatialOpening(SpiritFrame frame,bool split)
         {
             float t=frame.openingTime;
-            var shot=OpeningStoryboard.Sample(t);
             Paint(new Rect(0,0,Width,Height),Color.white,world.Texture);
-            Vector2 actor=new Vector2(shot.Actor.x*Width,shot.Actor.y*Height);
-            float size=162*shot.Actor.z;
+            Vector2 actor=Vector2.Scale(world.ActorScreen,new Vector2(Width,Height));
+            float size=world.ActorBody;
             Vector2 fingertips=actor+HandPosition*size;
-            Vector2 fly=actor+OpeningFlyOffset(t,shot,false)*size;
+            Vector2 fly=Vector2.Scale(world.OpeningAmberScreen,new Vector2(Width,Height));
             float overlayGain=ProjectionOverlayGain;
             float strength=(split?.34f:1)*overlayGain;
             float catchLight=OpeningStoryboard.Window(t,11.52f,12.4f,15.3f,17.0f);
@@ -102,7 +113,7 @@ namespace Echoes
         {
             float time = frame.openingTime;
             var shot = OpeningStoryboard.Sample(time);
-            var actor = new Vector2(shot.Actor.x * Width, shot.Actor.y * Height);
+            var actor = Vector2.Scale(stageAnchor,new Vector2(Width,Height));
             float gain = split ? .43f : 1;
             Paint(new Rect(0, 0, Width, Height), BackgroundTint(new Color(.011f, .022f, .030f)));
             if (compositePlate != null && time == plateTime && compositePlate.IsCreated())

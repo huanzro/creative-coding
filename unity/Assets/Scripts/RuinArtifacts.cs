@@ -12,6 +12,7 @@ namespace Echoes
         private static readonly Quaternion Upright = Quaternion.identity;
         private static readonly int Reveal = Shader.PropertyToID("_Reveal");
         private static readonly int Luminance = Shader.PropertyToID("_Luminance");
+        private static readonly int Concealed = Shader.PropertyToID("_Concealed");
         private static readonly Color Gold = new Color(.83f,.57f,.29f), Brass = new Color(.70f,.46f,.24f),
             PaleGold = new Color(1,.83f,.48f), Jade = new Color(.25f,.82f,.69f),
             Indigo = new Color(.42f,.50f,1), Rose = new Color(1,.43f,.44f), Silver = new Color(.67f,.77f,.84f);
@@ -55,29 +56,28 @@ namespace Echoes
             this.layer = layer;
             var shader = Resources.Load<Shader>("EchoesRuinRelic");
             if (shader == null || !shader.isSupported) shader = Shader.Find("Hidden/Echoes/WorldSurface");
-            artifactMaterial = new Material(shader) { name = "Partially veiled ruin artifacts" };
+            artifactMaterial = new Material(shader) { name = "Ruin artifacts" };
             chestMaterial = new Material(shader) { name = "Crafted ruin chests" };
-            artifactMaterial.SetFloat("_Concealed", 1);
         }
 
-        public void UpdateArtifact(int slot, int artKind, Vector3 localPos, float time, float proximity, float yaw)
+        public void UpdateArtifact(int slot, int identity, int artKind, Vector3 localPos, float time, float proximity, float yaw)
         {
             if ((uint)artKind >= artifactModels.Length) return;
             Model model = artifactModels[artKind] ?? (artifactModels[artKind] = BuildArtifact(artKind));
             Element item = Place(artifacts, slot, artKind, model, ArtifactNames[artKind], artifactMaterial);
-            float phase = time * 1.7f + slot * 1.29f;
+            float phase = time * 1.7f + identity * 1.29f;
             float approach = Ease(proximity);
             item.Root.localPosition = localPos + Vector3.up * (.055f * Mathf.Sin(phase));
             item.Root.localRotation = Quaternion.Euler(Mathf.Sin(phase*.7f)*7, yaw + Mathf.Sin(phase*.44f)*15, Mathf.Sin(phase)*4);
             float beat = 0;
             if (artKind == 0)
             {
-                float cycle = Mathf.Repeat(time*(1.03f+.21f*approach)+slot*.61f, 1);
+                float cycle = Mathf.Repeat(time*(1.03f+.21f*approach)+identity*.61f, 1);
                 beat = Pulse(cycle, .13f, .072f) + .55f*Pulse(cycle,.35f,.061f);
             }
             float amount = .035f + approach*(.14f + (artKind == 0 ? .044f : 0));
             item.Root.localScale = new Vector3(1+beat*amount, 1+beat*amount*.74f, 1+beat*amount);
-            SetSurface(item.BodyRenderer, .22f + .75f*approach, .12f + .48f*approach + beat*.73f*approach);
+            SetSurface(item.BodyRenderer, 1, .54f + .28f*approach + beat*.42f*approach);
         }
 
         public void UpdateChest(int slot, int design, Vector3 localPos, float time, float proximity, bool opened, bool stocked, float yaw)
@@ -161,7 +161,7 @@ namespace Echoes
             item.Root.localPosition = position;
             item.Root.localScale = Vector3.one * (size * (1 + .16f * beat));
             item.Root.localRotation = Quaternion.Euler(0, 20 * time, 0);
-            SetSurface(item.BodyRenderer, glow, .53f * glow + beat * .28f);
+            SetSurface(item.BodyRenderer, glow, .53f * glow + beat * .28f, concealed: true);
         }
 
         public void HideLoot(int count) => Hide(loot, count);
@@ -218,10 +218,11 @@ namespace Echoes
             return renderer;
         }
 
-        private void SetSurface(MeshRenderer renderer, float reveal, float brightness)
+        private void SetSurface(MeshRenderer renderer, float reveal, float brightness, bool concealed = false)
         {
             state.SetFloat(Reveal, reveal);
             state.SetFloat(Luminance, brightness);
+            state.SetFloat(Concealed, concealed ? 1 : 0);
             renderer.SetPropertyBlock(state);
         }
 

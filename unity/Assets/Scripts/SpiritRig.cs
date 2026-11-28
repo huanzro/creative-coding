@@ -261,7 +261,7 @@ namespace Echoes
         {
             if (!rendered) return tip;
             var pivot = new Vector3(0, 1.16f, 0);
-            Vector3 center = tip - facing * ((anchors[1] - pivot) * scale);
+            Vector3 center = StarWriterCenter(tip,facing,scale);
             if (visible)
             {
                 Matrix4x4 basis = Matrix4x4.TRS(center, facing, Vector3.one * scale) * Matrix4x4.Translate(-pivot);
@@ -270,6 +270,9 @@ namespace Echoes
             else sceneAnchors[1] = tip;
             return center;
         }
+
+        internal Vector3 StarWriterCenter(Vector3 tip,Quaternion facing,float scale) =>
+            rendered ? tip-facing*((anchors[1]-new Vector3(0,1.16f,0))*scale) : tip;
 
         private void UpdateTrails(float time, bool active)
         {

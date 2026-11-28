@@ -43,6 +43,8 @@ namespace Echoes
         private readonly List<Mesh> ruinSpatialMeshes = new List<Mesh>();
         private RuinPortal ruinLayoutIdentity;
         private int lastRuinExitPortalRoom = -1;
+        private RuinPortal landingPortal;
+        private int landingSourceRoom;
         private float ruinVisualDistance, ruinVisualMouth, ruinVisualArrival, ruinArrivalDepth;
 
         internal void SetRuinTransitionDistances(float distance,float mouth,float arrival,float arrivalDepth)
@@ -83,6 +85,7 @@ namespace Echoes
         {
             var first=j.RuinPortalsFor(0);
             RuinPortal identity=first.Count>0 ? first[0] : null;
+            if(identity!=ruinLayoutIdentity) landingPortal=null;
             if (identity!=ruinLayoutIdentity || lastRuinExitPortalRoom!=j.RuinExitPortalRoom)
             {
                 DisposeRuinEnvelopes();
@@ -95,26 +98,38 @@ namespace Echoes
             bool inside=transfer && ruinVisualDistance>=Mathf.Max(0,ruinVisualMouth-3.55f);
             bool lining=transfer && ruinVisualDistance>=Mathf.Max(0,ruinVisualMouth-8.2f);
             bool entering=RuinArrivalVisible(j);
+            if(entering)
+            {
+                landingPortal=j.RuinEntrance;
+                landingSourceRoom=current;
+            }
+            // The camera trails the actor. Keep the collar behind the actor until the camera has cleared it too.
+            bool holdingLanding=!transfer && j.Phase==Stage.RuinExplore && landingPortal?.TargetRoom==current &&
+                j.Distance < RuinTrack.DepthForMetres(current,j.RuinRoomLength,7.8f);
+            if(!transfer && !holdingLanding) landingPortal=null;
             EnsureRuinEnvelope(j,current);
             if(transfer) EnsureRuinEnvelope(j,next);
             else if(j.RuinApproach?.TargetRoom>=0) EnsureRuinEnvelope(j,j.RuinApproach.TargetRoom);
+            if(holdingLanding) EnsureRuinEnvelope(j,landingSourceRoom);
             foreach(var pair in ruinEnvelopes)
             {
                 bool source=pair.Key==current;
                 bool destination=entering && pair.Key==next;
-                pair.Value.Root.gameObject.SetActive(source || destination);
-                if(!source && !destination) continue;
+                bool retained=holdingLanding && pair.Key==landingSourceRoom;
+                pair.Value.Root.gameObject.SetActive(source || destination || retained);
+                if(!source && !destination && !retained) continue;
                 var envelope=pair.Value;
                 bool passedMouth=source && inside && ruinVisualDistance>ruinVisualMouth+12f;
-                envelope.Gallery.gameObject.SetActive(!passedMouth || destination);
+                envelope.Gallery.gameObject.SetActive(destination || source && !passedMouth);
                 ulong cut=0;
-                if(inside && (!destination || ruinVisualDistance<ruinVisualArrival+5.2f) &&
-                    envelope.ClearanceSlots.TryGetValue(j.RuinEntrance.Id,out int slot))
+                if(inside && envelope.ClearanceSlots.TryGetValue(j.RuinEntrance.Id,out int slot))
                     cut=1UL<<slot;
+                else if(holdingLanding && source && envelope.ClearanceSlots.TryGetValue(landingPortal.Id,out int heldSlot))
+                    cut=1UL<<heldSlot;
                 foreach(var panel in envelope.CrossingWalls)
                     panel.Value.gameObject.SetActive((panel.Key & cut)==0);
                 // A side connector joins above the gallery floor. Keep its landing visible as the camera turns in.
-                bool floorReady=destination && ruinVisualDistance>=ruinVisualArrival-.7f;
+                bool floorReady=holdingLanding || destination && ruinVisualDistance>=ruinVisualArrival-.7f;
                 ulong floorCut=floorReady ? 0 : cut;
                 foreach(var panel in envelope.CrossingFloors)
                     panel.Value.gameObject.SetActive((panel.Key & floorCut)==0);
@@ -123,10 +138,11 @@ namespace Echoes
                 foreach(var branch in pair.Value.Branches)
                 {
                     bool selected=transfer && source && branch.Key==j.RuinEntrance.Id;
+                    bool selectedLanding=retained && branch.Key==landingPortal.Id;
                     bool showMouth=j.RuinRetryState==RuinRetryPhase.Inactive &&
-                        (destination || source && (!inside || selected));
+                        (destination || source && (!inside || selected) || selectedLanding);
                     branch.Value.Entrance.gameObject.SetActive(showMouth);
-                    branch.Value.Interior.gameObject.SetActive(showMouth && selected && lining);
+                    branch.Value.Interior.gameObject.SetActive(showMouth && (selected && lining || selectedLanding));
                 }
             }
         }

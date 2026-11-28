@@ -26,7 +26,8 @@ namespace Echoes
         private float sectionAge, lastTravelTime, lastDistance;
         public bool Ready => rendered && Texture != null;
         public RenderTexture Texture => graded != null ? graded : scene;
-        public Vector2 ActorScreen { get; private set; } = new Vector2(.5f,.75f);
+        public Vector2 ActorScreen { get; private set; } = new Vector2(.5f,.5f);
+        public Vector2 OpeningAmberScreen { get; private set; }
         internal Vector3 ProjectToViewport(Vector3 point) => camera.WorldToViewportPoint(point);
         public float ActorBody { get; private set; } = 162;
 
@@ -149,7 +150,9 @@ namespace Echoes
                     (ruins && lastRuinRoom!=journey.RuinRoomId && lastPhase!=Stage.RuinTransfer);
                 bool matchCut=closeShot!=0 && closeShot!=lastCloseShot;
                 lastCloseShot=closeShot;
-                if (cut || stars || ruinExit || ruinFarSide && !previousFarSide)
+                if (!cut && ruins && ruinFarSide && !previousFarSide && lastPhase==Stage.RuinTransfer)
+                    CarryRuinPassageCamera();
+                if (cut || stars || ruinExit)
                 {
                     position=wanted; sight=focus;
                     velocity=sightVelocity=Vector3.zero;
@@ -186,9 +189,27 @@ namespace Echoes
             lastTravelTime=frame.time;
             lastDistance=journey.Distance;
             Quaternion rotation = Quaternion.LookRotation(sight-position, ruins && journey.Phase==Stage.RuinTransfer ? ruinViewUp : Vector3.up);
+            if(writing) CentreStarWriter(starInk.Frame,spirit);
             Vector3 eye = writing ? position + rotation * (Vector3)starInk.Frame.eyeOffset : position;
             camera.transform.SetPositionAndRotation(eye, rotation);
             float time=opening?frame.openingTime:frame.motionTime;
+            bool spatial=forest || ruins;
+            Vector3 shotActor=opening ? OpeningStoryboard.Sample(time).Actor :
+                new Vector3(.5f,SpiritFlight.ScreenY(frame.altitude),1);
+            Vector2 screen=stars ? StarActorViewport : new Vector2(shotActor.x,shotActor.y);
+            float body=stars ? StarActorBody : 162*shotActor.z;
+            float depth=stars ? StarInkSpace.PerformerDepth : spatial ? camera.WorldToViewportPoint(spatialActor).z : ActorDepth(screen,body,journey,opening);
+            Vector3 actorAt=spatial ? spatialActor : camera.ViewportToWorldPoint(new Vector3(screen.x,1-screen.y,depth));
+            Vector3 amberAt=opening ? camera.ViewportToWorldPoint(new Vector3(amber.x,1-amber.y,depth-.14f)) : Vector3.zero;
+            Vector3 scarletAt=opening ? camera.ViewportToWorldPoint(new Vector3(scarlet.x,1-scarlet.y,depth-.17f)) : Vector3.zero;
+            if(!writing)
+            {
+                FramePerformer(actorAt);
+                Vector3 framed=camera.WorldToViewportPoint(actorAt);
+                if(!spatial && framed.z>camera.nearClipPlane) body*=depth/framed.z;
+                screen=framed.z>camera.nearClipPlane ? new Vector2(framed.x,1-framed.y) : new Vector2(.5f,.5f);
+                depth=framed.z;
+            }
             Vector3 key=LightScene(journey,frame,period,time,opening);
 
             set.Respond(journey,frame.openingTime);
@@ -202,22 +223,9 @@ namespace Echoes
             set.DrawRuinFramework(journey,time,detached,ruinActor,frame.cast);
             set.DrawFilmScenery(opening, ruinExit, journey.Age);
             set.DrawStarFlight(stars, journey.Distance);
-            Vector3 shotActor = opening ? OpeningStoryboard.Sample(time).Actor :
-                new Vector3(.5f,SpiritFlight.ScreenY(frame.altitude),1);
-            Vector2 screen = new Vector2(shotActor.x,shotActor.y);
-            float body=162*shotActor.z;
-            if (stars)
-            {
-                screen = StarActorViewport;
-                body = StarActorBody;
-            }
-            bool spatial=forest || ruins;
-            Vector3 viewport=spatial ? camera.WorldToViewportPoint(spatialActor) : Vector3.zero;
-            bool actorVisible=!spatial || viewport.z>camera.nearClipPlane+.085f;
-            float depth=stars ? StarInkSpace.PerformerDepth : spatial ? Mathf.Max(.2f,viewport.z) : ActorDepth(screen,body,journey,opening);
+            bool actorVisible=!spatial || depth>camera.nearClipPlane+.085f;
             if(spatial && actorVisible)
             {
-                screen=new Vector2(viewport.x,1-viewport.y);
                 float modelScale=ruins ? .43f : .41f;
                 if (ruinExit)
                     modelScale=Mathf.Lerp(modelScale,StarActorScale,OpeningStoryboard.Ease(4.04f,4.97f,journey.Age));
@@ -228,7 +236,6 @@ namespace Echoes
                     (SpiritRig.HeightScale*depth*Mathf.Tan(camera.fieldOfView*.5f*Mathf.Deg2Rad));
             }
             performer.Clear();
-            Vector3 actorAt=spatial ? spatialActor : camera.ViewportToWorldPoint(new Vector3(screen.x,1-screen.y,depth));
             if (writing)
             {
                 StarInkFrame artwork = starInk.Frame;
@@ -252,8 +259,9 @@ namespace Echoes
                     (split?.45f-.31f*OpeningStoryboard.NearHand(time,false):1);
                 float r = Mathf.Clamp01(OpeningStoryboard.Firefly(time,true).z) *
                     (split?.45f-.31f*OpeningStoryboard.NearHand(time,true):1);
-                set.Flies(camera.ViewportToWorldPoint(new Vector3(amber.x,1-amber.y,depth-.14f)),a,
-                    camera.ViewportToWorldPoint(new Vector3(scarlet.x,1-scarlet.y,depth-.17f)),r,time);
+                var lit=camera.WorldToViewportPoint(amberAt);
+                OpeningAmberScreen=new Vector2(lit.x,1-lit.y);
+                set.Flies(amberAt,a,scarletAt,r,time);
             }
             else set.Flies(Vector3.zero,0,Vector3.zero,0,time);
 
@@ -289,6 +297,39 @@ namespace Echoes
                 RenderTexture.active=before;
             }
             rendered=scene.IsCreated();
+        }
+
+        internal static Vector2 CentrePerformer(Vector2 screen) => new Vector2(CentreAxis(screen.x),CentreAxis(screen.y));
+
+        private static float CentreAxis(float position)
+        {
+            float delta=position-.5f;
+            float distance=Mathf.Abs(delta);
+            const float free=.052f, edge=.10f;
+            if(distance<=free) return position;
+            // Keep small movements intact and ease toward the border of the central fifth.
+            return .5f+Mathf.Sign(delta)*(free+(edge-free)*(1-Mathf.Exp(-(distance-free)/(edge-free))));
+        }
+
+        private void FramePerformer(Vector3 anchor)
+        {
+            Vector3 point=camera.WorldToViewportPoint(anchor);
+            if(point.z<=camera.nearClipPlane) return;
+            Vector2 before=new Vector2(point.x,1-point.y);
+            Vector2 framed=CentrePerformer(before);
+            if((framed-before).sqrMagnitude<.00000001f) return;
+            Vector3 from=camera.ViewportToWorldPoint(new Vector3(framed.x,1-framed.y,point.z))-camera.transform.position;
+            camera.transform.rotation=Quaternion.FromToRotation(from,anchor-camera.transform.position)*camera.transform.rotation;
+        }
+
+        private static void CentreStarWriter(StarInkFrame frame,SpiritRig spirit)
+        {
+            Vector3 center=spirit.StarWriterCenter(frame.cursor-frame.Eye,Quaternion.identity,StarActorScale);
+            Vector2 before=StarProjection.StagePoint(center);
+            Vector2 correction=before-CentrePerformer(before);
+            // Update the shared eye offset so world ink, portrait ink and fingertip keep one coordinate system.
+            frame.eyeOffset+=Vector2.Scale(correction,new Vector2(StarInkSpace.Aspect,-1))*
+                (center.z/StarProjection.Focal);
         }
 
         private static RuinRouteFrame RuinEndingActor(Journey journey, bool detached)
@@ -401,6 +442,21 @@ namespace Echoes
             return ruinPassage.RouteDistance(ruinPassageStart,distance);
         }
 
+        private void CarryRuinPassageCamera()
+        {
+            ruinPassage.PassageSeamFrames(ruinPassageStart,out var before,out var after);
+            float yaw=Vector3.SignedAngle(Vector3.ProjectOnPlane(before.Forward,Vector3.up),
+                Vector3.ProjectOnPlane(after.Forward,Vector3.up),Vector3.up);
+            Quaternion turn=Quaternion.AngleAxis(yaw,Vector3.up);
+            Vector3 origin=before.Position+Vector3.up*WorldSet.RuinY;
+            Vector3 landing=after.Position+Vector3.up*WorldSet.RuinY;
+            // Shift the existing follow rig across the folded distance with the same local offsets and momentum.
+            position=landing+turn*(position-origin);
+            sight=landing+turn*(sight-origin);
+            velocity=turn*velocity;
+            sightVelocity=turn*sightVelocity;
+        }
+
         private void RuinShot(Journey journey,RuinRouteFrame actor,out Vector3 at,out Vector3 focus)
         {
             if(journey.Phase==Stage.RuinTransfer)
@@ -467,16 +523,15 @@ namespace Echoes
                 at=Vector3.Lerp(sourceAt,at,leadIn);
                 focus=Vector3.Lerp(sourceFocus,focus,leadIn);
             }
-            float merge=RuinTrackConnection.SmoothJoin(Mathf.InverseLerp(arrival-1.8f,Mathf.Min(length,arrival+8.2f),metres));
+            float merge=RuinTrackConnection.SmoothJoin(Mathf.InverseLerp(arrival+.55f,Mathf.Min(length,arrival+7.2f),metres));
             if(merge>0)
             {
                 int destination=journey.RuinEntrance.TargetRoom;
                 float baseY=RuinTrack.Frame(destination,journey.RuinRoomLengthFor(destination),arrivalDepth).Position.y;
                 float altitude=(actor.Position.y-baseY-.54f)/3.30f;
                 RuinGalleryShot(journey,destination,arrivalDepth,0,altitude,null,out Vector3 destinationAt,out Vector3 destinationFocus);
-                // The follow camera stays low and centred in the mouth until it clears the last rib.
-                float settle=RuinTrackConnection.SmoothJoin(Mathf.InverseLerp(arrival+1.1f,length,metres));
-                at=Vector3.Lerp(at,destinationAt,settle);
+                // Finish both halves of the camera move on the same follow rig before gameplay resumes.
+                at=Vector3.Lerp(at,destinationAt,merge);
                 focus=Vector3.Lerp(focus,destinationFocus,merge);
             }
 

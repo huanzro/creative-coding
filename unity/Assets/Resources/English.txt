@@ -28,6 +28,7 @@
 纯黑人物|Character only
 镜像|Mirror
 打开独立人物窗口|Open character window
+关闭独立人物窗口|Close character window
 已分屏|Split active
 预览片头|Preview prologue
 出场角色|Character

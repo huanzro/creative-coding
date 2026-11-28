@@ -769,10 +769,10 @@ $heartbeat=[Echoes.Journey]::new(92)
 $heartbeat.SelectChapter(1)
 $heart = $heartbeat.RuinObjects | Where-Object Kind -eq Heart | Select-Object -First 1
 FlyRuin $heartbeat ($heart.Depth - 1.7) $heart.Altitude 0
-Assert (!$heart.Collected -and $heartbeat.RuinHeartAge -lt 0 -and $heart.Reveal -lt .2) 'From the center only a trace of an alcove is visible.'
+Assert (!$heart.Collected -and $heartbeat.RuinHeartAge -lt 0 -and $heart.Reveal -lt .2) 'The central lane does not count as approaching the heart shelf.'
 RuinSteer $heartbeat $heart.Lane
 Step $heartbeat .75 0
-Assert ($heartbeat.Cue -eq 'RuinHeartbeat' -and $heartbeat.RuinHeartAge -ge 0 -and !$heart.Collected -and $heart.Reveal -gt .3) 'The first heart reveals and startles before contact.'
+Assert ($heartbeat.Cue -eq 'RuinHeartbeat' -and $heartbeat.RuinHeartAge -ge 0 -and !$heart.Collected -and $heart.Reveal -gt .3) 'The first heart brightens and startles before contact.'
 $heartSave=$heartbeat.Checkpoint
 FlyRuin $heartbeat $heart.Depth $heart.Altitude $heart.Lane
 Assert ($heartbeat.RuinHearts -eq 1 -and $heart.Collected -and $heartbeat.Cue -eq 'RuinCollect') 'Approaching the alcove collects the heart without a button.'

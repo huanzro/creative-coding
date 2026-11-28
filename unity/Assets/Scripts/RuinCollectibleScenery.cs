@@ -72,13 +72,13 @@ namespace Echoes
             float pulse = .5f + .5f * Mathf.Sin(time * 2.35f + item.Id * .73f);
             float distance = Mathf.Abs(gap);
             float near = 1 - Mathf.SmoothStep(0, 1, (distance - 4) / 11);
-            Light(view.MarkerRenderer, CacheMarkerTint, .47f + .29f * near + .17f * pulse + .10f * item.Reveal);
+            Light(view.MarkerRenderer, CacheMarkerTint, .60f + .23f * near + .17f * pulse + .10f * item.Reveal);
         }
 
-        private static Vector3 RuinCacheDisplay(RuinRouteFrame frame, int side, float reveal)
+        private static Vector3 RuinCacheDisplay(RuinRouteFrame frame, int side, float proximity)
         {
             // Allow the largest model to bob and turn above the tray inside every gallery shell.
-            float lift = .14f * Mathf.SmoothStep(0, 1, reveal);
+            float lift = .14f * Mathf.SmoothStep(0, 1, proximity);
             return frame.Point(RuinCacheOffset * side, 1.87f + lift);
         }
 

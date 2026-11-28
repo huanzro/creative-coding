@@ -10,6 +10,7 @@ namespace Echoes
     [InitializeOnLoad]
     internal sealed class CharacterProjectionWindow : EditorWindow
     {
+        private static CharacterProjectionWindow visibleWindow;
         private EchoesPlayer source;
         private const string WindowTitle = "Echoes | Character";
 #if UNITY_EDITOR_WIN
@@ -28,7 +29,16 @@ namespace Echoes
 
         static CharacterProjectionWindow()
         {
-            EchoesPlayer.CharacterWindowRequested += () => EditorApplication.delayCall += Open;
+            EchoesPlayer.CharacterWindowToggleRequested += () => EditorApplication.delayCall += Toggle;
+        }
+
+        private static void Toggle()
+        {
+            if (visibleWindow == null) { Open(); return; }
+#if UNITY_EDITOR_WIN
+            visibleWindow.ExitFullscreen();
+#endif
+            visibleWindow.Close();
         }
 
         [MenuItem("Echoes of Light/Character Projection")]
@@ -42,6 +52,7 @@ namespace Echoes
                 window.position = new Rect(bounds.x, bounds.y, 640, 380);
             }
             window.ShowUtility();
+            window.SyncSource();
         }
 
         [MenuItem("Echoes of Light/Preview Opening")]
@@ -52,16 +63,23 @@ namespace Echoes
 
         private void OnEnable()
         {
+            visibleWindow = this;
             characterScale = EditorPrefs.GetFloat(ScaleKey, 1);
             lightReach = EditorPrefs.GetFloat(ExtentKey, 1.45f);
         }
 
         private void Update()
         {
+            SyncSource();
+            Repaint();
+        }
+
+        private void SyncSource()
+        {
             EchoesPlayer next = EditorApplication.isPlaying ? EchoesPlayer.Active : null;
             if (source != next)
             {
-                if (source != null) source.SetEditorProjection(false);
+                DetachSource();
                 source = next;
             }
             // Unity can restore the window's player reference after a script reload.
@@ -70,7 +88,12 @@ namespace Echoes
                 source.SetEditorProjection(true, position.size, sideways, lightReach);
                 source.SetEditorProjectionFocused(focusedWindow == this);
             }
-            Repaint();
+        }
+
+        private void DetachSource()
+        {
+            if (source != null) source.SetEditorProjection(false);
+            source = null;
         }
 
         private void OnLostFocus()
@@ -83,7 +106,8 @@ namespace Echoes
 #if UNITY_EDITOR_WIN
             ExitFullscreen();
 #endif
-            if (source != null) source.SetEditorProjection(false);
+            if (visibleWindow == this) visibleWindow = null;
+            DetachSource();
         }
 
         private void OnGUI()

@@ -190,7 +190,7 @@ namespace Echoes
             if (traces.Count > 120) traces.RemoveAt(0);
         }
 
-        private static float CharacterY(float altitude) => Height * SpiritFlight.ScreenY(altitude);
+        private static float CharacterY(float altitude) => Height * EchoesWorld.CentrePerformer(new Vector2(.5f,SpiritFlight.ScreenY(altitude))).y;
 
         private float ProjectionOverlayGain => ProjectionGradient ?
             ProjectionLighting.CenterGain(ProjectionFalloff) / ProjectionLighting.DefaultCenterGain : 1;
@@ -228,12 +228,11 @@ namespace Echoes
                 Paint(new Rect(100, -100, 1080, 940), new Color(0, 0, 0, .35f), glow);
             float overlayGain = spatial ? ProjectionOverlayGain : 1;
             float strength = (splitProjection ? .38f : .87f) * overlayGain;
-            var center = new Vector2(CenterX, CharacterY(frame.altitude));
+            var center = spatial ? Vector2.Scale(world.ActorScreen,new Vector2(Width,Height)) : new Vector2(CenterX, CharacterY(frame.altitude));
             var origin = new Vector2(CenterX, CharacterY(frame.releaseAltitude));
             float actorSize = 162;
             if ((frame.forest || frame.ruins) && spatial)
             {
-                center = Vector2.Scale(world.ActorScreen, new Vector2(Width, Height));
                 origin = center + Vector2.up * Mathf.Clamp(frame.altitude - frame.releaseAltitude, -.7f, .7f) * 92;
                 actorSize = world.ActorBody;
                 strength *= frame.forestDescent < 0 && frame.ruinTransfer < 0 ? .62f : .34f;

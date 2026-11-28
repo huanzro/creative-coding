@@ -42,6 +42,23 @@ $capacity = [Echoes.Journey]::RuinCapacity
 AssertRuinLoot ($capacity -eq 15) 'The collection has exactly fifteen slots.'
 $lootGame = [Echoes.Journey]::new(4412)
 $lootGame.SelectChapter(1)
+for ($room=0; $room -lt [Echoes.Journey]::RuinRoomCount; $room++) {
+    $arrival = $lootGame.RuinObjectsFor($room)[0]
+    AssertRuinLoot ($arrival.Id -eq $room * 4 -and $arrival.Kind -ne 'Chest' -and
+        $arrival.Depth -gt 0 -and $arrival.Depth -lt 3 -and $arrival.Lane -eq 1) 'Each gallery shows an existing collectible on the right just beyond its entry.'
+}
+$arrivalGame = [Echoes.Journey]::new(92032)
+$arrivalGame.SelectChapter(1)
+[void](InvokeRuinFixture $arrivalGame 'EnterRuinRoom' @(9, $false))
+$arrivalGame.SetHand([Echoes.Hand]::Open)
+$arrival = $arrivalGame.RuinObjects[0]
+$arrivalGame.Step(.02, 0)
+AssertRuinLoot (!$arrival.Collected -and $arrivalGame.RuinInventory -eq 0) 'Entering the room does not collect the welcome relic at a distance.'
+[void][Echoes.Journey].GetProperty('Distance').GetSetMethod($true).Invoke($arrivalGame, @([float]$arrival.Depth))
+[void][Echoes.Journey].GetProperty('RuinLane').GetSetMethod($true).Invoke($arrivalGame, @([float]$arrival.Lane))
+$arrivalGame.Flight.Reset($arrival.Altitude, [Echoes.Journey]::RuinHeightLimit)
+$arrivalGame.Step(.02, 0)
+AssertRuinLoot ($arrival.Collected -and $arrivalGame.RuinInventory -eq 1) 'Approaching the entrance plinth still collects its item automatically.'
 $allFinds = @(RuinFixtureObjects $lootGame)
 $heart = $allFinds | Where-Object Kind -eq 'Heart' | Select-Object -First 1
 InvokeRuinFixture $lootGame 'RecordRuinPickup' @($heart)

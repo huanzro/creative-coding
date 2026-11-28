@@ -449,7 +449,6 @@ namespace Echoes
             foreach (RuinObject item in journey.RuinObjectsFor(room))
             {
                 float gap = RuinTrack.Offset(item.Depth,depth,length);
-                if (gap < -6 || gap > 34) continue;
                 var frame = RuinTrack.Frame(room,length,item.Depth);
                 float height = .54f + 3.30f * item.Altitude;
                 float heading = frame.Rotation.eulerAngles.y;
@@ -466,11 +465,11 @@ namespace Echoes
                     continue;
                 }
                 DrawRuinNiche(niches++,item,frame,room,journey.RuinRoomStyleFor(room),time,gap);
-                if (item.Collected || item == journey.RuinLootSource || item.Reveal <= .18f) continue;
-                float reveal = Mathf.InverseLerp(.18f, .78f, item.Reveal);
+                if (item.Collected || item == journey.RuinLootSource) continue;
+                float proximity = Mathf.InverseLerp(.18f, .78f, item.Reveal);
                 int side = item.Lane < 0 ? -1 : 1;
-                Vector3 relic = RuinCacheDisplay(frame, side, reveal);
-                archiveObjects.UpdateArtifact(artifacts++, (int)item.Kind, relic, time, reveal, heading + side * 23);
+                Vector3 relic = RuinCacheDisplay(frame, side, proximity);
+                archiveObjects.UpdateArtifact(artifacts++, item.Id, (int)item.Kind, relic, time, proximity, heading + side * 23);
             }
             HideRuinNichesFrom(niches);
             archiveObjects.HideFrom(artifacts, chests);

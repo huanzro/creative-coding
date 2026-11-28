@@ -92,6 +92,7 @@ namespace Echoes
         private const int ExtraFindsPerRoom = 4;
         private const int FirstExtraFind = RoomCount * ObjectSlots;
         private const int FirstNewVault = RoomCount * PassageSlots;
+        private const float ArrivalPlinthDepth = 2.65f;
         internal const int ExitRoom = 9;
 
         internal const float GalleryLengthMultiplier = 4f;
@@ -262,6 +263,10 @@ namespace Echoes
                             item.Lane, item.Kind, item.ChestStyle);
                     }
                 }
+                // Reserve the right shoulder at each entrance for an existing find. The rest of the
+                // archive keeps its original pacing, saved item IDs and chest positions.
+                RuinObject arrival = objects[0];
+                objects[0] = new RuinObject(arrival.Id, ArrivalPlinthDepth, arrival.Altitude, 1, arrival.Kind, arrival.ChestStyle);
                 atlas[roomId] = new RuinRoom(room.name, room.layer, room.style, room.length * scale,
                     roomId == ExitRoom ? Array.Empty<RuinPortal>() : portals, objects);
             }

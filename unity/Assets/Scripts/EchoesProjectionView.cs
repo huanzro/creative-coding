@@ -6,7 +6,7 @@ namespace Echoes
     {
         private static readonly Color Amber = new Color(1f, .68f, .26f);
         private static readonly Color Scarlet = new Color(1f, .24f, .22f);
-        internal Vector2? StageProjectionAnchor => world != null && world.Ready ? world.ActorScreen : (Vector2?)null;
+        internal Vector2? StageProjectionAnchor => stageAnchor;
 
         public void DrawProjection(SpiritFrame frame, bool mirror, bool sideways, Rect? bounds = null,
             float characterScale = 1, float lightReach = 1) =>
@@ -111,7 +111,8 @@ namespace Echoes
                 }
                 if (synced) center = source = anchor;
                 if (frame.chapter != 2 && (!frame.forest || frame.forestDescent < 0))
-                    DrawFlightTrail(frame, palette[Mathf.Clamp(frame.chapter, 0, 2)], 1, extent, area, bodySize, sideways);
+                    DrawFlightTrail(frame, palette[Mathf.Clamp(frame.chapter, 0, 2)], 1, extent, area, bodySize, sideways,
+                        synced ? anchor : (Vector2?)null);
                 DrawCharacter(frame, center, source, bodySize, mirror, sideways ? -90 : 0, extent, true, visibility,
                     predator.Visible ? 1 : visibility);
                 if (frame.forest) DrawForestSwarm(frame, center, bodySize, mirror, sideways ? -90 : 0, visibility, true);
@@ -245,9 +246,10 @@ namespace Echoes
         }
 
         private void DrawFlightTrail(SpiritFrame frame, Color color, float strength, float extent, Rect viewport,
-            float bodySize = 0, bool sideways = false)
+            float bodySize = 0, bool sideways = false, Vector2? anchor = null)
         {
             Vector2 spreadAxis = sideways ? Vector2.up : Vector2.right;
+            Vector2 natural=anchor.HasValue ? FrameProjectionPosition(frame,frame.altitude,viewport,bodySize,sideways) : Vector2.zero;
             for (int index = 1; index < flightTrace.Count; index++)
             {
                 Vector4 point = flightTrace[index];
@@ -263,6 +265,11 @@ namespace Echoes
                 Vector2 q = bodySize == 0
                     ? new Vector2(CenterX, CharacterY(before.x))
                     : FrameProjectionPosition(frame, before.x, viewport, bodySize, sideways);
+                if(anchor.HasValue)
+                {
+                    p=anchor.Value+(p-natural)*.32f;
+                    q=anchor.Value+(q-natural)*.32f;
+                }
                 float drift = (5 + age * 28f + speed * 24) * extent;
                 float oldDrift = drift + 1.5f * extent;
                 float thickness = Mathf.Max(.85f, (7 + speed * 13) * extent);
