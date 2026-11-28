@@ -211,6 +211,7 @@ FlyRuin $game 51 .6 0
 Assert ($game.RuinRetryState -eq 'Impact' -and $game.RuinRetryWallDepth -eq 51) 'The final wall catches the player at its terminal end.'
 $debugWall = [Echoes.Journey]::new(29)
 $debugWall.JumpToRuinWallDebugPoint()
+Assert ($debugWall.RuinCoins -eq 18 -and $debugWall.RuinTokenCost -eq 15) 'An empty debug run previews a meaningful quote with example items.'
 Assert ($debugWall.RuinRetryState -eq 'Impact' -and $debugWall.Age -eq 0 -and $debugWall.RuinRetryWallDepth -eq 51) 'The debug point starts the actual final-tunnel collision.'
 Step $debugWall .46 0
 Assert ($debugWall.Cue -eq 'RuinWall') 'The debug point plays the same wall impact cue.'
@@ -788,8 +789,8 @@ $originalLengths = @(48,40,44,46,50,43,42,49,45,51,40,27,30,29,31,32)
 for ($room=0; $room -lt 16; $room++) {
     $atlasSave.ruinRoom = $room
     Assert ($atlas.Restore($atlasSave)) 'Each authored room is valid as a saved starting threshold.'
-    $scale = if ($room -in 0,9) { 1 } else { .5 }
-    Assert ($atlas.RuinRoomLength -eq $originalLengths[$room] * $scale) 'The entrance and final gallery keep their lengths and ordinary galleries are halved.'
+    $scale = if ($room -in 0,9) { 1 } else { .25 }
+    Assert ($atlas.RuinRoomLength -eq $originalLengths[$room] * $scale) 'The entrance and final gallery keep their lengths and ordinary galleries are one quarter of the original.'
     [void]$depths.Add($atlas.RuinLayer)
     foreach ($portal in $atlas.RuinPortals) { [void]$directions.Add($portal.Direction.ToString()) }
     $passages[$room] = [int[]]@($atlas.RuinPortals | ForEach-Object { $_.TargetRoom })

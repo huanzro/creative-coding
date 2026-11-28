@@ -400,6 +400,7 @@ namespace Echoes
             DisposeRuinTunnel();
             DisposeMachine();
             DisposeMaze();
+            if (guideFont != null) UnityEngine.Object.Destroy(guideFont);
             UnityEngine.Object.Destroy(root);
             foreach(var mesh in meshes) UnityEngine.Object.Destroy(mesh);
             UnityEngine.Object.Destroy(stone);

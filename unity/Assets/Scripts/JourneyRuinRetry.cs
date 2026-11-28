@@ -23,7 +23,7 @@ namespace Echoes
         public const float RuinGateDuration = 3.2f;
         public const float RuinSurveyDuration = 10f;
         public const float RuinArrivalDuration = 3.8f;
-        public const float RuinValuationFirstLineDuration = 8.6f, RuinValuationDuration = 13.6f;
+        public const float RuinValuationFirstLineDuration = 8.6f, RuinValuationDuration = 16f;
         public const float RuinExitDuration = 10f;
         public const int RuinHeartCoinRate = 3, RuinBrainCoinRate = 4, RuinPhoneTokenRate = 5, RuinComputerTokenRate = 6;
 
@@ -180,8 +180,16 @@ namespace Echoes
 
         public void JumpToRuinWallDebugPoint()
         {
-            SelectChapter(1);
+            if (!InRuins) SelectChapter(1);
+            if (RuinInventory == 0)
+            {
+                AddRuinFind(RuinObjectKind.Heart);
+                AddRuinFind(RuinObjectKind.Brain);
+                AddRuinFind(RuinObjectKind.Phone);
+                AddRuinFind(RuinObjectKind.Computer);
+            }
             SetHand(Hand.Open);
+            RuinRetryOutcome = RuinRetryResolution.None;
             ruinWallPassages = RuinWallPassagesRequired;
             EnterRuinRoom(RuinAtlas.ExitRoom, false);
             Distance = RuinRoomLength - WallApproach;
@@ -281,7 +289,8 @@ namespace Echoes
                 case RuinRetryPhase.Valuation:
                     Progress = Clamp(Age / RuinValuationDuration);
                     if (Age >= RuinValuationFirstLineDuration)
-                        Message = $"你有 {RuinCoins} 枚金币。离开需要 {RuinTokenCost} 枚金币。";
+                        Message = RuinCoins == 0 ? "你没有带来藏品，可以免费离开。" :
+                            $"你有 {RuinCoins} 枚金币。离开需要 {RuinTokenCost} 枚金币。";
                     if (Progress >= 1)
                     {
                         SetRuinRetryPhase(RuinRetryPhase.Bargain, "我可以放你过去。你愿意把自己的心脏和大脑也交给我吗？");

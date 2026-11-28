@@ -94,7 +94,7 @@ namespace Echoes
         private const int FirstNewVault = RoomCount * PassageSlots;
         internal const int ExitRoom = 9;
 
-        internal static float LengthScale(int room) => room == 0 || room == ExitRoom ? 1f : .5f;
+        internal static float LengthScale(int room) => room == 0 || room == ExitRoom ? 1f : .25f;
 
         private static readonly RuinObjectKind[] AdditionalFinds =
         {

@@ -10,7 +10,8 @@ namespace Echoes
         private readonly AudioClip[] cues = new AudioClip[Enum.GetValues(typeof(JourneyCue)).Length];
         private readonly AudioClip[] machineScenes = new AudioClip[4];
         private readonly AudioClip[] rescues = new AudioClip[2];
-        private AudioClip forestMachineLoop, archiveLoop;
+        private readonly AudioClip[] starChimes = new AudioClip[2];
+        private AudioClip forestMachineLoop, archiveLoop, starsLoop;
         private int heard;
         private int sceneStamp;
         private RuinRetryPhase dialoguePhase;
@@ -59,6 +60,14 @@ namespace Echoes
             }
             if (journey.CueId==heard || journey.Cue==JourneyCue.None) return;
             heard=journey.CueId;
+            if (journey.InStars && journey.Cue == JourneyCue.Star)
+            {
+                int side = journey.StarLastStamp <= StarMotifs.PerGroup ? 0 : 1;
+                if (starChimes[side] == null) starChimes[side] = ComposeStarChime(side);
+                source.panStereo = side == 0 ? -.33f : .33f;
+                source.PlayOneShot(starChimes[side]);
+                return;
+            }
             if (journey.Cue==JourneyCue.ForestCaptured && journey.ForestHasRescue)
             {
                 int kind=journey.ForestTrap==ForestTrapKind.Web?0:1;
@@ -111,10 +120,16 @@ namespace Echoes
                     break;
             }
             if (journey.Phase==Stage.ForestTransition) target*=1-OpeningStoryboard.Ease(.59f,1,journey.Progress);
+            if (journey.InStars && !paused)
+            {
+                target = .19f + .09f * Mathf.InverseLerp(Journey.MinimumStarCruiseSpeed, Journey.StarMaxSpeed, journey.StarSpeed);
+                if (journey.StarFinaleActive) target *= 1 - OpeningStoryboard.Ease(0, 1.8f, journey.StarFinaleAge);
+            }
             machinery.volume=Mathf.MoveTowards(machinery.volume,target,Time.unscaledDeltaTime*.38f);
             if (target>0)
             {
-                AudioClip bed = journey.InRuins ? archiveLoop ?? (archiveLoop=ComposeArchiveLoop()) :
+                AudioClip bed = journey.InStars ? starsLoop ?? (starsLoop = ComposeStarsLoop()) :
+                    journey.InRuins ? archiveLoop ?? (archiveLoop=ComposeArchiveLoop()) :
                     forestMachineLoop ?? (forestMachineLoop=ComposeMachineLoop());
                 if (machinery.clip != bed)
                 {
@@ -137,7 +152,7 @@ namespace Echoes
 
         private void FollowDialogue(Journey journey, bool paused)
         {
-            var phase = journey.RuinRetryState;
+            var phase = journey.InRuins ? journey.RuinRetryState : RuinRetryPhase.Inactive;
             bool english = EchoesLocale.English;
             string language=english ? "en_" : "zh_";
             if (dialoguePhase != phase || dialogueEnglish != english)
@@ -164,14 +179,20 @@ namespace Echoes
                 journey.Age >= Journey.RuinValuationFirstLineDuration)
             {
                 priceSpoken = true;
-                priceLine = ComposePrice(language, journey.RuinTokenCost);
-                if (priceLine != null)
+                var clip = journey.RuinCoins == 0 ? Resources.Load<AudioClip>("RuinBroker/" + language + "empty") :
+                    (priceLine = ComposePrice(language, journey.RuinCoins, journey.RuinTokenCost));
+                if (clip != null)
                 {
                     dialogue.Stop();
-                    dialogue.clip = priceLine;
-                    dialogue.pitch = Mathf.Max(1,priceLine.length / (Journey.RuinValuationDuration -
+                    dialogue.clip = clip;
+                    dialogue.pitch = Mathf.Max(1,clip.length / (Journey.RuinValuationDuration -
                         Journey.RuinValuationFirstLineDuration - .12f));
-                    dialogue.Play();
+                    float elapsed = (journey.Age - Journey.RuinValuationFirstLineDuration) * dialogue.pitch;
+                    if (elapsed < clip.length)
+                    {
+                        dialogue.time = elapsed;
+                        dialogue.Play();
+                    }
                 }
             }
             if (paused && dialogue.isPlaying)
@@ -186,29 +207,77 @@ namespace Echoes
             }
         }
 
-        private static AudioClip ComposePrice(string language, int coins)
+        private static AudioClip ComposePrice(string language, int coins, int cost)
         {
             string path="RuinBroker/"+language;
             var bank=Resources.Load<AudioClip>(path+"numbers");
             var map=Resources.Load<TextAsset>(path+"number_map");
             var prefix=Resources.Load<AudioClip>(path+"prefix");
             var suffix=Resources.Load<AudioClip>(path+"suffix");
-            if (bank==null || map==null || prefix==null || suffix==null) return null;
+            var owned=Resources.Load<AudioClip>(path+"owned");
+            if (bank==null || map==null || prefix==null || suffix==null || owned==null) return null;
             string[] records=map.text.Split('\n');
-            string[] pair=records[Mathf.Clamp(coins,0,90)].Split(',');
-            if (pair.Length!=2 || !int.TryParse(pair[0],out int from) || !int.TryParse(pair[1],out int length)) return null;
-            int gap=bank.frequency/18;
-            var head=new float[prefix.samples];
-            var number=new float[length];
-            var tail=new float[suffix.samples];
-            if (!prefix.GetData(head,0) || !bank.GetData(number,from) || !suffix.GetData(tail,0)) return null;
-            var data=new float[head.Length+number.Length+tail.Length+2*gap];
-            Array.Copy(head,data,head.Length);
-            Array.Copy(number,0,data,head.Length+gap,number.Length);
-            Array.Copy(tail,0,data,head.Length+number.Length+2*gap,tail.Length);
-            var clip=AudioClip.Create("Archive exit price",data.Length,1,bank.frequency,false);
+            if (!ReadCoinNumber(bank, records, coins, out float[] totalNumber) ||
+                !ReadCoinNumber(bank, records, cost, out float[] costNumber)) return null;
+            var have = new float[owned.samples];
+            var need = new float[prefix.samples];
+            var tail = new float[suffix.samples];
+            if (!owned.GetData(have, 0) || !prefix.GetData(need, 0) || !suffix.GetData(tail, 0)) return null;
+            var words = new[] { have, totalNumber, tail, need, costNumber, tail };
+            int gap = bank.frequency / 18;
+            int size = (words.Length - 1) * gap + bank.frequency / 10;
+            foreach (float[] word in words) size += word.Length;
+            var data = new float[size];
+            int cursor = 0;
+            for (int i = 0; i < words.Length; i++)
+            {
+                Array.Copy(words[i], 0, data, cursor, words[i].Length);
+                cursor += words[i].Length + gap + (i == 2 ? bank.frequency / 10 : 0);
+            }
+            var clip=AudioClip.Create("Archive valuation",data.Length,1,bank.frequency,false);
             clip.SetData(data,0);
             return clip;
+        }
+
+        private static bool ReadCoinNumber(AudioClip bank, string[] records, int coins, out float[] samples)
+        {
+            samples = null;
+            if ((uint)coins >= records.Length) return false;
+            string[] pair=records[coins].Split(',');
+            if (pair.Length != 2 || !int.TryParse(pair[0], out int from) || !int.TryParse(pair[1], out int length) ||
+                from < 0 || length <= 0 || from + length > bank.samples) return false;
+            samples = new float[length];
+            return bank.GetData(samples, from);
+        }
+
+        private static AudioClip ComposeStarsLoop()
+        {
+            const int seconds = 8;
+            var samples = new float[seconds * Rate];
+            for (int i = 0; i < samples.Length; i++)
+            {
+                double t = i / (double)Rate;
+                double swell = .69 + .31 * Tone(t, .125);
+                double drift = .64 + .36 * Tone(t + 1.6, .125);
+                samples[i] = (float)(.105 * Tone(t, 55) + swell * (.11 * Tone(t, 110) + .064 * Tone(t, 164.875)) +
+                    drift * (.047 * Tone(t, 220) + .024 * Tone(t, 329.625)));
+            }
+            return MachineClip("Star Sea ambience", samples);
+        }
+
+        private static AudioClip ComposeStarChime(int side)
+        {
+            var samples = new float[Rate];
+            double pitch = side == 0 ? 659.25 : 880;
+            for (int i = 0; i < samples.Length; i++)
+            {
+                double t = i / (double)Rate;
+                double first = Math.Min(1, t * 86) * Math.Exp(-5.2 * t);
+                double t2 = Math.Max(0, t - .095);
+                double second = Math.Min(1, t2 * 72) * Math.Exp(-6.5 * t2);
+                samples[i] = (float)(.21 * first * Tone(t, pitch) + .11 * second * Tone(t2, pitch * (side == 0 ? 1.335 : 1.5)));
+            }
+            return MachineClip(side == 0 ? "Ribbon chime" : "Star chime", samples);
         }
 
         private void FollowFinale(Journey journey, bool paused)
@@ -549,6 +618,9 @@ namespace Echoes
             }
             if(forestMachineLoop!=null) UnityEngine.Object.Destroy(forestMachineLoop);
             if(archiveLoop!=null) UnityEngine.Object.Destroy(archiveLoop);
+            if(starsLoop!=null) UnityEngine.Object.Destroy(starsLoop);
+            foreach(var clip in starChimes)
+                if(clip!=null) UnityEngine.Object.Destroy(clip);
             foreach(var clip in machineScenes)
                 if(clip!=null) UnityEngine.Object.Destroy(clip);
             foreach(var clip in rescues)

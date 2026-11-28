@@ -72,24 +72,27 @@ namespace Echoes
             LocaleGui.Label(new Rect(at.x - 41, at.y + 24, 82, 23), destination, guideLabel);
         }
 
-        internal MazeMapCommand DrawMazeMap(Journey journey, bool open, bool showRoute)
+        internal MazeMapCommand DrawMazeMap(Journey journey, bool open, bool showRoute, float previewRemaining)
         {
             PrepareInterface();
             Matrix4x4 matrix = BeginFrame(StageViewport);
             var command = MazeMapCommand.None;
-            string toggle = open ? "收起地图" : "迷宫地图";
+            bool preview = previewRemaining > 0;
+            string toggle = open || preview ? "收起地图" : "迷宫地图";
             if (Application.platform != RuntimePlatform.WebGLPlayer) toggle += " · F2";
             if (LocaleGui.Button(new Rect(894, 27, 153, 36), toggle, button))
                 command = MazeMapCommand.Toggle;
 
-            if (open)
+            if (open || preview)
             {
                 PrepareMazeMap(journey.ForestMaze);
                 Paint(new Rect(822, 74, 429, 564), MapInk);
                 LocaleGui.Label(new Rect(840, 86, 201, 30), "根渠迷宫", mapTitle);
                 if (LocaleGui.Button(new Rect(1135, 87, 98, 28), showRoute ? "隐藏路线" : "指路到出口", button))
                     command = MazeMapCommand.Route;
-                LocaleGui.Label(new Rect(840, 116, 388, 23), "青色箭头是你 · 虚线是上下层坡道", mapLabel);
+                string legend = preview ? EchoesLocale.T($"地图预览仅显示 10 秒 · 剩余 {Mathf.CeilToInt(previewRemaining)} 秒",
+                    $"10-second map preview · {Mathf.CeilToInt(previewRemaining)} s left") : "青色箭头是你 · 虚线是上下层坡道";
+                LocaleGui.Label(new Rect(840, 116, 388, 23), legend, mapLabel);
                 DrawMazeFloors(journey, showRoute);
             }
             EndFrame(matrix);

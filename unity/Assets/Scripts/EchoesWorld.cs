@@ -193,6 +193,7 @@ namespace Echoes
             set.DrawMachine(journey,forest,time,forestActor);
             set.ForestScenery(journey,forest,time,forestActor,frame.glide,split,spiderBrightness,mawBrightness);
             set.DrawRuinTunnel(journey,ruins && !detached,time,camera.transform.position);
+            set.DrawGuideSigns(journey, forest, ruins);
             set.DrawRuinFramework(journey,time,detached,ruinActor,frame.cast);
             set.DrawFilmScenery(opening, ruinExit, journey.Age);
             set.DrawStarFlight(stars, journey.Distance);

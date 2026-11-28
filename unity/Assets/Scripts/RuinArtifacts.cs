@@ -91,7 +91,7 @@ namespace Echoes
             item.Open = Mathf.MoveTowards(item.Open, opened ? 1 : 0, Time.unscaledDeltaTime*1.75f);
             item.Lid.localRotation = Quaternion.Euler(68 * Ease(item.Open), 0, 0);
             float sparkle = .12f + .10f*Mathf.Sin(time*1.85f+design*1.57f);
-            float light = stocked ? .84f + sparkle + .48f*Ease(proximity) + (opened ? .25f : 0) : opened ? .46f : .08f;
+            float light = stocked ? 1.26f + sparkle + .61f*Ease(proximity) + (opened ? .35f : 0) : opened ? .46f : .08f;
             SetSurface(item.BodyRenderer, 1, light);
             SetSurface(item.LidRenderer, 1, light);
             if (item.GoldSeal == null)
@@ -103,8 +103,8 @@ namespace Echoes
             item.GoldSeal.gameObject.SetActive(stocked || opened && item.Open < .99f);
             item.GoldSeal.localPosition = new Vector3(0, model.Hinge.y + .29f + .12f * Ease(item.Open) + .042f * Mathf.Sin(time * 2.5f), -.16f);
             item.GoldSeal.localRotation = Quaternion.Euler(14 + Mathf.Sin(time * 1.25f) * 7, time * 35 + design * 17, 0);
-            item.GoldSeal.localScale = Vector3.one * (.55f + .43f * Ease(proximity) + .47f * Ease(item.Open));
-            SetSurface(item.SealRenderer, 1, 1.32f + proximity * .44f + sparkle);
+            item.GoldSeal.localScale = Vector3.one * (.76f + .46f * Ease(proximity) + .38f * Ease(item.Open));
+            SetSurface(item.SealRenderer, 1, 2.15f + proximity * .54f + sparkle);
         }
 
         private Mesh BuildChestSeal()
@@ -521,11 +521,39 @@ namespace Echoes
                     break;
             }
             AddChestLanternPlinth(body, depth, height, design >= RuinAtlas.WelcomeChestStyle);
+            AddChestInlay(body, depth);
             return new Model {
                 Shell=body.Finish(ChestNames[design]+" · base"),
                 Lid=lid.Finish(ChestNames[design]+" · lid"),
                 Hinge=P(0,height,depth*.5f)
             };
+        }
+
+        private static void AddChestInlay(WorldMesh mesh, float depth)
+        {
+            Color gold = Gem(new Color(.92f, .61f, .21f), .60f);
+            Color ivory = Gem(new Color(1f, .86f, .39f), .96f);
+            float y = -.038f, front = -(depth + .32f) * .5f - .021f;
+            for (int side = -1; side <= 1; side += 2)
+            {
+                for (int line = 0; line < 3; line++)
+                {
+                    float cy = y + (line - 1) * .017f;
+                    mesh.Box(P(side * .316f, cy, front), P(.43f - .05f * line, .006f, .013f), Upright, gold);
+                    mesh.Box(P(side * (.20f + .023f * line), cy, front - .007f), P(.074f, .006f, .014f), Upright, ivory);
+                }
+                for (int stud = 0; stud < 3; stud++)
+                    Lens(mesh, P(side * (.425f + stud * .047f), y, front - .012f), .010f, .008f, ivory, true);
+            }
+            for (int ring = 0; ring < 2; ring++)
+            {
+                float span = .103f + ring * .035f;
+                var steps = new[] { P(-span, y, front), P(0, y + .045f + ring * .016f, front),
+                    P(span, y, front), P(0, y - .045f - ring * .016f, front), P(-span, y, front) };
+                float thickness = ring == 0 ? .008f : .005f;
+                mesh.Tube(steps, new[] { thickness, thickness, thickness, thickness, thickness }, 5, ring == 0 ? ivory : gold);
+            }
+            mesh.Rock(P(0, y, front - .022f), P(.050f, .044f, .026f), ivory, .1f, 5, 8, .12f);
         }
 
         private static void AddChestLanternPlinth(WorldMesh body,float depth,float height,bool discovery)

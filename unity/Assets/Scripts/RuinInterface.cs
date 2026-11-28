@@ -55,7 +55,8 @@ namespace Echoes
             {
                 RuinRetryPhase.Valuation => journey.Age < Journey.RuinValuationFirstLineDuration
                     ? "I price every artifact in gold. First, let us see what you carried here."
-                    : $"You have {journey.RuinCoins} coins. It costs {journey.RuinTokenCost} to leave.",
+                    : journey.RuinCoins == 0 ? "You brought no items. The exit is free." :
+                        $"You have {journey.RuinCoins} coins. It costs {journey.RuinTokenCost} to leave.",
                 RuinRetryPhase.Bargain => "I can let you through. Will you give me your own heart and brain as well?",
                 RuinRetryPhase.Accepted => journey.Age < 2.55f ? "Exchange confirmed. Stay within the ring." : "Payment complete. The exit is open.",
                 RuinRetryPhase.Declined => journey.Age < 2.15f ? "Beside mine, your brain is only a toy." :
@@ -400,7 +401,7 @@ namespace Echoes
             Stroke(Point(-.28f, .57f + .36f * open), Point(.28f, .57f + .36f * open), 2, ChestGold, alpha);
             Stroke(Point(.28f, .57f + .36f * open), lidRight, 2, ChestGold, alpha);
             Stroke(lidRight, Point(.55f, .18f + .18f * open), 2, ChestGold, alpha);
-            Orb(at.x, at.y, size * (1.51f + .26f * open), ChestGold, alpha * (.46f + .41f * open));
+            Orb(at.x, at.y, size * (1.72f + .30f * open), ChestGold, alpha * (.68f + .28f * open));
             Orb(at.x, at.y, size * .27f, highlight, alpha);
             for (int i = 0; i < 5; i++)
             {
